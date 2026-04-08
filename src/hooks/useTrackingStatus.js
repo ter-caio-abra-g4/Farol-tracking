@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from 'react'
+import { api } from '../services/api'
 
 /**
- * Hook principal — agrega status GTM, GA4 e Meta
- * Quando conectado às APIs reais, chama o bridge Python
- * ou serviços Node diretamente via axios.
+ * Hook principal — agrega status GTM, GA4 e Meta.
+ * Tenta API local primeiro (servidor Express :3001), fallback para mock.
  */
 export function useTrackingStatus() {
   const [data, setData] = useState(null)
@@ -13,18 +13,42 @@ export function useTrackingStatus() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      // Tentar bridge Electron/Python primeiro
-      if (typeof window !== 'undefined' && window.rais) {
-        const result = await window.rais.pythonCall('status.py', [])
-        setData(result)
+      const [gtmRes, metaRes, health] = await Promise.all([
+        api.gtmContainers(),
+        api.metaStats(),
+        api.health(),
+      ])
+
+      if (health?.ok && !gtmRes?.mock && !metaRes?.mock) {
+        // Dados reais disponíveis
+        const metaMatchRate = metaRes?.matchRate ?? 87
+        setData({
+          gtm: {
+            status: 'ok',
+            metrics: [
+              { label: 'Containers', value: String(gtmRes?.containers?.length ?? 8) },
+              { label: 'Fonte', value: 'GTM API' },
+            ],
+          },
+          ga4: { status: 'ok', metrics: [{ label: 'Fonte', value: 'GA4 API' }] },
+          meta: {
+            status: metaMatchRate >= 80 ? 'ok' : 'warn',
+            metrics: [
+              { label: 'Match rate', value: `${metaMatchRate}%`, delta: undefined },
+              { label: 'Score', value: String(metaRes?.score ?? '—') },
+            ],
+          },
+          alerts: [],
+          eventsTimeline: getMockData().eventsTimeline,
+          integrityChecks: getMockData().integrityChecks,
+        })
       } else {
-        // Fallback: dados mock para desenvolvimento
-        await new Promise((r) => setTimeout(r, 800))
+        // Fallback mock
         setData(getMockData())
       }
       setLastUpdated(new Date().toISOString())
     } catch (err) {
-      console.error('[RAIS] Erro ao buscar status:', err)
+      console.error('[Farol] Erro ao buscar status:', err)
       setData(getMockData())
     } finally {
       setLoading(false)

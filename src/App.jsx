@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Titlebar from './components/layout/Titlebar'
 import Sidebar from './components/layout/Sidebar'
@@ -7,8 +8,49 @@ import GTMPage from './pages/GTM'
 import GA4Page from './pages/GA4'
 import MetaPage from './pages/Meta'
 import SettingsPage from './pages/Settings'
+import SetupWizard from './pages/Setup'
+import { api } from './services/api'
 
 export default function App() {
+  const [setupDone, setSetupDone] = useState(null) // null = verificando
+
+  useEffect(() => {
+    // Verificar se já está configurado
+    api.health().then((health) => {
+      if (health?.configured) {
+        setSetupDone(true)
+      } else {
+        // Verificar se o usuário já fez o setup antes (localStorage)
+        const skipped = localStorage.getItem('farol_setup_done')
+        setSetupDone(!!skipped)
+      }
+    }).catch(() => {
+      // Servidor ainda não subiu — aguardar e tentar novamente
+      setTimeout(() => {
+        setSetupDone(prev => prev === null ? false : prev)
+      }, 2000)
+    })
+  }, [])
+
+  if (setupDone === null) {
+    return (
+      <div style={{ height: '100vh', background: '#031A26', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: '#8A9BAA', fontSize: 13 }}>Iniciando Farol...</div>
+      </div>
+    )
+  }
+
+  if (!setupDone) {
+    return (
+      <div style={{ height: '100vh', background: '#031A26' }}>
+        <SetupWizard onComplete={() => {
+          localStorage.setItem('farol_setup_done', '1')
+          setSetupDone(true)
+        }} />
+      </div>
+    )
+  }
+
   return (
     <BrowserRouter>
       <div

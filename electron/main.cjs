@@ -6,6 +6,18 @@ const isDev = !app.isPackaged
 
 let mainWindow
 let pythonProcess
+let apiServer = null
+
+// Inicia o servidor Express local
+async function startApiServer() {
+  try {
+    const { startServer } = require(path.join(__dirname, '..', 'server', 'index.cjs'))
+    apiServer = await startServer()
+    console.log('[Farol] API server iniciado')
+  } catch (err) {
+    console.error('[Farol] Falha ao iniciar API server:', err.message)
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -61,7 +73,8 @@ ipcMain.handle('python-call', async (event, { script, args }) => {
   })
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await startApiServer()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -71,6 +84,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     if (pythonProcess) pythonProcess.kill()
+    if (apiServer) apiServer.close()
     app.quit()
   }
 })

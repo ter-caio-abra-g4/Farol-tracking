@@ -1,0 +1,157 @@
+/**
+ * server/index.js
+ * Servidor Express local do Farol Tracking — porta 3001.
+ * Sobe junto com o Electron. NÃO afeta nenhum arquivo do G4 OS.
+ */
+
+const express = require('express')
+const cors = require('cors')
+const path = require('path')
+const { loadConfig, saveConfig, detectG4OS, importFromG4OS, CONFIG_PATH } = require('./config.cjs')
+const gtmService = require('./gtm.cjs')
+const ga4Service = require('./ga4.cjs')
+const metaService = require('./meta.cjs')
+
+const app = express()
+const PORT = 3001
+
+app.use(cors({ origin: ['http://localhost:5175', 'file://'] }))
+app.use(express.json())
+
+// ─── Health ────────────────────────────────────────────────────────────────
+app.get('/api/health', (req, res) => {
+  const cfg = loadConfig()
+  const g4 = detectG4OS()
+  res.json({
+    ok: true,
+    configured: !!(cfg.meta?.access_token || cfg.ga4?.service_account_path),
+    g4osDetected: g4.available,
+    configPath: CONFIG_PATH,
+  })
+})
+
+// ─── Setup ─────────────────────────────────────────────────────────────────
+app.get('/api/setup/detect', (req, res) => {
+  const result = importFromG4OS()
+  const g4 = detectG4OS()
+  res.json({
+    g4osDetected: g4.available,
+    ga4ServiceAccount: g4.ga4ServiceAccountPath,
+    gtmReady: g4.gtmOAuthReady,
+    imported: result.imported,
+  })
+})
+
+app.post('/api/setup/save', (req, res) => {
+  try {
+    const current = loadConfig()
+    const updated = {
+      ...current,
+      ...req.body,
+      ga4: { ...current.ga4, ...req.body.ga4 },
+      meta: { ...current.meta, ...req.body.meta },
+      gtm: { ...current.gtm, ...req.body.gtm },
+    }
+    saveConfig(updated)
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.get('/api/setup/config', (req, res) => {
+  const cfg = loadConfig()
+  // Retorna config mascarando token completo
+  const safe = {
+    ...cfg,
+    meta: cfg.meta ? {
+      ...cfg.meta,
+      access_token: cfg.meta.access_token
+        ? cfg.meta.access_token.substring(0, 8) + '...' + cfg.meta.access_token.slice(-4)
+        : null,
+    } : {},
+  }
+  res.json(safe)
+})
+
+// ─── GTM ───────────────────────────────────────────────────────────────────
+app.get('/api/gtm/containers', async (req, res) => {
+  try {
+    const result = await gtmService.listContainersWithStats()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, containers: [] })
+  }
+})
+
+app.get('/api/gtm/container/:publicId', async (req, res) => {
+  try {
+    const result = await gtmService.getContainerDetails(req.params.publicId)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, tags: [], triggers: [], variables: [] })
+  }
+})
+
+// ─── GA4 ───────────────────────────────────────────────────────────────────
+app.get('/api/ga4/properties', async (req, res) => {
+  try {
+    const result = await ga4Service.listProperties()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, properties: [] })
+  }
+})
+
+app.get('/api/ga4/report/:propertyId', async (req, res) => {
+  const days = parseInt(req.query.days) || 7
+  try {
+    const result = await ga4Service.runReport(req.params.propertyId, days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
+app.get('/api/ga4/events/:propertyId', async (req, res) => {
+  try {
+    const result = await ga4Service.getEventSummary(req.params.propertyId)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, events: [] })
+  }
+})
+
+// ─── Meta ──────────────────────────────────────────────────────────────────
+app.get('/api/meta/stats', async (req, res) => {
+  try {
+    const result = await metaService.getPixelStats()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
+app.get('/api/meta/events', async (req, res) => {
+  try {
+    const result = await metaService.getEventQuality()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, events: [] })
+  }
+})
+
+// ─── Start ─────────────────────────────────────────────────────────────────
+function startServer() {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(PORT, '127.0.0.1', () => {
+      console.log(`[Farol API] Rodando em http://127.0.0.1:${PORT}`)
+      // Auto-importar credenciais do G4 OS na primeira vez
+      try { importFromG4OS() } catch (_) {}
+      resolve(server)
+    })
+    server.on('error', reject)
+  })
+}
+
+module.exports = { startServer, app }
