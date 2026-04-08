@@ -20,7 +20,7 @@ const SELECT_STYLE = {
   fontFamily: 'Manrope, sans-serif',
 }
 
-export default function Header({ title, subtitle, onRefresh, lastUpdated, select, hideGlobalSelects }) {
+export default function Header({ title, subtitle, onRefresh, lastUpdated, select, hideGlobalSelects, action }) {
   const [spinning, setSpinning] = useState(false)
   const { gtmContainers, selectedGTM, setSelectedGTM, ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
 
@@ -126,8 +126,9 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
         </div>
       )}
 
-      {/* Direita: hora + refresh */}
+      {/* Direita: action customizado + hora + refresh */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        {action && action}
         {time && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#8A9BAA', fontSize: 12 }}>
             <Clock size={13} />

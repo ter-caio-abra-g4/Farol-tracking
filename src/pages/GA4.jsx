@@ -1,165 +1,433 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import StatusBadge from '../components/ui/StatusBadge'
-import Metric from '../components/ui/Metric'
+import Spinner from '../components/ui/Spinner'
+import { useTracking } from '../context/TrackingContext'
+import { api } from '../services/api'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend, Cell,
 } from 'recharts'
-
-const PROPERTIES = [
-  { id: '123456789', name: 'G4 Business', status: 'ok', events: '142k', users: '18.4k', sessions: '24.2k' },
-  { id: '987654321', name: 'G4 Educação', status: 'ok', events: '89k', users: '12.1k', sessions: '15.8k' },
-  { id: '456789123', name: 'Landing Pages', status: 'warn', events: '31k', users: '6.2k', sessions: '8.4k' },
-]
-
-const MOCK_EVENTS_GA4 = [
-  { name: 'page_view', count: 48200, change: '+5%', status: 'ok' },
-  { name: 'session_start', count: 24200, change: '+3%', status: 'ok' },
-  { name: 'purchase', count: 342, change: '+12%', status: 'ok' },
-  { name: 'lead', count: 1820, change: '+8%', status: 'ok' },
-  { name: 'add_to_cart', count: 890, change: '-2%', status: 'warn' },
-  { name: 'begin_checkout', count: 510, change: '+1%', status: 'ok' },
-  { name: 'view_item', count: 12400, change: '+18%', status: 'ok' },
-  { name: 'form_submit', count: 1240, change: '+4%', status: 'ok' },
-  { name: 'scroll', count: 31200, change: '+2%', status: 'ok' },
-  { name: 'click_whatsapp', count: 2840, change: '+9%', status: 'ok' },
-]
-
-const TREND_DATA = [
-  { dia: 'Sex', eventos: 128000, usuarios: 16200 },
-  { dia: 'Sab', eventos: 89000, usuarios: 11800 },
-  { dia: 'Dom', eventos: 72000, usuarios: 9400 },
-  { dia: 'Seg', eventos: 142000, usuarios: 18200 },
-  { dia: 'Ter', eventos: 138000, usuarios: 17900 },
-  { dia: 'Qua', eventos: 151000, usuarios: 19100 },
-  { dia: 'Hoj', eventos: 142000, usuarios: 18400 },
-]
+import { ChevronDown, ChevronRight, TrendingDown } from 'lucide-react'
 
 export default function GA4Page() {
-  const [selectedProp, setSelectedProp] = useState(PROPERTIES[0])
+  const { ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
+
+  const [report, setReport]       = useState(null)
+  const [events, setEvents]       = useState(null)
+  const [dashboards, setDashboards] = useState(null)
+  const [loading, setLoading]     = useState(true)
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [days, setDays]           = useState(28)
+
+  async function loadData(propId, d) {
+    setLoading(true)
+    const [rep, evs, dash] = await Promise.all([
+      api.ga4Report(propId, d),
+      api.ga4Events(propId),
+      api.ga4Dashboards(propId, d),
+    ])
+    setReport(rep)
+    setEvents(evs)
+    setDashboards(dash)
+    setLoading(false)
+    setLastUpdated(Date.now())
+  }
+
+  useEffect(() => {
+    if (selectedGA4) loadData(selectedGA4, days)
+  }, [selectedGA4, days])
+
+  const rows        = report?.rows ?? []
+  const totalEvents = rows.reduce((s, r) => s + (r.count || 0), 0)
+  const totalUsers  = rows.reduce((s, r) => s + (r.users || 0), 0)
+  const isMock      = report?.mock ?? true
+
+  // Trend chart
+  const trendData = (() => {
+    const byDate = {}
+    rows.forEach(r => {
+      const d = r.date ? r.date.slice(6, 8) + '/' + r.date.slice(4, 6) : '?'
+      if (!byDate[d]) byDate[d] = { data: d, eventos: 0, usuarios: 0 }
+      byDate[d].eventos  += r.count || 0
+      byDate[d].usuarios += r.users || 0
+    })
+    return Object.values(byDate)
+  })()
+
+  // Event summary
+  const eventSummary = (() => {
+    if (events?.events?.length > 0) return events.events
+    const map = {}
+    rows.forEach(r => { map[r.event] = (map[r.event] || 0) + (r.count || 0) })
+    return Object.entries(map).sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count, status: 'ok', source: 'GA4' }))
+  })()
+
+  const activeProperty = ga4Properties.find(p => p.id === selectedGA4)
+  const propertyCards  = ga4Properties.slice(0, 6)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
         title="GA4"
         subtitle="Eventos e métricas das propriedades"
-        onRefresh={() => {}}
+        onRefresh={() => loadData(selectedGA4, days)}
+        lastUpdated={lastUpdated}
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-        {/* Properties */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-          {PROPERTIES.map((p) => (
-            <Card
-              key={p.id}
+
+        {/* ── Controles ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 16, gap: 8 }}>
+          <span style={{ fontSize: 12, color: '#8A9BAA' }}>Período:</span>
+          {[7, 28, 90].map(d => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
               style={{
+                padding: '4px 12px',
+                borderRadius: 6,
+                border: `1px solid ${days === d ? '#B9915B' : 'rgba(185,145,91,0.3)'}`,
+                background: days === d ? 'rgba(185,145,91,0.15)' : 'transparent',
+                color: days === d ? '#B9915B' : '#8A9BAA',
+                fontSize: 12,
+                fontWeight: days === d ? 700 : 400,
                 cursor: 'pointer',
-                borderColor: selectedProp.id === p.id ? '#B9915B' : 'rgba(185,145,91,0.35)',
+                fontFamily: 'Manrope, sans-serif',
               }}
-              onClick={() => setSelectedProp(p)}
             >
-              <CardBody>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                  <div>
-                    <div style={{ fontFamily: "'PPMuseum','Georgia',serif", fontSize: 14, color: selectedProp.id === p.id ? '#B9915B' : '#F5F4F3' }}>
-                      {p.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>ID {p.id}</div>
-                  </div>
-                  <StatusBadge status={p.status} size="sm" />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                  {[
-                    { label: 'Eventos', val: p.events },
-                    { label: 'Usuários', val: p.users },
-                    { label: 'Sessões', val: p.sessions },
-                  ].map(({ label, val }) => (
-                    <div key={label}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F4F3' }}>{val}</div>
-                      <div style={{ fontSize: 10, color: '#8A9BAA' }}>{label}/dia</div>
-                    </div>
-                  ))}
-                </div>
-              </CardBody>
-            </Card>
+              {d}d
+            </button>
           ))}
         </div>
 
-        {/* Trend chart */}
+        {/* ── Cards de propriedades ── */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${Math.min(propertyCards.length, 3)}, 1fr)`,
+          gap: 12,
+          marginBottom: 20,
+        }}>
+          {propertyCards.map((p) => {
+            const isActive = p.id === selectedGA4
+            return (
+              <Card
+                key={p.id}
+                onClick={() => setSelectedGA4(p.id)}
+                style={{
+                  borderColor: isActive ? '#B9915B' : 'rgba(185,145,91,0.25)',
+                  transition: 'border-color 0.2s, box-shadow 0.2s',
+                  boxShadow: isActive ? '0 0 0 1px rgba(185,145,91,0.3)' : 'none',
+                }}
+              >
+                <CardBody>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontFamily: "'PPMuseum','Georgia',serif", fontSize: 13, color: isActive ? '#B9915B' : '#F5F4F3', lineHeight: 1.3 }}>
+                        {p.name}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2, fontFamily: 'monospace' }}>
+                        {p.id}{p.account ? ` · ${p.account}` : ''}
+                      </div>
+                    </div>
+                    <StatusBadge status={isActive && !isMock ? 'ok' : isActive ? 'warn' : 'ok'} size="sm" />
+                  </div>
+                  {isActive && !loading ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F4F3' }}>{totalEvents.toLocaleString('pt-BR')}</div>
+                        <div style={{ fontSize: 10, color: '#8A9BAA' }}>Eventos/{days}d</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: '#F5F4F3' }}>{totalUsers.toLocaleString('pt-BR')}</div>
+                        <div style={{ fontSize: 10, color: '#8A9BAA' }}>Usuários/{days}d</div>
+                      </div>
+                    </div>
+                  ) : isActive && loading ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: 8 }}><Spinner size={14} /></div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: '#8A9BAA' }}>Clique para carregar</div>
+                  )}
+                </CardBody>
+              </Card>
+            )
+          })}
+        </div>
+
+        {/* ── Trend ── */}
         <Card style={{ marginBottom: 20 }}>
-          <CardHeader title="Tendência — 7 dias" />
+          <CardHeader title={`Tendência — ${activeProperty?.name ?? selectedGA4} (${days} dias)`} />
           <CardBody style={{ paddingTop: 8 }}>
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={TREND_DATA} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#B9915B11" />
-                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: '#001F35',
-                    border: '1px solid #B9915B55',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: '#F5F4F3',
-                  }}
-                />
-                <Legend wrapperStyle={{ fontSize: 11, color: '#8A9BAA' }} />
-                <Line type="monotone" dataKey="eventos" name="Eventos" stroke="#B9915B" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="usuarios" name="Usuários" stroke="#22C55E" strokeWidth={2} dot={false} strokeDasharray="4 2" />
-              </LineChart>
-            </ResponsiveContainer>
+            {loading ? <LoadingBox /> : (
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#B9915B11" />
+                  <XAxis dataKey="data" tick={{ fontSize: 10, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#8A9BAA' }} />
+                  <Line type="monotone" dataKey="eventos" name="Eventos" stroke="#B9915B" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="usuarios" name="Usuários" stroke="#22C55E" strokeWidth={2} dot={false} strokeDasharray="4 2" />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </CardBody>
         </Card>
 
-        {/* Eventos */}
+        {/* ── Dashboards: 2 colunas ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+
+          {/* Top 5 Páginas */}
+          <Card>
+            <CardHeader title="Top 5 páginas mais acessadas" />
+            <CardBody style={{ padding: '8px 0 12px' }}>
+              {loading ? <LoadingBox /> : (
+                <TopPagesChart data={dashboards?.topPages?.slice(0, 5) ?? []} />
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Funil Checkout / Vendas */}
+          <Card>
+            <CardHeader title="Funil de checkout (e-commerce)" />
+            <CardBody style={{ padding: '8px 0 12px' }}>
+              {loading ? <LoadingBox /> : (
+                <FunnelChart data={dashboards?.checkoutFunnel ?? []} color="#B9915B" />
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Funil Formulário */}
+          <Card>
+            <CardHeader
+              title="Funil de formulário"
+              action={
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#F59E0B' }}>
+                  <TrendingDown size={12} />
+                  {dashboards?.formFunnel?.length >= 2
+                    ? `${Math.round((1 - dashboards.formFunnel[dashboards.formFunnel.length - 1].count / dashboards.formFunnel[0].count) * 100)}% drop`
+                    : '—'
+                  }
+                </div>
+              }
+            />
+            <CardBody style={{ padding: '8px 0 12px' }}>
+              {loading ? <LoadingBox /> : (
+                <FunnelChart data={dashboards?.formFunnel ?? []} color="#22C55E" />
+              )}
+            </CardBody>
+          </Card>
+
+          {/* Top produtos */}
+          <Card>
+            <CardHeader title="Top produtos vendidos" />
+            <CardBody style={{ padding: '8px 16px 12px' }}>
+              {loading ? <LoadingBox /> : (
+                <TopItemsTable items={dashboards?.topItems ?? []} />
+              )}
+            </CardBody>
+          </Card>
+        </div>
+
+        {/* ── Top 50 eventos (dropdown) ── */}
         <Card>
-          <CardHeader title={`Eventos — ${selectedProp.name}`} />
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)' }}>
-                {['Evento', 'Contagem (7d)', 'Variação', 'Status'].map((h) => (
-                  <th
-                    key={h}
-                    style={{
-                      padding: '10px 16px',
-                      textAlign: 'left',
-                      fontSize: 11,
-                      color: '#8A9BAA',
-                      fontWeight: 600,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_EVENTS_GA4.map((ev) => {
-                const changeColor = ev.change.startsWith('+') ? '#22C55E' : '#EF4444'
-                return (
-                  <tr key={ev.name} style={{ borderBottom: '1px solid rgba(185,145,91,0.08)' }}>
-                    <td style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#F5F4F3' }}>
-                      {ev.name}
-                    </td>
-                    <td style={{ padding: '10px 16px', fontSize: 13, color: '#F5F4F3' }}>
-                      {ev.count.toLocaleString('pt-BR')}
-                    </td>
-                    <td style={{ padding: '10px 16px', fontSize: 12, fontWeight: 700, color: changeColor }}>
-                      {ev.change}
-                    </td>
-                    <td style={{ padding: '10px 16px' }}>
-                      <StatusBadge status={ev.status} size="sm" />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <CardHeader
+            title={`Top eventos — ${activeProperty?.name ?? selectedGA4}`}
+            action={
+              <span style={{ fontSize: 11, color: '#8A9BAA' }}>
+                {isMock ? 'dados mock' : `${eventSummary.length} eventos · ${days} dias`}
+              </span>
+            }
+          />
+          {loading ? (
+            <CardBody><LoadingBox /></CardBody>
+          ) : (
+            <EventsTable events={eventSummary.slice(0, 50)} />
+          )}
         </Card>
+
       </div>
     </div>
   )
+}
+
+// ── Top Páginas ─────────────────────────────────────────────────────────────
+function TopPagesChart({ data }) {
+  if (!data.length) return <EmptyMsg />
+  const max = data[0]?.views ?? 1
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {data.map((p, i) => (
+        <div key={i} style={{ padding: '7px 16px', borderBottom: i < data.length - 1 ? '1px solid rgba(185,145,91,0.06)' : 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: '#F5F4F3', fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>
+              {p.path}
+            </span>
+            <span style={{ fontSize: 11, color: '#B9915B', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              {p.views.toLocaleString('pt-BR')} views
+            </span>
+          </div>
+          <div style={{ height: 4, background: 'rgba(185,145,91,0.1)', borderRadius: 2 }}>
+            <div style={{ height: 4, background: '#B9915B', borderRadius: 2, width: `${(p.views / max) * 100}%`, transition: 'width 0.4s' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Funil genérico ──────────────────────────────────────────────────────────
+function FunnelChart({ data, color }) {
+  if (!data.length) return <EmptyMsg />
+  const max = data[0]?.count ?? 1
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      {data.map((step, i) => {
+        const pct = Math.round((step.count / max) * 100)
+        const dropPct = i > 0 ? Math.round((1 - step.count / data[i - 1].count) * 100) : null
+        return (
+          <div key={i} style={{ padding: '7px 16px', borderBottom: i < data.length - 1 ? '1px solid rgba(185,145,91,0.06)' : 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#F5F4F3' }}>{step.step}</span>
+                {dropPct !== null && dropPct > 0 && (
+                  <span style={{ fontSize: 10, color: '#EF4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 4 }}>
+                    -{dropPct}%
+                  </span>
+                )}
+              </div>
+              <span style={{ fontSize: 11, color, fontWeight: 700 }}>
+                {step.count.toLocaleString('pt-BR')}
+              </span>
+            </div>
+            <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
+              <div style={{ height: 4, background: color, borderRadius: 2, width: `${pct}%`, opacity: 0.7 + (pct / 100) * 0.3, transition: 'width 0.4s' }} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Top produtos ────────────────────────────────────────────────────────────
+function TopItemsTable({ items }) {
+  if (!items.length) return (
+    <div style={{ fontSize: 12, color: '#8A9BAA', textAlign: 'center', padding: 16 }}>
+      Nenhum dado de e-commerce encontrado neste período.
+    </div>
+  )
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {items.map((item, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid rgba(185,145,91,0.06)' }}>
+          <span style={{ fontSize: 11, color: '#B9915B', fontWeight: 700, width: 18, textAlign: 'right', flexShrink: 0 }}>#{i + 1}</span>
+          <span style={{ fontSize: 12, color: '#F5F4F3', flex: 1 }}>{item.name}</span>
+          <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap' }}>{item.purchases} vendas</span>
+          {item.revenue > 0 && (
+            <span style={{ fontSize: 11, color: '#22C55E', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              R$ {item.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Tabela de eventos (expansível) ──────────────────────────────────────────
+function EventsTable({ events }) {
+  const [expanded, setExpanded] = useState(null)
+
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <thead>
+        <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)' }}>
+          {['Evento', 'Contagem', 'Fonte', 'Status', ''].map((h) => (
+            <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {events.map((ev, i) => {
+          const isOpen = expanded === i
+          return [
+            <tr
+              key={`row-${i}`}
+              onClick={() => setExpanded(isOpen ? null : i)}
+              style={{
+                borderBottom: isOpen ? 'none' : '1px solid rgba(185,145,91,0.06)',
+                cursor: 'pointer',
+                background: isOpen ? 'rgba(185,145,91,0.04)' : 'transparent',
+                transition: 'background 0.15s',
+              }}
+            >
+              <td style={{ padding: '9px 16px', fontSize: 12, fontWeight: 600, color: '#F5F4F3', fontFamily: 'monospace' }}>
+                {ev.name}
+              </td>
+              <td style={{ padding: '9px 16px', fontSize: 13, color: '#F5F4F3' }}>
+                {(ev.count || 0).toLocaleString('pt-BR')}
+              </td>
+              <td style={{ padding: '9px 16px', fontSize: 11, color: '#8A9BAA' }}>
+                {ev.source || 'GA4'}
+              </td>
+              <td style={{ padding: '9px 16px' }}>
+                <StatusBadge status={ev.status || 'ok'} size="sm" />
+              </td>
+              <td style={{ padding: '9px 16px', textAlign: 'right' }}>
+                {isOpen ? <ChevronDown size={13} color="#8A9BAA" /> : <ChevronRight size={13} color="#8A9BAA" />}
+              </td>
+            </tr>,
+            isOpen && (
+              <tr key={`detail-${i}`} style={{ borderBottom: '1px solid rgba(185,145,91,0.06)' }}>
+                <td colSpan={5} style={{ padding: '6px 16px 12px 32px', background: 'rgba(185,145,91,0.03)' }}>
+                  <EventDetail event={ev} />
+                </td>
+              </tr>
+            ),
+          ]
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+function EventDetail({ event }) {
+  return (
+    <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+      <div>
+        <div style={{ fontSize: 10, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Nome</div>
+        <div style={{ fontSize: 12, color: '#B9915B', fontFamily: 'monospace' }}>{event.name}</div>
+      </div>
+      <div>
+        <div style={{ fontSize: 10, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Total</div>
+        <div style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 700 }}>{(event.count || 0).toLocaleString('pt-BR')} disparos</div>
+      </div>
+      {event.lastSeen && (
+        <div>
+          <div style={{ fontSize: 10, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Último disparo</div>
+          <div style={{ fontSize: 12, color: '#F5F4F3' }}>{event.lastSeen}</div>
+        </div>
+      )}
+      <div>
+        <div style={{ fontSize: 10, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Fonte</div>
+        <div style={{ fontSize: 12, color: '#F5F4F3' }}>{event.source || 'GA4'}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const TOOLTIP_STYLE = { background: '#001F35', border: '1px solid #B9915B55', borderRadius: 6, fontSize: 12, color: '#F5F4F3' }
+
+function LoadingBox() {
+  return <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner /></div>
+}
+
+function EmptyMsg() {
+  return <div style={{ fontSize: 12, color: '#8A9BAA', padding: '16px 20px' }}>Nenhum dado disponível para este período.</div>
 }

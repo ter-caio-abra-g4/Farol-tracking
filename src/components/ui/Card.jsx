@@ -1,11 +1,13 @@
-export default function Card({ children, style = {}, className = '' }) {
+export default function Card({ children, style = {}, className = '', onClick }) {
   return (
     <div
       className={className}
+      onClick={onClick}
       style={{
         background: '#001F35',
         border: '1px solid #B9915B',
         borderRadius: 8,
+        ...(onClick ? { cursor: 'pointer' } : {}),
         ...style,
       }}
     >

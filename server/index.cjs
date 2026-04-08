@@ -135,6 +135,16 @@ app.get('/api/ga4/events/:propertyId', async (req, res) => {
   }
 })
 
+app.get('/api/ga4/dashboards/:propertyId', async (req, res) => {
+  const days = parseInt(req.query.days) || 28
+  try {
+    const result = await ga4Service.getDashboards(req.params.propertyId, days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
 // ─── Meta ──────────────────────────────────────────────────────────────────
 app.get('/api/meta/stats', async (req, res) => {
   try {

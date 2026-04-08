@@ -42,6 +42,7 @@ export const api = {
   ga4SetProperty: (property_id) => post('/api/ga4/property', { property_id }),
   ga4Report: (propertyId, days = 7) => get(`/api/ga4/report/${propertyId}?days=${days}`, { mock: true, rows: [] }),
   ga4Events: (propertyId) => get(`/api/ga4/events/${propertyId}`, { mock: true, events: [] }),
+  ga4Dashboards: (propertyId, days = 28) => get(`/api/ga4/dashboards/${propertyId}?days=${days}`, { mock: true }),
 
   // Meta
   metaStats: () => get('/api/meta/stats', { mock: true }),

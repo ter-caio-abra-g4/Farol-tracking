@@ -39,7 +39,7 @@ export default function Sidebar() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <RaisLogo />
+          <FarolLogo />
           <div>
             <div
               style={{
@@ -51,10 +51,10 @@ export default function Sidebar() {
                 lineHeight: 1,
               }}
             >
-              RAIS
+              Farol
             </div>
             <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2, letterSpacing: '0.08em' }}>
-              TRACKING INTEL
+              TRACKING
             </div>
           </div>
         </div>
@@ -105,15 +105,26 @@ export default function Sidebar() {
   )
 }
 
-function RaisLogo() {
+function FarolLogo() {
   return (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="28" height="28" rx="6" fill="#B9915B" fillOpacity="0.15" />
-      <rect x="0.5" y="0.5" width="27" height="27" rx="5.5" stroke="#B9915B" strokeOpacity="0.6" />
-      <path
-        d="M8 20V9h5.5c1.2 0 2.1.3 2.7.9.6.6.9 1.4.9 2.4 0 .7-.15 1.3-.45 1.8-.3.5-.73.88-1.3 1.12L17.8 20H15.4l-2.1-4.4H10.2V20H8zm2.2-6.3h3.1c.63 0 1.1-.15 1.4-.45.3-.3.45-.72.45-1.25 0-.53-.15-.95-.45-1.25-.3-.3-.77-.45-1.4-.45h-3.1v3.4z"
-        fill="#B9915B"
-      />
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="7" fill="#B9915B" fillOpacity="0.12" />
+      <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" stroke="#B9915B" strokeOpacity="0.5" />
+      {/* Base do farol */}
+      <rect x="13" y="26" width="6" height="2" rx="1" fill="#B9915B" />
+      {/* Torre */}
+      <rect x="14.5" y="19" width="3" height="7" rx="0.5" fill="#B9915B" />
+      {/* Corpo da lanterna */}
+      <rect x="12" y="15" width="8" height="5" rx="1.5" fill="#B9915B" />
+      {/* Janela da lanterna */}
+      <rect x="14" y="16.5" width="4" height="2" rx="0.5" fill="#001F35" />
+      {/* Topo */}
+      <path d="M11 15 L16 11 L21 15 Z" fill="#B9915B" />
+      {/* Raios de luz */}
+      <line x1="16" y1="11" x2="10" y2="7" stroke="#B9915B" strokeWidth="1.2" strokeOpacity="0.6" strokeLinecap="round" />
+      <line x1="16" y1="11" x2="22" y2="7" stroke="#B9915B" strokeWidth="1.2" strokeOpacity="0.6" strokeLinecap="round" />
+      <line x1="16" y1="11" x2="8" y2="10" stroke="#B9915B" strokeWidth="1" strokeOpacity="0.35" strokeLinecap="round" />
+      <line x1="16" y1="11" x2="24" y2="10" stroke="#B9915B" strokeWidth="1" strokeOpacity="0.35" strokeLinecap="round" />
     </svg>
   )
 }

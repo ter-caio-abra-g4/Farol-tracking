@@ -70,28 +70,57 @@ async function listContainersWithStats() {
   const gtm = getTagManger(auth)
   const results = []
 
-  for (const [accountName, accountId] of Object.entries(GTM_ACCOUNTS)) {
-    try {
-      const res = await gtm.accounts.containers.list({
-        parent: `accounts/${accountId}`,
-      })
-      const containers = res.data.container || []
-      for (const c of containers) {
-        results.push({
-          id: c.publicId,
-          containerId: c.containerId,
-          accountId,
-          name: c.name,
-          account: accountName,
-          status: 'ok',
-          tags: null,
-          triggers: null,
-          variables: null,
-          lastPublished: null,
-        })
+  try {
+    // Descobre contas automaticamente via API
+    const accountsRes = await gtm.accounts.list()
+    const accounts = accountsRes.data.account || []
+
+    for (const acc of accounts) {
+      try {
+        const res = await gtm.accounts.containers.list({ parent: acc.path })
+        const containers = res.data.container || []
+        for (const c of containers) {
+          results.push({
+            id: c.publicId,
+            containerId: c.containerId,
+            accountId: acc.accountId,
+            name: c.name,
+            account: acc.name,
+            status: 'ok',
+            tags: null,
+            triggers: null,
+            variables: null,
+            lastPublished: null,
+          })
+        }
+      } catch (err) {
+        console.error(`[GTM] Erro ao listar containers da conta ${acc.accountId}:`, err.message)
       }
-    } catch (err) {
-      console.error(`[GTM] Erro ao listar containers da conta ${accountId}:`, err.message)
+    }
+  } catch (err) {
+    // Fallback para contas hardcoded se accounts.list() falhar
+    console.error('[GTM] accounts.list() falhou, usando fallback:', err.message)
+    for (const [accountName, accountId] of Object.entries(GTM_ACCOUNTS)) {
+      try {
+        const res = await gtm.accounts.containers.list({ parent: `accounts/${accountId}` })
+        const containers = res.data.container || []
+        for (const c of containers) {
+          results.push({
+            id: c.publicId,
+            containerId: c.containerId,
+            accountId,
+            name: c.name,
+            account: accountName,
+            status: 'ok',
+            tags: null,
+            triggers: null,
+            variables: null,
+            lastPublished: null,
+          })
+        }
+      } catch (err2) {
+        console.error(`[GTM] Fallback erro conta ${accountId}:`, err2.message)
+      }
     }
   }
 
