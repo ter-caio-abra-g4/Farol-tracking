@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #031A26;
+  --color-bg-card: #001F35;
+  --color-border: #B9915B;
+  --color-gold: #B9915B;
+  --color-gold-light: #D4A96B;
+  --color-text-primary: #F5F4F3;
+  --color-text-muted: #8A9BAA;
+  --color-ok: #22C55E;
+  --color-warn: #F59E0B;
+  --color-error: #EF4444;
+  --font-heading: 'PPMuseum', 'Georgia', 'Times New Roman', serif;
+  --font-body: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+
+@font-face {
+  font-family: 'PPMuseum';
+  src: local('PPMuseum'), local('PP Museum');
+  font-weight: 400 700;
+  font-style: normal;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  background-color: #031A26;
+  color: #F5F4F3;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #001F35; }
+::-webkit-scrollbar-thumb { background: #B9915B44; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #B9915B88; }
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'PPMuseum', 'Georgia', serif;
+  color: #B9915B;
+  letter-spacing: -0.02em;
+}
