@@ -544,17 +544,37 @@ async function getConversionByProfile(days = 30) {
   try {
     const data = await executeStatement(
       `SELECT
-         COALESCE(perfil, 'N/A') as perfil,
+         CASE
+           WHEN perfil IS NOT NULL THEN perfil
+           WHEN pipeline_name LIKE '%Selfcheckout%' THEN 'Compra Direta'
+           WHEN pipeline_name LIKE '%Inside Sales%' THEN 'Inside Sales'
+           WHEN pipeline_name LIKE '%Field Sales%'  THEN 'Field Sales'
+           WHEN pipeline_name LIKE '%Expansão%' OR pipeline_name LIKE '%Retenção%' THEN 'CS / Base'
+           WHEN pipeline_name LIKE '%Skills%'   THEN 'G4 Skills'
+           WHEN pipeline_name LIKE '%Scale%' OR pipeline_name LIKE '%Renovação%'  THEN 'Renovação'
+           WHEN pipeline_name = 'Comercial'    THEN 'Comercial'
+           ELSE COALESCE(pipeline_name, 'Outros')
+         END AS perfil,
          SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) as mqls,
          SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) as ganhos,
          SUM(CASE WHEN event = 'lost' THEN 1 ELSE 0 END) as perdidos,
          ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
            NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) as conv_pct
        FROM production.diamond.funil_marketing
-       WHERE camada_funil = 'negociacao_deal'
-         AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+       WHERE event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND event IN ('mql','won','lost')
-       GROUP BY perfil
+       GROUP BY
+         CASE
+           WHEN perfil IS NOT NULL THEN perfil
+           WHEN pipeline_name LIKE '%Selfcheckout%' THEN 'Compra Direta'
+           WHEN pipeline_name LIKE '%Inside Sales%' THEN 'Inside Sales'
+           WHEN pipeline_name LIKE '%Field Sales%'  THEN 'Field Sales'
+           WHEN pipeline_name LIKE '%Expansão%' OR pipeline_name LIKE '%Retenção%' THEN 'CS / Base'
+           WHEN pipeline_name LIKE '%Skills%'   THEN 'G4 Skills'
+           WHEN pipeline_name LIKE '%Scale%' OR pipeline_name LIKE '%Renovação%'  THEN 'Renovação'
+           WHEN pipeline_name = 'Comercial'    THEN 'Comercial'
+           ELSE COALESCE(pipeline_name, 'Outros')
+         END
        ORDER BY mqls DESC`, 30
     )
     const { rows } = parseResult(data)

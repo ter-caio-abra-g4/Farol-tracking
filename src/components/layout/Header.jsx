@@ -34,134 +34,139 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
     ? new Date(lastUpdated).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     : null
 
+  const hasBottomRow = time || onRefresh !== undefined
+
   return (
-    <div
-      style={{
-        padding: '16px 28px',
-        borderBottom: '1px solid rgba(185,145,91,0.15)',
+    <div style={{
+      borderBottom: '1px solid rgba(185,145,91,0.15)',
+      flexShrink: 0,
+    }}>
+
+      {/* ── Linha 1: título · selects globais · action ── */}
+      <div style={{
+        padding: '14px 28px 12px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        flexShrink: 0,
         gap: 16,
-      }}
-    >
-      {/* Título */}
-      <div style={{ flexShrink: 0 }}>
-        <h1
-          style={{
+      }}>
+        {/* Título */}
+        <div style={{ flexShrink: 0 }}>
+          <h1 style={{
             fontFamily: "'PPMuseum','Georgia',serif",
             fontSize: 20,
             fontWeight: 600,
             color: '#B9915B',
             letterSpacing: '-0.02em',
             lineHeight: 1.2,
-          }}
-        >
-          {title}
-        </h1>
-        {subtitle && (
-          <p style={{ fontSize: 12, color: '#8A9BAA', marginTop: 2 }}>{subtitle}</p>
+          }}>
+            {title}
+          </h1>
+          {subtitle && (
+            <p style={{ fontSize: 12, color: '#8A9BAA', marginTop: 2 }}>{subtitle}</p>
+          )}
+        </div>
+
+        {/* Selects globais GTM + GA4 */}
+        {!hideGlobalSelects && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, justifyContent: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GTM</span>
+              <select value={selectedGTM} onChange={(e) => setSelectedGTM(e.target.value)} style={SELECT_STYLE}>
+                <option value="all">Todos os containers</option>
+                {gtmContainers.map(c => (
+                  <option key={c.id} value={c.id}>{c.name || c.id}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ width: 1, height: 20, background: 'rgba(185,145,91,0.2)' }} />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GA4</span>
+              <select value={selectedGA4} onChange={(e) => setSelectedGA4(e.target.value)} style={SELECT_STYLE}>
+                {ga4Properties.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         )}
+
+        {/* Select legado (páginas específicas) */}
+        {select && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: '#8A9BAA', whiteSpace: 'nowrap' }}>{select.label}</span>
+            <select value={select.value} onChange={(e) => select.onChange(e.target.value)} style={SELECT_STYLE}>
+              {select.groups
+                ? select.groups.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </optgroup>
+                  ))
+                : select.options.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))
+              }
+            </select>
+          </div>
+        )}
+
       </div>
 
-      {/* Selects globais GTM + GA4 */}
-      {!hideGlobalSelects && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, justifyContent: 'center' }}>
-          {/* GTM */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GTM</span>
-            <select
-              value={selectedGTM}
-              onChange={(e) => setSelectedGTM(e.target.value)}
-              style={SELECT_STYLE}
-            >
-              <option value="all">Todos os containers</option>
-              {gtmContainers.map(c => (
-                <option key={c.id} value={c.id}>{c.name || c.id}</option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ width: 1, height: 20, background: 'rgba(185,145,91,0.2)' }} />
-
-          {/* GA4 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GA4</span>
-            <select
-              value={selectedGA4}
-              onChange={(e) => setSelectedGA4(e.target.value)}
-              style={SELECT_STYLE}
-            >
-              {ga4Properties.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
+      {/* ── Linha 2: seletor de período · · · hora + Atualizar ── */}
+      {(action || time || onRefresh) && <div style={{
+        padding: '6px 28px 10px',
+        borderTop: '1px solid rgba(185,145,91,0.07)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+      }}>
+        {/* Esquerda: action customizado (ex: seletor de período) */}
+        <div>
+          {action || <span />}
         </div>
-      )}
 
-      {/* Legado: select prop customizado (usado em páginas específicas) */}
-      {select && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: '#8A9BAA', whiteSpace: 'nowrap' }}>{select.label}</span>
-          <select
-            value={select.value}
-            onChange={(e) => select.onChange(e.target.value)}
-            style={SELECT_STYLE}
-          >
-            {select.groups
-              ? select.groups.map((g) => (
-                  <optgroup key={g.label} label={g.label}>
-                    {g.options.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </optgroup>
-                ))
-              : select.options.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))
-            }
-          </select>
-        </div>
-      )}
-
-      {/* Direita: action customizado + hora + refresh */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        {action && action}
-        {time && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#8A9BAA', fontSize: 12 }}>
-            <Clock size={13} />
-            <span>{time}</span>
-          </div>
-        )}
-        <button
-          onClick={handleRefresh}
-          style={{
-            background: 'rgba(185,145,91,0.1)',
-            border: '1px solid rgba(185,145,91,0.3)',
-            borderRadius: 6,
-            padding: '6px 12px',
-            color: '#B9915B',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 12,
-            fontWeight: 500,
-            fontFamily: 'Manrope, sans-serif',
-          }}
-        >
-          <RefreshCw
-            size={13}
+        {/* Direita: hora + refresh */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          {time && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#8A9BAA', fontSize: 11 }}>
+              <Clock size={12} />
+              <span>Atualizado às {time}</span>
+            </div>
+          )}
+          <button
+            onClick={handleRefresh}
             style={{
-              transition: 'transform 0.8s ease',
-              transform: spinning ? 'rotate(360deg)' : 'rotate(0deg)',
+              background: 'rgba(185,145,91,0.08)',
+              border: '1px solid rgba(185,145,91,0.25)',
+              borderRadius: 6,
+              padding: '4px 10px',
+              color: '#B9915B',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 11,
+              fontWeight: 500,
+              fontFamily: 'Manrope, sans-serif',
             }}
-          />
-          Atualizar
-        </button>
-      </div>
+          >
+            <RefreshCw
+              size={11}
+              style={{
+                transition: 'transform 0.8s ease',
+                transform: spinning ? 'rotate(360deg)' : 'rotate(0deg)',
+              }}
+            />
+            Atualizar
+          </button>
+        </div>
+      </div>}
+
     </div>
   )
 }

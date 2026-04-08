@@ -38,10 +38,32 @@ function pct(a, b) {
   return `${((a / b) * 100).toFixed(1)}%`
 }
 
+// Abreviação para badge — máx 4 chars, priorizando siglas conhecidas
+const PERFIL_BADGE = {
+  'Compra Direta': 'CD',
+  'Inside Sales':  'IS',
+  'Field Sales':   'FS',
+  'CS / Base':     'CS',
+  'G4 Skills':     'SKL',
+  'Renovação':     'REN',
+  'Comercial':     'COM',
+  'Outros':        '?',
+}
+function perfilBadge(label) {
+  if (!label) return '?'
+  if (PERFIL_BADGE[label]) return PERFIL_BADGE[label]
+  // Perfil ICP letra única (A, B, C...)
+  if (/^[A-Z]$/.test(label.trim())) return label.trim()
+  // Fallback: iniciais das palavras
+  return label.trim().split(/[\s/]+/).map(w => w[0]).join('').slice(0, 4).toUpperCase()
+}
+
 const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7  },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
+  { label: 'Hoje', days: 1  },
+  { label: '7d',   days: 7  },
+  { label: '15d',  days: 15 },
+  { label: '30d',  days: 30 },
+  { label: '90d',  days: 90 },
 ]
 
 function CustomTooltip({ active, payload, label }) {
@@ -269,32 +291,28 @@ export default function ComparacaoPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Header
         title="Comparação de Fontes"
-        subtitle={lastUpdated
-          ? `GA4 · Meta Ads · CRM — atualizado ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
-          : 'Carregando…'}
-        actions={
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        subtitle="GA4 · Meta Ads · CRM — dados reais Databricks"
+        onRefresh={() => loadAll(days)}
+        lastUpdated={lastUpdated}
+        action={
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {isMock && (
               <span style={{
                 background: 'rgba(245,158,11,0.15)', color: '#F59E0B',
                 borderRadius: 6, padding: '3px 10px', fontSize: 12,
               }}>MOCK</span>
             )}
-            <div style={{ display: 'flex', gap: 4, background: '#1A1B23', borderRadius: 8, padding: 4 }}>
+            <div style={{ display: 'flex', gap: 2, background: '#1A1B23', borderRadius: 8, padding: 3 }}>
               {PERIOD_OPTIONS.map(o => (
                 <button key={o.days} onClick={() => setDays(o.days)} style={{
                   background: days === o.days ? '#6366F1' : 'transparent',
                   color: days === o.days ? '#fff' : '#9CA3AF',
-                  border: 'none', borderRadius: 6, padding: '4px 12px',
-                  cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  border: 'none', borderRadius: 6, padding: '4px 10px',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                  whiteSpace: 'nowrap',
                 }}>{o.label}</button>
               ))}
             </div>
-            <button onClick={() => loadAll(days)} style={{
-              background: '#1A1B23', border: '1px solid rgba(255,255,255,0.1)',
-              color: '#9CA3AF', borderRadius: 8, padding: '6px 14px',
-              cursor: 'pointer', fontSize: 13,
-            }}>↻</button>
           </div>
         }
       />
@@ -429,10 +447,19 @@ export default function ComparacaoPage() {
               <Card>
                 <CardHeader title="Conversão por Perfil ICP" subtitle={`Taxa MQL→Ganho por segmento — ${days}d`} />
                 <CardBody>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={profileData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={profileData} margin={{ top: 4, right: 12, left: 0, bottom: 40 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="perfil" tick={{ fill: '#9CA3AF', fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <XAxis
+                        dataKey="perfil"
+                        tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        angle={-35}
+                        textAnchor="end"
+                        interval={0}
+                        tickFormatter={(v) => perfilBadge(v)}
+                      />
                       <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} unit="%" />
                       <Tooltip
                         content={({ active, payload, label }) => {
@@ -440,7 +467,7 @@ export default function ComparacaoPage() {
                           const d = payload[0]?.payload
                           return (
                             <div style={{ background: '#1E1F2A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-                              <div style={{ color: '#F9FAFB', fontWeight: 600 }}>Perfil {d?.perfil}</div>
+                              <div style={{ color: '#F9FAFB', fontWeight: 600 }}>{d?.perfil}</div>
                               <div style={{ color: '#6366F1' }}>MQLs: {fmtNum(d?.MQLs)}</div>
                               <div style={{ color: d?.color }}>Conv: {d?.Conv}%</div>
                             </div>
@@ -476,14 +503,18 @@ export default function ComparacaoPage() {
                       return (
                         <div key={i}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
                               <span style={{
-                                background: color + '22', color, borderRadius: 4,
-                                padding: '1px 8px', fontWeight: 700, fontSize: 13,
+                                background: color + '33', color, borderRadius: 4,
+                                padding: '2px 8px', fontWeight: 700, fontSize: 12,
+                                flexShrink: 0, minWidth: 28, textAlign: 'center',
                               }}>
+                                {perfilBadge(p.perfil)}
+                              </span>
+                              <span style={{ color: '#E5E7EB', fontSize: 12, fontWeight: 500, flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {p.perfil}
                               </span>
-                              <span style={{ color: '#9CA3AF', fontSize: 11 }}>{fmtNum(p.mqls)} MQLs</span>
+                              <span style={{ color: '#6B7280', fontSize: 11, flexShrink: 0 }}>{fmtNum(p.mqls)} MQLs</span>
                             </div>
                             <span style={{ color, fontWeight: 700, fontSize: 13 }}>{p.conv_pct}%</span>
                           </div>
