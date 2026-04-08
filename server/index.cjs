@@ -282,6 +282,43 @@ app.get('/api/databricks/funnel/trend', async (req, res) => {
   }
 })
 
+// ─── Comparação GA4 × Meta × CRM ──────────────────────────────────────────
+app.get('/api/databricks/compare/channels', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getCompareByChannel(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, channels: [] }) }
+})
+
+app.get('/api/databricks/compare/media-roi', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getMediaROI(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, media: [] }) }
+})
+
+app.get('/api/databricks/compare/revenue-by-channel', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getRevenueByChannel(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, channels: [] }) }
+})
+
+app.get('/api/databricks/compare/profiles', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getConversionByProfile(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, profiles: [] }) }
+})
+
+app.get('/api/databricks/compare/campaigns', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getTopCampaigns(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, campaigns: [] }) }
+})
+
+app.get('/api/databricks/compare/form-attribution', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getFormAttribution(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, rows: [], summary: {} }) }
+})
+
 // ─── Start ─────────────────────────────────────────────────────────────────
 function startServer() {
   return new Promise((resolve, reject) => {

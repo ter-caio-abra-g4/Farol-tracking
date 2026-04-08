@@ -8,6 +8,7 @@ import {
   Activity,
   Layers,
   TrendingUp,
+  GitCompare,
 } from 'lucide-react'
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { to: '/meta', icon: Activity, label: 'Meta Ads' },
   { to: '/databricks', icon: Layers, label: 'Databricks' },
   { to: '/funil', icon: TrendingUp, label: 'Funil' },
+  { to: '/comparacao', icon: GitCompare, label: 'Comparação' },
   { to: '/settings', icon: Settings, label: 'Config' },
 ]
 

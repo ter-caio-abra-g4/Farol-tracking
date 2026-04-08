@@ -56,6 +56,14 @@ export const api = {
   databricksFunnelProducts: (days = 30) => get(`/api/databricks/funnel/products?days=${days}`, { mock: true, products: [] }),
   databricksFunnelTrend: (days = 30) => get(`/api/databricks/funnel/trend?days=${days}`, { mock: true, trend: [] }),
 
+  // Comparação GA4 × Meta × CRM
+  databricksCompareChannels: (days = 30) => get(`/api/databricks/compare/channels?days=${days}`, { mock: true, channels: [] }),
+  databricksCompareMediaROI: (days = 30) => get(`/api/databricks/compare/media-roi?days=${days}`, { mock: true, media: [] }),
+  databricksCompareRevenue: (days = 30) => get(`/api/databricks/compare/revenue-by-channel?days=${days}`, { mock: true, channels: [] }),
+  databricksCompareProfiles: (days = 30) => get(`/api/databricks/compare/profiles?days=${days}`, { mock: true, profiles: [] }),
+  databricksCompareCampaigns: (days = 30) => get(`/api/databricks/compare/campaigns?days=${days}`, { mock: true, campaigns: [] }),
+  databricksFormAttribution: (days = 30) => get(`/api/databricks/compare/form-attribution?days=${days}`, { mock: true, rows: [], summary: {} }),
+
   // Meta
   metaPixels: () => get('/api/meta/pixels', { mock: true, pixels: [] }),
   metaStats: () => get('/api/meta/stats', { mock: true }),

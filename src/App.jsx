@@ -9,6 +9,7 @@ import GA4Page from './pages/GA4'
 import MetaPage from './pages/Meta'
 import DatabricksPage from './pages/Databricks'
 import FunilPage from './pages/Funil'
+import ComparacaoPage from './pages/Comparacao'
 import SettingsPage from './pages/Settings'
 import SetupWizard from './pages/Setup'
 import { TrackingProvider } from './context/TrackingContext'
@@ -93,6 +94,7 @@ export default function App() {
                 <Route path="/meta" element={<MetaPage />} />
                 <Route path="/databricks" element={<DatabricksPage />} />
                 <Route path="/funil" element={<FunilPage />} />
+                <Route path="/comparacao" element={<ComparacaoPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </main>
