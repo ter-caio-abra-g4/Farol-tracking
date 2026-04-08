@@ -1,6 +1,7 @@
 {
   "ga4": {
     "service_account_path": "C:\\Users\\terc.caio.abra_g4edu\\.g4os-public\\workspaces\\my-workspace\\sources\\ga4\\service-account.json",
-    "client_email": "g4analyticsca@security-logs-438613.iam.gserviceaccount.com"
+    "client_email": "g4analyticsca@security-logs-438613.iam.gserviceaccount.com",
+    "property_id": "521780491"
   }
 }

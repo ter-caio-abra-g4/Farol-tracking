@@ -97,9 +97,22 @@ app.get('/api/gtm/container/:publicId', async (req, res) => {
 app.get('/api/ga4/properties', async (req, res) => {
   try {
     const result = await ga4Service.listProperties()
-    res.json(result)
+    const cfg = loadConfig()
+    res.json({ ...result, activePropertyId: cfg.ga4?.property_id || null })
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message, properties: [] })
+  }
+})
+
+app.post('/api/ga4/property', (req, res) => {
+  try {
+    const { property_id } = req.body
+    if (!property_id) return res.status(400).json({ ok: false, error: 'property_id obrigatório' })
+    const current = loadConfig()
+    saveConfig({ ...current, ga4: { ...current.ga4, property_id } })
+    res.json({ ok: true, property_id })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
   }
 })
 

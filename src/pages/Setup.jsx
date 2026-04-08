@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import { CheckCircle, AlertTriangle, Key, ArrowRight, Download } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Key, ArrowRight, Download, Zap, Loader, XCircle } from 'lucide-react'
 
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState('detect') // detect | manual | done
@@ -9,6 +9,8 @@ export default function SetupWizard({ onComplete }) {
   const [metaToken, setMetaToken] = useState('')
   const [ga4PropId, setGa4PropId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [testResults, setTestResults] = useState(null) // null | { gtm, ga4, meta }
+  const [testing, setTesting] = useState(false)
 
   useEffect(() => {
     api.detectG4OS().then((result) => {
@@ -22,11 +24,40 @@ export default function SetupWizard({ onComplete }) {
     })
   }, [])
 
-  async function handleImportG4OS() {
-    setSaving(true)
-    await api.detectG4OS() // já importa automaticamente no servidor
-    setSaving(false)
-    onComplete()
+  async function handleTestConnections() {
+    setTesting(true)
+    setTestResults(null)
+    try {
+      const [gtmRes, ga4Res, metaRes] = await Promise.all([
+        api.gtmContainers(),
+        api.ga4Properties(),
+        api.metaStats(),
+      ])
+      setTestResults({
+        gtm: {
+          ok: !gtmRes?.mock,
+          detail: !gtmRes?.mock
+            ? `${gtmRes?.containers?.length ?? 0} containers encontrados`
+            : 'Usando dados mock — verifique service-account',
+        },
+        ga4: {
+          ok: !ga4Res?.mock,
+          detail: !ga4Res?.mock
+            ? `${ga4Res?.rows?.length ?? 0} linhas de eventos (7 dias)`
+            : 'Sem acesso — adicione o service account no GA4 Admin ou verifique permissões',
+        },
+        meta: {
+          ok: !metaRes?.mock,
+          detail: !metaRes?.mock
+            ? `Match rate: ${metaRes?.matchRate ?? '—'}%`
+            : 'Usando dados mock — configure o Meta Access Token',
+        },
+      })
+    } catch (err) {
+      setTestResults({ error: 'Erro ao testar conexões: ' + err.message })
+    } finally {
+      setTesting(false)
+    }
   }
 
   async function handleManualSave() {
@@ -58,7 +89,7 @@ export default function SetupWizard({ onComplete }) {
           Encontramos suas credenciais do G4 OS. O Farol vai usar as mesmas conexões sem alterar nenhum arquivo existente.
         </p>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 400, marginBottom: 28 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 400, marginBottom: 20 }}>
           <DetectRow
             label="GA4 Service Account"
             ok={!!detection?.ga4ServiceAccount}
@@ -75,6 +106,36 @@ export default function SetupWizard({ onComplete }) {
             detail="Precisa ser configurado manualmente"
           />
         </div>
+
+        {/* Botão Testar Conexão */}
+        <button
+          onClick={handleTestConnections}
+          disabled={testing}
+          style={{
+            ...btnStyle,
+            background: 'transparent',
+            border: '1px solid rgba(185,145,91,0.5)',
+            color: '#B9915B',
+            marginBottom: 4,
+          }}
+        >
+          {testing
+            ? <><Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Testando...</>
+            : <><Zap size={15} /> Testar conexão</>
+          }
+        </button>
+
+        {/* Resultados do teste */}
+        {testResults && !testResults.error && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 400, marginBottom: 12 }}>
+            <TestResult label="GTM" ok={testResults.gtm.ok} detail={testResults.gtm.detail} />
+            <TestResult label="GA4" ok={testResults.ga4.ok} detail={testResults.ga4.detail} />
+            <TestResult label="Meta" ok={testResults.meta.ok} detail={testResults.meta.detail} />
+          </div>
+        )}
+        {testResults?.error && (
+          <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 8 }}>{testResults.error}</div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 400 }}>
           <label style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 2 }}>
@@ -185,6 +246,35 @@ export default function SetupWizard({ onComplete }) {
         </div>
       </div>
 
+      {/* Botão Testar Conexão no modo manual */}
+      <button
+        onClick={handleTestConnections}
+        disabled={testing}
+        style={{
+          ...btnStyle,
+          background: 'transparent',
+          border: '1px solid rgba(185,145,91,0.5)',
+          color: '#B9915B',
+          marginBottom: 4,
+        }}
+      >
+        {testing
+          ? <><Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Testando...</>
+          : <><Zap size={15} /> Testar conexão</>
+        }
+      </button>
+
+      {testResults && !testResults.error && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 400, marginBottom: 12 }}>
+          <TestResult label="GTM" ok={testResults.gtm.ok} detail={testResults.gtm.detail} />
+          <TestResult label="GA4" ok={testResults.ga4.ok} detail={testResults.ga4.detail} />
+          <TestResult label="Meta" ok={testResults.meta.ok} detail={testResults.meta.detail} />
+        </div>
+      )}
+      {testResults?.error && (
+        <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 8 }}>{testResults.error}</div>
+      )}
+
       <button onClick={handleManualSave} disabled={saving} style={btnStyle}>
         {saving ? 'Salvando...' : <><ArrowRight size={15} /> Salvar e abrir Farol</>}
       </button>
@@ -211,6 +301,7 @@ function Screen({ children }) {
         background: '#031A26',
         padding: 40,
         gap: 12,
+        overflowY: 'auto',
       }}
     >
       {children}
@@ -272,6 +363,40 @@ function DetectRow({ label, ok, detail }) {
         <div style={{ fontSize: 13, color: '#F5F4F3', fontWeight: 600 }}>{label}</div>
         <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 1 }}>{detail}</div>
       </div>
+    </div>
+  )
+}
+
+function TestResult({ label, ok, detail }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '8px 12px',
+        background: ok ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
+        border: `1px solid ${ok ? 'rgba(34,197,94,0.25)' : 'rgba(245,158,11,0.25)'}`,
+        borderRadius: 6,
+      }}
+    >
+      {ok
+        ? <CheckCircle size={14} color="#22C55E" />
+        : <XCircle size={14} color="#F59E0B" />
+      }
+      <div style={{ flex: 1 }}>
+        <span style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 600 }}>{label}</span>
+        <span style={{ fontSize: 11, color: '#8A9BAA', marginLeft: 8 }}>{detail}</span>
+      </div>
+      <span style={{
+        fontSize: 10,
+        fontWeight: 700,
+        color: ok ? '#22C55E' : '#F59E0B',
+        letterSpacing: '0.05em',
+        textTransform: 'uppercase',
+      }}>
+        {ok ? 'Live' : 'Mock'}
+      </span>
     </div>
   )
 }

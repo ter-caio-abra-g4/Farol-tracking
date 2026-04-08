@@ -38,7 +38,8 @@ export const api = {
   gtmContainer: (id) => get(`/api/gtm/container/${id}`, { mock: true, tags: [], triggers: [], variables: [] }),
 
   // GA4
-  ga4Properties: () => get('/api/ga4/properties', { mock: true, properties: [] }),
+  ga4Properties: () => get('/api/ga4/properties', { mock: true, properties: [], activePropertyId: null }),
+  ga4SetProperty: (property_id) => post('/api/ga4/property', { property_id }),
   ga4Report: (propertyId, days = 7) => get(`/api/ga4/report/${propertyId}?days=${days}`, { mock: true, rows: [] }),
   ga4Events: (propertyId) => get(`/api/ga4/events/${propertyId}`, { mock: true, events: [] }),
 
