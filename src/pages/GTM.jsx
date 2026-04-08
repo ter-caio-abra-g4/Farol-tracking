@@ -1,182 +1,357 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import StatusBadge from '../components/ui/StatusBadge'
-import { Tag, Zap, Variable, ChevronDown, ChevronRight } from 'lucide-react'
-
-// Containers reais — fonte: GTM API (08/04/2026)
-const CONTAINERS = [
-  // G4 Educacao — conta 4702993840
-  { id: 'GTM-MJT8CNGM', name: 'G4 Educacao - Global',       account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-  { id: 'GTM-PMNN5VZ',  name: 'G4 Educacao [PROD]',         account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-  { id: 'GTM-KWL8CBD',  name: 'G4 Educacao [DEV]',          account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-  { id: 'GTM-WV3RZ85',  name: 'G4 Educacao - SKILLS [PROD]',account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-  { id: 'GTM-54PR3S2R', name: 'G4 Educacao - Selfcheckout', account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-  { id: 'GTM-WP8MWKMB', name: 'G4 Educacao - GTM',          account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-  { id: 'GTM-WFTGXLRD', name: 'G4 Educacao - Lead Gen',     account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-  // G4 Tools — conta 6341042624
-  { id: 'GTM-M6NWZ5N8', name: 'tools.g4educacao.com',       account: 'G4 Tools',    status: 'loading', tags: null, triggers: null, variables: null, lastPublished: null },
-]
-
-const TAGS = {
-  'GTM-MJT8CNGM': [
-    { name: 'GA4 Base Tag', type: 'Google Analytics', status: 'ok', triggers: ['All Pages'] },
-    { name: 'Meta Pixel Base', type: 'Custom HTML', status: 'ok', triggers: ['All Pages'] },
-    { name: 'Meta Pixel Purchase', type: 'Custom HTML', status: 'ok', triggers: ['purchase_dataLayer'] },
-    { name: 'Meta Pixel Lead', type: 'Custom HTML', status: 'ok', triggers: ['lead_dataLayer', 'form_submit'] },
-    { name: 'GA4 purchase', type: 'Google Analytics', status: 'ok', triggers: ['purchase_dataLayer'] },
-    { name: 'GA4 lead', type: 'Google Analytics', status: 'ok', triggers: ['lead_dataLayer'] },
-    { name: 'GA4 video_start', type: 'Google Analytics', status: 'error', triggers: [] },
-    { name: 'GA4 scroll_depth', type: 'Google Analytics', status: 'warn', triggers: ['scroll_25'] },
-    { name: 'Hotjar', type: 'Custom HTML', status: 'ok', triggers: ['All Pages'] },
-    { name: 'Clarity', type: 'Custom HTML', status: 'ok', triggers: ['All Pages'] },
-    { name: 'GA4 click_cta', type: 'Google Analytics', status: 'warn', triggers: ['click_cta_btn'] },
-  ],
-  'GTM-PMNN5VZ': [
-    { name: 'GA4 Base Tag', type: 'Google Analytics', status: 'ok', triggers: ['All Pages'] },
-    { name: 'Meta Pixel Base', type: 'Custom HTML', status: 'warn', triggers: ['All Pages'] },
-    { name: 'GA4 purchase', type: 'Google Analytics', status: 'ok', triggers: ['purchase_dataLayer'] },
-    { name: 'GA4 lead', type: 'Google Analytics', status: 'warn', triggers: [] },
-    { name: 'Hotjar', type: 'Custom HTML', status: 'ok', triggers: ['All Pages'] },
-  ],
-  'GTM-M6NWZ5N8': [
-    { name: 'GA4 Base Tag', type: 'Google Analytics', status: 'ok', triggers: ['All Pages'] },
-    { name: 'Meta Pixel Base', type: 'Custom HTML', status: 'ok', triggers: ['All Pages'] },
-    { name: 'GA4 lead', type: 'Google Analytics', status: 'ok', triggers: ['lead_form'] },
-    { name: 'Meta Pixel Lead', type: 'Custom HTML', status: 'ok', triggers: ['lead_form'] },
-  ],
-}
+import Spinner from '../components/ui/Spinner'
+import { Tag, Zap, Variable, ChevronDown, ChevronRight, AlertTriangle, RefreshCw } from 'lucide-react'
+import { api } from '../services/api'
+import { useTracking } from '../context/TrackingContext'
 
 export default function GTMPage() {
-  const [selectedId, setSelectedId] = useState(CONTAINERS[0].id)
-  const [expandedTag, setExpandedTag] = useState(null)
-  const [lastUpdated, setLastUpdated] = useState(null)
+  const { gtmContainers: ctxContainers } = useTracking()
 
-  const selectedContainer = CONTAINERS.find((c) => c.id === selectedId)
-  const tags = TAGS[selectedId] ?? []
+  const [containers, setContainers]     = useState([])
+  const [selectedId, setSelectedId]     = useState(null)
+  const [containerData, setContainerData] = useState({})   // { [publicId]: { tags, triggers, variables, mock } }
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [silentTags, setSilentTags]     = useState(null)
+  const [silentLoading, setSilentLoading] = useState(true)
+  const [expandedTag, setExpandedTag]   = useState(null)
+  const [lastUpdated, setLastUpdated]   = useState(null)
+  const [containersLoading, setContainersLoading] = useState(true)
 
-  const handleRefresh = () => {
-    setLastUpdated(new Date().toISOString())
+  // Carrega lista de containers
+  useEffect(() => {
+    loadContainers()
+    loadSilentTags()
+  }, [])
+
+  // Quando seleciona container, carrega detalhes
+  useEffect(() => {
+    if (selectedId && !containerData[selectedId]) {
+      loadContainerDetail(selectedId)
+    }
+  }, [selectedId])
+
+  // Sincroniza com contexto global quando disponível
+  useEffect(() => {
+    if (ctxContainers?.length > 0 && containers.length === 0) {
+      setContainers(ctxContainers)
+      setContainersLoading(false)
+      if (!selectedId) setSelectedId(ctxContainers[0]?.id)
+    }
+  }, [ctxContainers])
+
+  async function loadContainers() {
+    setContainersLoading(true)
+    const result = await api.gtmContainers()
+    const list = result.containers ?? []
+    setContainers(list)
+    setContainersLoading(false)
+    if (!selectedId && list.length > 0) setSelectedId(list[0].id)
   }
+
+  async function loadContainerDetail(publicId) {
+    setLoadingDetail(true)
+    setExpandedTag(null)
+    const result = await api.gtmContainer(publicId)
+    setContainerData(prev => ({ ...prev, [publicId]: result }))
+    setLoadingDetail(false)
+    setLastUpdated(Date.now())
+  }
+
+  async function loadSilentTags() {
+    setSilentLoading(true)
+    const r = await api.gtmSilentTags()
+    setSilentTags(r)
+    setSilentLoading(false)
+  }
+
+  function handleRefresh() {
+    loadContainers()
+    loadSilentTags()
+    if (selectedId) {
+      setContainerData(prev => { const n = { ...prev }; delete n[selectedId]; return n })
+    }
+    setLastUpdated(Date.now())
+  }
+
+  function handleSelectContainer(id) {
+    setSelectedId(id)
+    setExpandedTag(null)
+  }
+
+  const detail = selectedId ? containerData[selectedId] : null
+  const tags = detail?.tags ?? []
+  const triggers = detail?.triggers ?? []
+  const variables = detail?.variables ?? []
+  const selectedContainer = containers.find(c => c.id === selectedId)
+
+  // Agrupa containers por conta
+  const accounts = {}
+  containers.forEach(c => {
+    const acc = c.account || 'Outros'
+    if (!accounts[acc]) accounts[acc] = []
+    accounts[acc].push(c)
+  })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
         title="GTM"
-        subtitle="Containers, tags e triggers"
+        subtitle="Containers, tags e triggers em tempo real"
         onRefresh={handleRefresh}
         lastUpdated={lastUpdated}
-        select={{
+        select={containers.length > 0 ? {
           label: 'Container:',
-          value: selectedId,
-          onChange: (val) => { setSelectedId(val); setExpandedTag(null) },
-          groups: [
-            {
-              label: 'G4 Educacao',
-              options: CONTAINERS.filter((c) => c.account === 'G4 Educacao').map((c) => ({ value: c.id, label: c.name + ' — ' + c.id })),
-            },
-            {
-              label: 'G4 Tools',
-              options: CONTAINERS.filter((c) => c.account === 'G4 Tools').map((c) => ({ value: c.id, label: c.name + ' — ' + c.id })),
-            },
-          ],
-        }}
+          value: selectedId ?? '',
+          onChange: handleSelectContainer,
+          groups: Object.entries(accounts).map(([accName, cs]) => ({
+            label: accName,
+            options: cs.map(c => ({ value: c.id, label: `${c.name} — ${c.id}` })),
+          })),
+        } : undefined}
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-          {CONTAINERS.map((c) => (
-            <Card
-              key={c.id}
-              style={{
-                cursor: 'pointer',
-                borderColor: selectedId === c.id ? '#B9915B' : 'rgba(185,145,91,0.25)',
-                boxShadow: selectedId === c.id ? '0 0 0 1px rgba(185,145,91,0.25)' : 'none',
-                transition: 'all 0.15s',
-              }}
-              onClick={() => { setSelectedId(c.id); setExpandedTag(null) }}
-            >
-              <CardBody>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontFamily: "'PPMuseum','Georgia',serif", fontSize: 14, color: selectedId === c.id ? '#B9915B' : '#F5F4F3' }}>
-                      {c.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>{c.id}</div>
-                  </div>
-                  <StatusBadge status={c.status} size="sm" />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                  {[
-                    { icon: Tag, val: c.tags, label: 'Tags' },
-                    { icon: Zap, val: c.triggers, label: 'Triggers' },
-                    { icon: Variable, val: c.variables, label: 'Vars' },
-                  ].map(({ icon: Icon, val, label }) => (
-                    <div key={label} style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: '#F5F4F3' }}>{val ?? '—'}</div>
-                      <div style={{ fontSize: 10, color: '#8A9BAA' }}>{label}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 10 }}>Publicado em {c.lastPublished}</div>
-              </CardBody>
-            </Card>
-          ))}
-        </div>
 
-        <Card>
-          <CardHeader
-            title={'Tags — ' + selectedContainer.name}
-            action={
-              <div style={{ fontSize: 12, color: '#8A9BAA' }}>
-                {tags.filter((t) => t.status === 'error').length} erros · {tags.filter((t) => t.status === 'warn').length} avisos
-              </div>
-            }
-          />
-          <div>
-            {tags.map((tag, i) => (
-              <div key={tag.name}>
-                <div
-                  onClick={() => setExpandedTag(expandedTag === i ? null : i)}
+        {/* Cards de containers */}
+        {containersLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner /></div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.min(containers.length, 4)}, 1fr)`,
+            gap: 12, marginBottom: 20,
+          }}>
+            {containers.map((c) => {
+              const det = containerData[c.id]
+              const isSelected = c.id === selectedId
+              return (
+                <Card
+                  key={c.id}
+                  onClick={() => handleSelectContainer(c.id)}
                   style={{
-                    display: 'flex', alignItems: 'center', padding: '12px 20px', cursor: 'pointer',
-                    borderBottom: '1px solid rgba(185,145,91,0.08)',
-                    background: expandedTag === i ? 'rgba(185,145,91,0.05)' : 'transparent',
+                    cursor: 'pointer',
+                    borderColor: isSelected ? '#B9915B' : 'rgba(185,145,91,0.25)',
+                    boxShadow: isSelected ? '0 0 0 1px rgba(185,145,91,0.25)' : 'none',
+                    transition: 'all 0.15s',
                   }}
-                  onMouseEnter={(e) => { if (expandedTag !== i) e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}
-                  onMouseLeave={(e) => { if (expandedTag !== i) e.currentTarget.style.background = 'transparent' }}
                 >
-                  {expandedTag === i
-                    ? <ChevronDown size={14} color="#8A9BAA" style={{ marginRight: 10 }} />
-                    : <ChevronRight size={14} color="#8A9BAA" style={{ marginRight: 10 }} />
-                  }
-                  <Tag size={13} color="#B9915B88" style={{ marginRight: 10 }} />
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: '#F5F4F3' }}>{tag.name}</span>
-                  <span style={{ fontSize: 11, color: '#8A9BAA', background: 'rgba(138,155,170,0.1)', padding: '2px 8px', borderRadius: 4, marginRight: 12 }}>
-                    {tag.type}
+                  <CardBody>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{
+                          fontFamily: "'PPMuseum','Georgia',serif",
+                          fontSize: 13, lineHeight: 1.3,
+                          color: isSelected ? '#B9915B' : '#F5F4F3',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {c.name}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2, fontFamily: 'monospace' }}>{c.id}</div>
+                      </div>
+                      <StatusBadge status={det?.mock === false ? 'ok' : 'loading'} size="sm" />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+                      {[
+                        { icon: Tag,      val: det?.counts?.tags,      label: 'Tags' },
+                        { icon: Zap,      val: det?.counts?.triggers,  label: 'Trig.' },
+                        { icon: Variable, val: det?.counts?.variables, label: 'Vars' },
+                      ].map(({ icon: Icon, val, label }) => (
+                        <div key={label} style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: '#F5F4F3' }}>
+                            {val != null ? val : <span style={{ color: '#8A9BAA', fontSize: 12 }}>—</span>}
+                          </div>
+                          <div style={{ fontSize: 9, color: '#8A9BAA', letterSpacing: '0.04em' }}>{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {det?.mock === false && (
+                      <div style={{ fontSize: 9, color: '#22C55E', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#22C55E', display: 'inline-block' }} />
+                        Live
+                      </div>
+                    )}
+                  </CardBody>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Tags sem trigger / pausadas */}
+        <Card style={{ marginBottom: 20 }}>
+          <CardHeader
+            title="Tags sem trigger ou pausadas"
+            action={silentLoading ? null : (
+              <span style={{ fontSize: 11, color: (silentTags?.tags?.length ?? 0) > 0 ? '#F59E0B' : '#22C55E' }}>
+                {silentTags?.mock ? 'mock · ' : ''}{silentTags?.tags?.length ?? 0} {(silentTags?.tags?.length ?? 0) === 1 ? 'tag' : 'tags'}
+              </span>
+            )}
+          />
+          {silentLoading ? (
+            <CardBody><div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner /></div></CardBody>
+          ) : (silentTags?.tags?.length ?? 0) === 0 ? (
+            <CardBody>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#22C55E' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22C55E', display: 'inline-block' }} />
+                Todos os containers com acesso estão limpos — nenhuma tag sem trigger ou pausada.
+              </div>
+            </CardBody>
+          ) : (
+            <div>
+              {silentTags.tags.map((t, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '11px 20px',
+                  borderBottom: i < silentTags.tags.length - 1 ? '1px solid rgba(185,145,91,0.08)' : 'none',
+                }}>
+                  <AlertTriangle size={14} color={t.issue === 'pausada' ? '#8A9BAA' : '#F59E0B'} style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4F3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 1 }}>
+                      {t.containerName} <span style={{ color: 'rgba(185,145,91,0.4)' }}>·</span> {t.container}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#8A9BAA', background: 'rgba(138,155,170,0.1)', padding: '2px 7px', borderRadius: 4, flexShrink: 0 }}>
+                    {t.type}
                   </span>
-                  <StatusBadge status={tag.status} size="sm" />
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4, flexShrink: 0,
+                    color: t.issue === 'pausada' ? '#8A9BAA' : '#F59E0B',
+                    background: t.issue === 'pausada' ? 'rgba(138,155,170,0.1)' : 'rgba(245,158,11,0.1)',
+                    border: `1px solid ${t.issue === 'pausada' ? 'rgba(138,155,170,0.2)' : 'rgba(245,158,11,0.3)'}`,
+                  }}>
+                    {t.issueLabel}
+                  </span>
                 </div>
-                {expandedTag === i && (
-                  <div style={{ padding: '12px 20px 14px 52px', background: 'rgba(185,145,91,0.03)', borderBottom: '1px solid rgba(185,145,91,0.08)' }}>
-                    <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 6 }}>Triggers vinculados:</div>
-                    {tag.triggers.length === 0 ? (
-                      <span style={{ fontSize: 12, color: '#EF4444' }}>Nenhum trigger — tag nao vai disparar</span>
-                    ) : (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {tag.triggers.map((t) => (
-                          <span key={t} style={{ background: 'rgba(185,145,91,0.12)', border: '1px solid rgba(185,145,91,0.25)', color: '#B9915B', padding: '3px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                            {t}
-                          </span>
-                        ))}
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Detail do container selecionado */}
+        {selectedContainer && (
+          <Card>
+            <CardHeader
+              title={`Tags — ${selectedContainer.name}`}
+              action={
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {loadingDetail ? (
+                    <Spinner size={13} />
+                  ) : detail ? (
+                    <span style={{ fontSize: 11, color: '#8A9BAA' }}>
+                      {detail.mock ? 'mock · ' : ''}
+                      {tags.filter(t => t.status === 'error').length > 0 && (
+                        <span style={{ color: '#EF4444', marginRight: 8 }}>
+                          {tags.filter(t => t.status === 'error').length} erros
+                        </span>
+                      )}
+                      {tags.filter(t => t.status === 'warn').length > 0 && (
+                        <span style={{ color: '#F59E0B' }}>
+                          {tags.filter(t => t.status === 'warn').length} avisos
+                        </span>
+                      )}
+                      {tags.filter(t => t.status === 'error').length === 0 &&
+                       tags.filter(t => t.status === 'warn').length === 0 && (
+                        <span style={{ color: '#22C55E' }}>tudo ok</span>
+                      )}
+                    </span>
+                  ) : null}
+                  <button
+                    onClick={() => loadContainerDetail(selectedId)}
+                    style={{
+                      background: 'rgba(185,145,91,0.08)', border: '1px solid rgba(185,145,91,0.3)',
+                      borderRadius: 5, padding: '4px 10px', color: '#B9915B',
+                      fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                      fontFamily: 'Manrope, sans-serif',
+                    }}
+                  >
+                    <RefreshCw size={11} />
+                    Recarregar
+                  </button>
+                </div>
+              }
+            />
+
+            {loadingDetail ? (
+              <CardBody><div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}><Spinner /></div></CardBody>
+            ) : !detail ? (
+              <CardBody>
+                <div style={{ fontSize: 12, color: '#8A9BAA', textAlign: 'center', padding: 16 }}>
+                  Clique em "Recarregar" para buscar as tags deste container.
+                </div>
+              </CardBody>
+            ) : tags.length === 0 ? (
+              <CardBody>
+                <div style={{ fontSize: 12, color: '#8A9BAA', textAlign: 'center', padding: 16 }}>
+                  Nenhuma tag encontrada neste workspace.
+                </div>
+              </CardBody>
+            ) : (
+              <div>
+                {tags.map((tag, i) => (
+                  <div key={tag.tagId ?? tag.name}>
+                    <div
+                      onClick={() => setExpandedTag(expandedTag === i ? null : i)}
+                      style={{
+                        display: 'flex', alignItems: 'center', padding: '12px 20px', cursor: 'pointer',
+                        borderBottom: '1px solid rgba(185,145,91,0.08)',
+                        background: expandedTag === i ? 'rgba(185,145,91,0.05)' : 'transparent',
+                        transition: 'background 0.1s',
+                      }}
+                      onMouseEnter={e => { if (expandedTag !== i) e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}
+                      onMouseLeave={e => { if (expandedTag !== i) e.currentTarget.style.background = 'transparent' }}
+                    >
+                      {expandedTag === i
+                        ? <ChevronDown size={14} color="#8A9BAA" style={{ marginRight: 10, flexShrink: 0 }} />
+                        : <ChevronRight size={14} color="#8A9BAA" style={{ marginRight: 10, flexShrink: 0 }} />
+                      }
+                      <Tag size={13} color="#B9915B88" style={{ marginRight: 10, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: '#F5F4F3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {tag.name}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#8A9BAA', background: 'rgba(138,155,170,0.1)', padding: '2px 8px', borderRadius: 4, marginRight: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                        {tag.type}
+                      </span>
+                      <StatusBadge status={tag.status} size="sm" />
+                    </div>
+                    {expandedTag === i && (
+                      <div style={{ padding: '12px 20px 14px 52px', background: 'rgba(185,145,91,0.03)', borderBottom: '1px solid rgba(185,145,91,0.08)' }}>
+                        <div style={{ fontSize: 11, color: '#8A9BAA', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          Triggers vinculados
+                        </div>
+                        {tag.triggers.length === 0 ? (
+                          <span style={{ fontSize: 12, color: '#EF4444' }}>Nenhum trigger — tag não vai disparar</span>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {tag.triggers.map((t) => (
+                              <span key={t} style={{
+                                background: 'rgba(185,145,91,0.12)', border: '1px solid rgba(185,145,91,0.25)',
+                                color: '#B9915B', padding: '3px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+                              }}>
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {tag.tagId && (
+                          <div style={{ fontSize: 10, color: '#8A9BAA44', marginTop: 8, fontFamily: 'monospace' }}>
+                            tagId: {tag.tagId}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
-        </Card>
+            )}
+          </Card>
+        )}
+
       </div>
     </div>
   )

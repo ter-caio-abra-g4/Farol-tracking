@@ -11,6 +11,7 @@ const { loadConfig, saveConfig, detectG4OS, importFromG4OS, CONFIG_PATH } = requ
 const gtmService = require('./gtm.cjs')
 const ga4Service = require('./ga4.cjs')
 const metaService = require('./meta.cjs')
+const databricksService = require('./databricks.cjs')
 
 const app = express()
 const PORT = 3001
@@ -145,7 +146,45 @@ app.get('/api/ga4/dashboards/:propertyId', async (req, res) => {
   }
 })
 
+app.get('/api/ga4/internal-ref/:propertyId', async (req, res) => {
+  const days = parseInt(req.query.days) || 28
+  try {
+    const result = await ga4Service.getInternalRefReport(req.params.propertyId, days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, rows: [] })
+  }
+})
+
+app.get('/api/ga4/source-medium/:propertyId', async (req, res) => {
+  const days = parseInt(req.query.days) || 28
+  try {
+    const result = await ga4Service.getSourceMediumReport(req.params.propertyId, days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, rows: [] })
+  }
+})
+
+app.get('/api/gtm/silent-tags', async (req, res) => {
+  try {
+    const result = await gtmService.getSilentTags()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, tags: [] })
+  }
+})
+
 // ─── Meta ──────────────────────────────────────────────────────────────────
+app.get('/api/meta/pixels', async (req, res) => {
+  try {
+    const result = await metaService.listPixels()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, pixels: [] })
+  }
+})
+
 app.get('/api/meta/stats', async (req, res) => {
   try {
     const result = await metaService.getPixelStats()
@@ -161,6 +200,85 @@ app.get('/api/meta/events', async (req, res) => {
     res.json(result)
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message, events: [] })
+  }
+})
+
+app.get('/api/meta/volume', async (req, res) => {
+  const days = parseInt(req.query.days) || 7
+  try {
+    const result = await metaService.getEventVolume(days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, rows: [] })
+  }
+})
+
+// ─── Databricks ────────────────────────────────────────────────────────────
+app.get('/api/databricks/status', async (req, res) => {
+  try {
+    const result = await databricksService.getStatus()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
+app.get('/api/databricks/tables', async (req, res) => {
+  try {
+    const result = await databricksService.listTables()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, tables: [] })
+  }
+})
+
+app.get('/api/databricks/preview', async (req, res) => {
+  const tableName = req.query.table
+  try {
+    const result = await databricksService.previewTable(tableName)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, columns: [], rows: [] })
+  }
+})
+
+app.get('/api/databricks/funnel/stages', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try {
+    const result = await databricksService.getFunnelStages(days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, stages: [] })
+  }
+})
+
+app.get('/api/databricks/funnel/lost-reasons', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try {
+    const result = await databricksService.getLostReasons(days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, reasons: [] })
+  }
+})
+
+app.get('/api/databricks/funnel/products', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try {
+    const result = await databricksService.getTopProducts(days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, products: [] })
+  }
+})
+
+app.get('/api/databricks/funnel/trend', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try {
+    const result = await databricksService.getFunnelTrend(days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, trend: [] })
   }
 })
 

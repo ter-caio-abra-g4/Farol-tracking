@@ -200,6 +200,72 @@ async function getContainerDetails(publicId) {
   }
 }
 
+// Varre todos os containers acessíveis e retorna tags sem trigger ou pausadas
+async function getSilentTags() {
+  const auth = await getAuthClient()
+  if (!auth) return { mock: true, tags: getMockSilentTags() }
+
+  const gtm = getTagManger(auth)
+  const result = []
+
+  try {
+    // Descobre containers
+    const accountsRes = await gtm.accounts.list()
+    const accounts = accountsRes.data.account || []
+
+    for (const acc of accounts) {
+      try {
+        const containersRes = await gtm.accounts.containers.list({ parent: acc.path })
+        const containers = containersRes.data.container || []
+
+        for (const container of containers) {
+          try {
+            const wsRes = await gtm.accounts.containers.workspaces.list({ parent: container.path })
+            const ws = (wsRes.data.workspace || [])[0]
+            if (!ws) continue
+
+            const tagsRes = await gtm.accounts.containers.workspaces.tags.list({ parent: ws.path })
+            const tags = tagsRes.data.tag || []
+
+            for (const tag of tags) {
+              const noTrigger = !tag.firingTriggerId || tag.firingTriggerId.length === 0
+              const paused = tag.paused === true
+
+              if (noTrigger || paused) {
+                result.push({
+                  tagId: tag.tagId,
+                  name: tag.name,
+                  type: tag.type,
+                  container: container.publicId,
+                  containerName: container.name,
+                  account: acc.name,
+                  issue: paused ? 'pausada' : 'sem_trigger',
+                  issueLabel: paused ? 'Pausada' : 'Sem trigger',
+                })
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
+    return { mock: false, tags: result }
+  } catch (err) {
+    console.error('[GTM] getSilentTags error:', err.message)
+    return { mock: true, tags: getMockSilentTags(), error: err.message }
+  }
+}
+
+function getMockSilentTags() {
+  return [
+    { tagId: '101', name: 'GA4 video_start',      type: 'gaawe',      container: 'GTM-MJT8CNGM', containerName: 'G4 Educacao - Global',   account: 'G4 Educacao', issue: 'sem_trigger',  issueLabel: 'Sem trigger' },
+    { tagId: '102', name: 'GA4 scroll_depth',     type: 'gaawe',      container: 'GTM-MJT8CNGM', containerName: 'G4 Educacao - Global',   account: 'G4 Educacao', issue: 'sem_trigger',  issueLabel: 'Sem trigger' },
+    { tagId: '201', name: 'Meta Pixel Lead OLD',  type: 'html',       container: 'GTM-PMNN5VZ',  containerName: 'G4 Educacao [PROD]',     account: 'G4 Educacao', issue: 'pausada',      issueLabel: 'Pausada' },
+    { tagId: '301', name: 'Bing Ads',             type: 'html',       container: 'GTM-KWL8CBD',  containerName: 'G4 Educacao [DEV]',      account: 'G4 Educacao', issue: 'sem_trigger',  issueLabel: 'Sem trigger' },
+    { tagId: '401', name: 'TikTok Pixel Legacy',  type: 'html',       container: 'GTM-WV3RZ85',  containerName: 'G4 Educacao - SKILLS',   account: 'G4 Educacao', issue: 'pausada',      issueLabel: 'Pausada' },
+  ]
+}
+
 function getMockContainers() {
   return [
     { id: 'GTM-MJT8CNGM', name: 'G4 Educacao - Global',        account: 'G4 Educacao', status: 'loading', tags: null, triggers: null, variables: null },
@@ -213,4 +279,4 @@ function getMockContainers() {
   ]
 }
 
-module.exports = { listContainersWithStats, getContainerDetails }
+module.exports = { listContainersWithStats, getContainerDetails, getSilentTags }

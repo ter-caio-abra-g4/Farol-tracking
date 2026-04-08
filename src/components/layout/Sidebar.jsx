@@ -6,6 +6,8 @@ import {
   BarChart2,
   Settings,
   Activity,
+  Layers,
+  TrendingUp,
 } from 'lucide-react'
 
 const navItems = [
@@ -14,6 +16,8 @@ const navItems = [
   { to: '/gtm', icon: Tag, label: 'GTM' },
   { to: '/ga4', icon: BarChart2, label: 'GA4' },
   { to: '/meta', icon: Activity, label: 'Meta Ads' },
+  { to: '/databricks', icon: Layers, label: 'Databricks' },
+  { to: '/funil', icon: TrendingUp, label: 'Funil' },
   { to: '/settings', icon: Settings, label: 'Config' },
 ]
 

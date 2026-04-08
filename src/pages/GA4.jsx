@@ -14,23 +14,29 @@ import { ChevronDown, ChevronRight, TrendingDown } from 'lucide-react'
 export default function GA4Page() {
   const { ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
 
-  const [report, setReport]       = useState(null)
-  const [events, setEvents]       = useState(null)
-  const [dashboards, setDashboards] = useState(null)
-  const [loading, setLoading]     = useState(true)
+  const [report, setReport]           = useState(null)
+  const [events, setEvents]           = useState(null)
+  const [dashboards, setDashboards]   = useState(null)
+  const [internalRef, setInternalRef] = useState(null)
+  const [sourceMedium, setSourceMedium] = useState(null)
+  const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
-  const [days, setDays]           = useState(28)
+  const [days, setDays]               = useState(28)
 
   async function loadData(propId, d) {
     setLoading(true)
-    const [rep, evs, dash] = await Promise.all([
+    const [rep, evs, dash, iRef, sm] = await Promise.all([
       api.ga4Report(propId, d),
       api.ga4Events(propId),
       api.ga4Dashboards(propId, d),
+      api.ga4InternalRef(propId, d),
+      api.ga4SourceMedium(propId, d),
     ])
     setReport(rep)
     setEvents(evs)
     setDashboards(dash)
+    setInternalRef(iRef)
+    setSourceMedium(sm)
     setLoading(false)
     setLastUpdated(Date.now())
   }
@@ -231,6 +237,33 @@ export default function GA4Page() {
           </Card>
         </div>
 
+        {/* ── Origem por internal_ref + Fonte/Mídia ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+          <Card>
+            <CardHeader
+              title="Formulários por internal_ref"
+              action={<span style={{ fontSize: 11, color: '#8A9BAA' }}>{days} dias</span>}
+            />
+            <CardBody style={{ padding: '4px 0 8px' }}>
+              {loading ? <LoadingBox /> : (
+                <InternalRefTable rows={internalRef?.rows ?? []} />
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Fonte / Mídia × conversão"
+              action={<span style={{ fontSize: 11, color: '#8A9BAA' }}>{days} dias</span>}
+            />
+            <CardBody style={{ padding: '4px 0 8px' }}>
+              {loading ? <LoadingBox /> : (
+                <SourceMediumTable rows={sourceMedium?.rows ?? []} />
+              )}
+            </CardBody>
+          </Card>
+        </div>
+
         {/* ── Top eventos (dropdown) ── */}
         <EventsSection
           events={eventSummary}
@@ -325,6 +358,152 @@ function TopItemsTable({ items }) {
           )}
         </div>
       ))}
+    </div>
+  )
+}
+
+// ── Internal Ref Table ───────────────────────────────────────────────────────
+function InternalRefTable({ rows }) {
+  if (!rows.length) return <EmptyMsg />
+  const maxStart = Math.max(...rows.map(r => r.form_start), 1)
+  return (
+    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)', position: 'sticky', top: 0, background: '#001A2E', zIndex: 1 }}>
+            {['internal_ref', 'Iniciaram', 'Enviaram', 'Conv.'].map(h => (
+              <th key={h} style={{ padding: '8px 12px', textAlign: h === 'internal_ref' ? 'left' : 'right', fontSize: 10, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const barW = Math.round((r.form_start / maxStart) * 100)
+            const convColor = r.convRate >= 25 ? '#22C55E' : r.convRate >= 15 ? '#F59E0B' : '#EF4444'
+            return (
+              <tr key={i} style={{ borderBottom: '1px solid rgba(185,145,91,0.06)' }}>
+                <td style={{ padding: '8px 12px', maxWidth: 160 }}>
+                  <div style={{ fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={r.ref}>{r.ref}</div>
+                  <div style={{ marginTop: 3, height: 3, background: 'rgba(185,145,91,0.1)', borderRadius: 2 }}>
+                    <div style={{ height: 3, background: '#B9915B', borderRadius: 2, width: `${barW}%` }} />
+                  </div>
+                </td>
+                <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#F5F4F3' }}>
+                  {r.form_start.toLocaleString('pt-BR')}
+                </td>
+                <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#F5F4F3' }}>
+                  {r.form_submit.toLocaleString('pt-BR')}
+                </td>
+                <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: convColor }}>{r.convRate}%</span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── Source/Medium Table ───────────────────────────────────────────────────────
+const SOURCE_ICON = {
+  google:    { icon: 'G', color: '#4285F4', bg: 'rgba(66,133,244,0.15)' },
+  facebook:  { icon: 'f', color: '#1877F2', bg: 'rgba(24,119,242,0.15)' },
+  instagram: { icon: '▲', color: '#E1306C', bg: 'rgba(225,48,108,0.15)' },
+  youtube:   { icon: '▶', color: '#FF0000', bg: 'rgba(255,0,0,0.12)'    },
+  email:     { icon: '@', color: '#B9915B', bg: 'rgba(185,145,91,0.15)' },
+  linktree:  { icon: '𝕃', color: '#43E660', bg: 'rgba(67,230,96,0.12)'  },
+  bing:      { icon: 'B', color: '#008373', bg: 'rgba(0,131,115,0.15)'  },
+  '(direct)':{ icon: '→', color: '#8A9BAA', bg: 'rgba(138,155,170,0.12)'},
+}
+
+const CHANNEL_BADGE = {
+  'Paid Search':   { label: 'Pago Search',  color: '#4285F4', bg: 'rgba(66,133,244,0.1)'  },
+  'Organic Search':{ label: 'Org. Search',  color: '#22C55E', bg: 'rgba(34,197,94,0.1)'   },
+  'Paid Social':   { label: 'Pago Social',  color: '#E1306C', bg: 'rgba(225,48,108,0.1)'  },
+  'Organic Social':{ label: 'Org. Social',  color: '#F59E0B', bg: 'rgba(245,158,11,0.1)'  },
+  'Email':         { label: 'Email',        color: '#B9915B', bg: 'rgba(185,145,91,0.1)'  },
+  'Direct':        { label: 'Direto',       color: '#8A9BAA', bg: 'rgba(138,155,170,0.1)' },
+  'Referral':      { label: 'Referral',     color: '#A855F7', bg: 'rgba(168,85,247,0.1)'  },
+}
+
+function SourceMediumTable({ rows }) {
+  if (!rows.length) return <EmptyMsg />
+  const maxSessions = Math.max(...rows.map(r => r.sessions), 1)
+
+  return (
+    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)', position: 'sticky', top: 0, background: '#001A2E', zIndex: 1 }}>
+            {['Fonte', 'Canal', 'Sessões', 'Compras', 'Leads', 'Conv%'].map(h => (
+              <th key={h} style={{
+                padding: '8px 10px',
+                textAlign: (h === 'Fonte' || h === 'Canal') ? 'left' : 'right',
+                fontSize: 10, color: '#8A9BAA', fontWeight: 600,
+                letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+              }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const barW = Math.round((r.sessions / maxSessions) * 100)
+            const convColor = parseFloat(r.convRate) >= 4 ? '#22C55E' : parseFloat(r.convRate) >= 2 ? '#F59E0B' : '#8A9BAA'
+            const srcKey = (r.source || '').toLowerCase()
+            const src = SOURCE_ICON[srcKey] ?? { icon: srcKey[0]?.toUpperCase() ?? '?', color: '#8A9BAA', bg: 'rgba(138,155,170,0.1)' }
+            const ch = CHANNEL_BADGE[r.channel] ?? { label: r.channel, color: '#8A9BAA', bg: 'rgba(138,155,170,0.1)' }
+
+            return (
+              <tr key={i} style={{ borderBottom: '1px solid rgba(185,145,91,0.06)' }}>
+                {/* Fonte */}
+                <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{
+                      width: 22, height: 22, borderRadius: 5, flexShrink: 0,
+                      background: src.bg, color: src.color,
+                      fontSize: 11, fontWeight: 800,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>{src.icon}</span>
+                    <div>
+                      <div style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 500 }}>{r.source}</div>
+                      <div style={{ marginTop: 2, height: 2, width: 60, background: 'rgba(185,145,91,0.1)', borderRadius: 1 }}>
+                        <div style={{ height: 2, background: src.color, borderRadius: 1, width: `${barW}%`, opacity: 0.7 }} />
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                {/* Canal */}
+                <td style={{ padding: '8px 10px' }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                    color: ch.color, background: ch.bg, whiteSpace: 'nowrap',
+                  }}>{ch.label}</span>
+                  <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2 }}>{r.medium}</div>
+                </td>
+                {/* Sessões */}
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: '#F5F4F3' }}>
+                  {r.sessions.toLocaleString('pt-BR')}
+                </td>
+                {/* Compras */}
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: '#22C55E', fontWeight: 600 }}>
+                  {r.purchase > 0 ? r.purchase.toLocaleString('pt-BR') : <span style={{ color: '#8A9BAA' }}>—</span>}
+                </td>
+                {/* Leads */}
+                <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: '#B9915B' }}>
+                  {r.leads > 0 ? r.leads.toLocaleString('pt-BR') : <span style={{ color: '#8A9BAA' }}>—</span>}
+                </td>
+                {/* Conv% */}
+                <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: convColor }}>{r.convRate}%</span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }

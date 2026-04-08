@@ -7,6 +7,8 @@ import Explorer from './pages/Explorer'
 import GTMPage from './pages/GTM'
 import GA4Page from './pages/GA4'
 import MetaPage from './pages/Meta'
+import DatabricksPage from './pages/Databricks'
+import FunilPage from './pages/Funil'
 import SettingsPage from './pages/Settings'
 import SetupWizard from './pages/Setup'
 import { TrackingProvider } from './context/TrackingContext'
@@ -26,10 +28,15 @@ export default function App() {
         setSetupDone(!!skipped)
       }
     }).catch(() => {
-      // Servidor ainda não subiu — aguardar e tentar novamente
-      setTimeout(() => {
-        setSetupDone(prev => prev === null ? false : prev)
-      }, 2000)
+      // Servidor ainda não subiu — verifica localStorage antes de mostrar setup
+      const skipped = localStorage.getItem('farol_setup_done')
+      if (skipped) {
+        setSetupDone(true)
+      } else {
+        setTimeout(() => {
+          setSetupDone(prev => prev === null ? false : prev)
+        }, 2000)
+      }
     })
   }, [])
 
@@ -84,6 +91,8 @@ export default function App() {
                 <Route path="/gtm" element={<GTMPage />} />
                 <Route path="/ga4" element={<GA4Page />} />
                 <Route path="/meta" element={<MetaPage />} />
+                <Route path="/databricks" element={<DatabricksPage />} />
+                <Route path="/funil" element={<FunilPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </main>

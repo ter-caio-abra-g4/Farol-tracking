@@ -3,5 +3,15 @@
     "service_account_path": "C:\\Users\\terc.caio.abra_g4edu\\.g4os-public\\workspaces\\my-workspace\\sources\\ga4\\service-account.json",
     "client_email": "g4analyticsca@security-logs-438613.iam.gserviceaccount.com",
     "property_id": "521780491"
-  }
+  },
+  "databricks": {
+    "host": "https://dbc-8acefaf9-a170.cloud.databricks.com",
+    "http_path": "/sql/1.0/warehouses/bbae754ea44f67e0",
+    "catalog": "production",
+    "schema": "silver",
+    "token": "dapi7bebf6ee7b8bb8b66cd2159bae0a1f84",
+    "token_created_at": "2026-04-08T18:30:15.490Z"
+  },
+  "meta": {},
+  "gtm": {}
 }

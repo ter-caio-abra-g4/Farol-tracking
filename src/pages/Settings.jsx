@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save } from 'lucide-react'
 import { api } from '../services/api'
 
 const SOURCES = [
-  { id: 'gtm', name: 'Google Tag Manager', desc: 'Containers, tags e triggers via API' },
-  { id: 'ga4', name: 'Google Analytics 4', desc: 'Dados de eventos e propriedades GA4' },
-  { id: 'meta', name: 'Meta Ads — Conversions API', desc: 'Pixel e eventos via CAPI' },
+  { id: 'gtm',        name: 'Google Tag Manager',        desc: 'Containers, tags e triggers via API',  route: '/gtm' },
+  { id: 'ga4',        name: 'Google Analytics 4',         desc: 'Dados de eventos e propriedades GA4', route: '/ga4' },
+  { id: 'meta',       name: 'Meta Ads — Conversions API', desc: 'Pixel e eventos via CAPI',             route: '/meta' },
+  { id: 'databricks', name: 'Databricks SQL',             desc: 'Tabelas e queries via SQL Warehouse',  route: '/databricks' },
 ]
 
 const TEST_FNS = {
@@ -59,6 +61,16 @@ const TEST_FNS = {
       items: null,
     }
   },
+  databricks: async () => {
+    const res = await api.databricksStatus()
+    return {
+      live: !res?.mock,
+      detail: !res?.mock
+        ? `Conectado — ${res.tables ?? 0} tabela(s) em ${res.catalog ?? 'hive_metastore'}${res.schema ? '.' + res.schema : ''}`
+        : 'Sem conexão — configure o Personal Access Token e HTTP Path',
+      items: null,
+    }
+  },
 }
 
 // Propriedades GA4 conhecidas (base estática + o que a API retornar)
@@ -67,9 +79,10 @@ const KNOWN_PROPERTIES = [
 ]
 
 export default function SettingsPage() {
+  const navigate = useNavigate()
   const [refreshInterval, setRefreshInterval] = useState(5)
   // testState: { [id]: 'idle' | 'testing' | { live, detail } }
-  const [testState, setTestState] = useState({ gtm: 'idle', ga4: 'idle', meta: 'idle' })
+  const [testState, setTestState] = useState({ gtm: 'idle', ga4: 'idle', meta: 'idle', databricks: 'idle' })
   const [testingAll, setTestingAll] = useState(false)
 
   // GA4 property selector
@@ -114,16 +127,17 @@ export default function SettingsPage() {
 
   async function testAll() {
     setTestingAll(true)
-    setTestState({ gtm: 'testing', ga4: 'testing', meta: 'testing' })
+    setTestState({ gtm: 'testing', ga4: 'testing', meta: 'testing', databricks: 'testing' })
     try {
-      const [gtm, ga4, meta] = await Promise.all([
+      const [gtm, ga4, meta, databricks] = await Promise.all([
         TEST_FNS.gtm(),
         TEST_FNS.ga4(),
         TEST_FNS.meta(),
+        TEST_FNS.databricks(),
       ])
-      setTestState({ gtm, ga4, meta })
+      setTestState({ gtm, ga4, meta, databricks })
     } catch (err) {
-      setTestState({ gtm: 'idle', ga4: 'idle', meta: 'idle' })
+      setTestState({ gtm: 'idle', ga4: 'idle', meta: 'idle', databricks: 'idle' })
     } finally {
       setTestingAll(false)
     }
@@ -250,6 +264,7 @@ export default function SettingsPage() {
                         </button>
 
                         <button
+                          onClick={() => navigate(s.route)}
                           style={{
                             background: 'rgba(185,145,91,0.1)',
                             border: '1px solid rgba(185,145,91,0.3)',
@@ -262,7 +277,7 @@ export default function SettingsPage() {
                             fontFamily: 'Manrope, sans-serif',
                           }}
                         >
-                          Editar
+                          Configurar
                         </button>
                       </div>
                     </div>

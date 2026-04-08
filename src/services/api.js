@@ -36,6 +36,7 @@ export const api = {
   // GTM
   gtmContainers: () => get('/api/gtm/containers', { mock: true, containers: [] }),
   gtmContainer: (id) => get(`/api/gtm/container/${id}`, { mock: true, tags: [], triggers: [], variables: [] }),
+  gtmSilentTags: () => get('/api/gtm/silent-tags', { mock: true, tags: [] }),
 
   // GA4
   ga4Properties: () => get('/api/ga4/properties', { mock: true, properties: [], activePropertyId: null }),
@@ -43,8 +44,21 @@ export const api = {
   ga4Report: (propertyId, days = 7) => get(`/api/ga4/report/${propertyId}?days=${days}`, { mock: true, rows: [] }),
   ga4Events: (propertyId) => get(`/api/ga4/events/${propertyId}`, { mock: true, events: [] }),
   ga4Dashboards: (propertyId, days = 28) => get(`/api/ga4/dashboards/${propertyId}?days=${days}`, { mock: true }),
+  ga4InternalRef: (propertyId, days = 28) => get(`/api/ga4/internal-ref/${propertyId}?days=${days}`, { mock: true, rows: [] }),
+  ga4SourceMedium: (propertyId, days = 28) => get(`/api/ga4/source-medium/${propertyId}?days=${days}`, { mock: true, rows: [] }),
+
+  // Databricks
+  databricksStatus: () => get('/api/databricks/status', { mock: true }),
+  databricksTables: () => get('/api/databricks/tables', { mock: true, tables: [] }),
+  databricksPreview: (tableName) => get(`/api/databricks/preview?table=${encodeURIComponent(tableName)}`, { mock: true, columns: [], rows: [] }),
+  databricksFunnelStages: (days = 30) => get(`/api/databricks/funnel/stages?days=${days}`, { mock: true, stages: [] }),
+  databricksFunnelLostReasons: (days = 30) => get(`/api/databricks/funnel/lost-reasons?days=${days}`, { mock: true, reasons: [] }),
+  databricksFunnelProducts: (days = 30) => get(`/api/databricks/funnel/products?days=${days}`, { mock: true, products: [] }),
+  databricksFunnelTrend: (days = 30) => get(`/api/databricks/funnel/trend?days=${days}`, { mock: true, trend: [] }),
 
   // Meta
+  metaPixels: () => get('/api/meta/pixels', { mock: true, pixels: [] }),
   metaStats: () => get('/api/meta/stats', { mock: true }),
   metaEvents: () => get('/api/meta/events', { mock: true, events: [] }),
+  metaVolume: (days = 7) => get(`/api/meta/volume?days=${days}`, { mock: true, rows: [] }),
 }
