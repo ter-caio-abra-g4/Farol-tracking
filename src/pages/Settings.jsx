@@ -13,22 +13,40 @@ const SOURCES = [
 const TEST_FNS = {
   gtm: async () => {
     const res = await api.gtmContainers()
+    const containers = res?.containers || []
     return {
       live: !res?.mock,
       detail: !res?.mock
-        ? `${res?.containers?.length ?? 0} containers encontrados`
+        ? `${containers.length} container${containers.length !== 1 ? 's' : ''} encontrado${containers.length !== 1 ? 's' : ''}`
         : 'Sem autenticação — verifique service-account',
+      items: !res?.mock
+        ? containers.map(c => ({
+            label: c.name || c.id,
+            sub: c.id,
+            account: c.account,
+          }))
+        : null,
     }
   },
   ga4: async () => {
     const cfg = await api.ga4Properties()
     const propId = cfg?.activePropertyId || '521780491'
     const res = await api.ga4Report(propId, 7)
+    // Tenta listar propriedades para mostrar lista (pode ser mock)
+    const propsRes = cfg?.properties?.length > 0 ? cfg : null
+    const knownProps = propsRes?.properties || [{ id: propId, name: 'G4 Educacao - Principal' }]
     return {
       live: !res?.mock,
       detail: !res?.mock
         ? `${res?.rows?.length ?? 0} linhas de eventos (7 dias) — property ${propId}`
         : 'Sem acesso — adicione o service account no GA4 Admin ou verifique permissões',
+      items: !res?.mock
+        ? knownProps.map(p => ({
+            label: p.name || p.id,
+            sub: `ID: ${p.id}`,
+            active: p.id === propId,
+          }))
+        : null,
     }
   },
   meta: async () => {
@@ -38,6 +56,7 @@ const TEST_FNS = {
       detail: !res?.mock
         ? `Match rate: ${res?.matchRate ?? '—'}%`
         : 'Sem token — configure o Meta Access Token em farol.config.json',
+      items: null,
     }
   },
 }
@@ -252,21 +271,69 @@ export default function SettingsPage() {
                     {hasResult && (
                       <div
                         style={{
-                          padding: '8px 16px',
                           background: state.live ? 'rgba(34,197,94,0.05)' : 'rgba(245,158,11,0.05)',
                           border: `1px solid ${state.live ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
                           borderTop: 'none',
                           borderRadius: '0 0 8px 8px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
+                          overflow: 'hidden',
                         }}
                       >
-                        {state.live
-                          ? <CheckCircle size={12} color="#22C55E" />
-                          : <XCircle size={12} color="#F59E0B" />
-                        }
-                        <span style={{ fontSize: 11, color: '#8A9BAA' }}>{state.detail}</span>
+                        {/* Summary line */}
+                        <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {state.live
+                            ? <CheckCircle size={12} color="#22C55E" />
+                            : <XCircle size={12} color="#F59E0B" />
+                          }
+                          <span style={{ fontSize: 11, color: '#8A9BAA' }}>{state.detail}</span>
+                        </div>
+
+                        {/* Items list */}
+                        {state.live && state.items?.length > 0 && (
+                          <div style={{
+                            borderTop: `1px solid ${state.live ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)'}`,
+                            padding: '8px 16px 10px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4,
+                          }}>
+                            {state.items.map((item, i) => (
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: '50%',
+                                  background: item.active ? '#B9915B' : '#22C55E',
+                                  flexShrink: 0,
+                                }} />
+                                <span style={{ fontSize: 11, color: '#F5F4F3', fontWeight: item.active ? 600 : 400 }}>
+                                  {item.label}
+                                </span>
+                                {item.account && (
+                                  <span style={{ fontSize: 10, color: '#8A9BAA' }}>· {item.account}</span>
+                                )}
+                                {item.sub && (
+                                  <span style={{ fontSize: 10, color: '#8A9BAA', marginLeft: 'auto', fontFamily: 'monospace' }}>
+                                    {item.sub}
+                                  </span>
+                                )}
+                                {item.active && (
+                                  <span style={{
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    color: '#B9915B',
+                                    background: 'rgba(185,145,91,0.12)',
+                                    padding: '1px 6px',
+                                    borderRadius: 4,
+                                    letterSpacing: '0.05em',
+                                    textTransform: 'uppercase',
+                                  }}>
+                                    ativo
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

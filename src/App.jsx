@@ -9,6 +9,7 @@ import GA4Page from './pages/GA4'
 import MetaPage from './pages/Meta'
 import SettingsPage from './pages/Settings'
 import SetupWizard from './pages/Setup'
+import { TrackingProvider } from './context/TrackingContext'
 import { api } from './services/api'
 
 export default function App() {
@@ -53,40 +54,42 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100vh',
-          overflow: 'hidden',
-          background: '#031A26',
-        }}
-      >
-        <Titlebar />
+      <TrackingProvider>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100vh',
+            overflow: 'hidden',
+            background: '#031A26',
+          }}
+        >
+          <Titlebar />
 
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar />
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+            <Sidebar />
 
-          <main
-            style={{
-              flex: 1,
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              background: '#031A26',
-            }}
-          >
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/explorer" element={<Explorer />} />
-              <Route path="/gtm" element={<GTMPage />} />
-              <Route path="/ga4" element={<GA4Page />} />
-              <Route path="/meta" element={<MetaPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
-          </main>
+            <main
+              style={{
+                flex: 1,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                background: '#031A26',
+              }}
+            >
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/explorer" element={<Explorer />} />
+                <Route path="/gtm" element={<GTMPage />} />
+                <Route path="/ga4" element={<GA4Page />} />
+                <Route path="/meta" element={<MetaPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Routes>
+            </main>
+          </div>
         </div>
-      </div>
+      </TrackingProvider>
     </BrowserRouter>
   )
 }
