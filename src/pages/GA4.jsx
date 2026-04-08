@@ -231,22 +231,14 @@ export default function GA4Page() {
           </Card>
         </div>
 
-        {/* ── Top 50 eventos (dropdown) ── */}
-        <Card>
-          <CardHeader
-            title={`Top eventos — ${activeProperty?.name ?? selectedGA4}`}
-            action={
-              <span style={{ fontSize: 11, color: '#8A9BAA' }}>
-                {isMock ? 'dados mock' : `${eventSummary.length} eventos · ${days} dias`}
-              </span>
-            }
-          />
-          {loading ? (
-            <CardBody><LoadingBox /></CardBody>
-          ) : (
-            <EventsTable events={eventSummary.slice(0, 50)} />
-          )}
-        </Card>
+        {/* ── Top eventos (dropdown) ── */}
+        <EventsSection
+          events={eventSummary}
+          loading={loading}
+          isMock={isMock}
+          days={days}
+          propertyName={activeProperty?.name ?? selectedGA4}
+        />
 
       </div>
     </div>
@@ -281,7 +273,7 @@ function TopPagesChart({ data }) {
 // ── Funil genérico ──────────────────────────────────────────────────────────
 function FunnelChart({ data, color }) {
   if (!data.length) return <EmptyMsg />
-  const max = data[0]?.count ?? 1
+  const max = Math.max(...data.map(d => d.count ?? 0), 1)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {data.map((step, i) => {
@@ -337,14 +329,68 @@ function TopItemsTable({ items }) {
   )
 }
 
+// ── Seção de eventos com limit selector ─────────────────────────────────────
+const LIMIT_OPTIONS = [10, 25, 50]
+
+function EventsSection({ events, loading, isMock, days, propertyName }) {
+  const [limit, setLimit] = useState(10)
+
+  return (
+    <Card>
+      <CardHeader
+        title={`Top eventos — ${propertyName}`}
+        action={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, color: '#8A9BAA' }}>
+              {isMock ? 'dados mock' : `${events.length} eventos · ${days} dias`}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#8A9BAA' }}>Exibir</span>
+              <select
+                value={limit}
+                onChange={e => setLimit(Number(e.target.value))}
+                style={{
+                  background: '#001F35',
+                  border: '1px solid rgba(185,145,91,0.35)',
+                  borderRadius: 5,
+                  color: '#F5F4F3',
+                  fontSize: 11,
+                  padding: '3px 22px 3px 8px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  appearance: 'none',
+                  fontFamily: 'Manrope, sans-serif',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23B9915B' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 5px center',
+                }}
+              >
+                {LIMIT_OPTIONS.map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        }
+      />
+      {loading ? (
+        <CardBody><LoadingBox /></CardBody>
+      ) : (
+        <EventsTable events={events.slice(0, limit)} />
+      )}
+    </Card>
+  )
+}
+
 // ── Tabela de eventos (expansível) ──────────────────────────────────────────
 function EventsTable({ events }) {
   const [expanded, setExpanded] = useState(null)
 
   return (
+    <div style={{ maxHeight: 360, overflowY: 'auto' }}>
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
-        <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)' }}>
+        <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)', position: 'sticky', top: 0, background: '#001A2E', zIndex: 1 }}>
           {['Evento', 'Contagem', 'Fonte', 'Status', ''].map((h) => (
             <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
               {h}
@@ -393,6 +439,7 @@ function EventsTable({ events }) {
         })}
       </tbody>
     </table>
+    </div>
   )
 }
 
