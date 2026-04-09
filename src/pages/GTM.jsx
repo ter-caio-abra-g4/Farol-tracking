@@ -113,7 +113,7 @@ export default function GTMPage() {
         } : undefined}
       />
 
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
 
         {/* Cards de containers */}
         {containersLoading ? (

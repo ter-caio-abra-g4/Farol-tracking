@@ -4,6 +4,7 @@ import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import StatusBadge from '../components/ui/StatusBadge'
 import Metric from '../components/ui/Metric'
 import Spinner from '../components/ui/Spinner'
+import PeriodSelect from '../components/ui/PeriodSelect'
 import { useTracking } from '../context/TrackingContext'
 import { api } from '../services/api'
 import {
@@ -11,12 +12,46 @@ import {
 } from 'recharts'
 import {
   Tag, BarChart2, Activity, AlertTriangle, CheckCircle, XCircle,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus as MinusIcon,
+  Database,
 } from 'lucide-react'
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function fmtNum(v) {
+  if (v === null || v === undefined) return '—'
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}k`
+  return String(v)
+}
+function fmtMoney(v) {
+  if (!v) return 'R$ 0'
+  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000) return `R$ ${(v / 1_000).toFixed(0)}K`
+  return `R$ ${v}`
+}
+function DeltaBadge({ delta, suffix = '', inverse = false }) {
+  if (delta === 0 || delta === null || delta === undefined)
+    return <span style={{ color: '#6B7280', fontSize: 11 }}>= igual</span>
+  const positive = inverse ? delta < 0 : delta > 0
+  const color = positive ? '#22C55E' : '#EF4444'
+  const Icon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : MinusIcon
+  const sign = delta > 0 ? '+' : ''
+  return (
+    <span style={{ color, fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}>
+      <Icon size={11} />
+      {sign}{fmtNum(delta)}{suffix} vs ontem
+    </span>
+  )
+}
 
 export default function Dashboard() {
   const { selectedGTM, gtmContainers, selectedGA4 } = useTracking()
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [days, setDays] = useState(7)
+
+  // Executive summary (Databricks)
+  const [exec, setExec] = useState(null)
+  const [execLoading, setExecLoading] = useState(true)
 
   // GA4
   const [ga4Data, setGa4Data] = useState(null)
@@ -30,12 +65,20 @@ export default function Dashboard() {
     ? gtmContainers
     : gtmContainers.filter(c => c.id === selectedGTM)
 
-  async function loadData() {
+  async function loadData(forceRefresh = false) {
+    if (forceRefresh) await api.databricksCacheClear()
     setGa4Loading(true)
     setGtmLoading(true)
+    setExecLoading(true)
+
+    // Executive summary (Databricks) — corre em paralelo com GA4
+    api.databricksExecutiveSummary().then(d => {
+      setExec(d)
+      setExecLoading(false)
+    })
 
     // GA4 report
-    const report = await api.ga4Report(selectedGA4, 7)
+    const report = await api.ga4Report(selectedGA4, days)
     setGa4Data(report)
     setGa4Loading(false)
 
@@ -56,7 +99,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData()
-  }, [selectedGTM, selectedGA4, gtmContainers.length])
+  }, [selectedGTM, selectedGA4, gtmContainers.length, days])
 
   // GA4 agregados
   const ga4Rows = ga4Data?.rows ?? []
@@ -82,76 +125,147 @@ export default function Dashboard() {
       <Header
         title="Dashboard"
         subtitle="Visão geral de integridade do tracking"
-        onRefresh={loadData}
+        onRefresh={() => loadData(true)}
         lastUpdated={lastUpdated}
+        action={<PeriodSelect value={days} onChange={setDays} />}
       />
 
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
 
-        {/* ── Semáforo GA4 + Meta ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-          <SemaphoreCard
-            icon={BarChart2}
-            title="GA4"
-            subtitle={`Property ${selectedGA4}`}
-            status={ga4Status}
-            metrics={[
-              { label: 'Eventos (7 dias)', value: ga4Loading ? '...' : totalEvents.toLocaleString('pt-BR') },
-              { label: 'Usuários (7 dias)', value: ga4Loading ? '...' : totalUsers.toLocaleString('pt-BR') },
-            ]}
-            loading={ga4Loading}
-          />
-          <SemaphoreCard
-            icon={Activity}
-            title="Meta Ads"
-            subtitle="Pixel + Conversions API"
-            status="warn"
-            metrics={[
-              { label: 'Match rate', value: '—' },
-              { label: 'Eventos 24h', value: '—' },
-            ]}
-            loading={false}
-          />
+        {/* ── Faixa Executiva ── */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+          gap: 12, marginBottom: 20,
+        }}>
+          {[
+            {
+              label: 'MQLs hoje',
+              value: execLoading ? '…' : fmtNum(exec?.mqls_hoje ?? 0),
+              sub: execLoading ? null : <DeltaBadge delta={exec?.delta_mqls} />,
+              color: '#6366F1',
+              detail: execLoading ? '' : `${fmtNum(exec?.mqls_7d)} nos últimos 7d`,
+            },
+            {
+              label: 'Ganhos hoje',
+              value: execLoading ? '…' : fmtNum(exec?.ganhos_hoje ?? 0),
+              sub: execLoading ? null : <DeltaBadge delta={exec?.delta_ganhos} />,
+              color: '#22C55E',
+              detail: execLoading ? '' : `${fmtNum(exec?.ganhos_7d)} nos últimos 7d`,
+            },
+            {
+              label: 'Conv% (7d)',
+              value: execLoading ? '…' : `${exec?.conv_7d ?? 0}%`,
+              sub: execLoading ? null : <DeltaBadge delta={exec?.delta_conv} suffix="pp" />,
+              color: '#F59E0B',
+              detail: execLoading ? '' : `Semana ant: ${exec?.conv_ant ?? 0}%`,
+            },
+            {
+              label: 'Receita (7d)',
+              value: execLoading ? '…' : fmtMoney(exec?.receita_7d ?? 0),
+              sub: execLoading ? null : <DeltaBadge delta={exec?.delta_receita} suffix="" />,
+              color: '#14B8A6',
+              detail: execLoading ? '' : `Sem ant: ${fmtMoney(exec?.receita_ant ?? 0)}`,
+            },
+          ].map((kpi, i) => (
+            <div key={i} style={{
+              background: '#0D1B26',
+              border: `1px solid ${kpi.color}33`,
+              borderRadius: 10,
+              padding: '14px 18px',
+              display: 'flex', flexDirection: 'column', gap: 4,
+              position: 'relative', overflow: 'hidden',
+            }}>
+              {/* Barra lateral colorida */}
+              <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: kpi.color, borderRadius: '10px 0 0 10px' }} />
+              <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                {kpi.label}
+                {exec?.mock && <span style={{ color: '#F59E0B', marginLeft: 6, fontSize: 10 }}>mock</span>}
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: kpi.color, lineHeight: 1.1 }}>
+                {kpi.value}
+              </div>
+              <div style={{ minHeight: 16 }}>{kpi.sub}</div>
+              <div style={{ fontSize: 10, color: '#4B5563', marginTop: 2 }}>{kpi.detail}</div>
+            </div>
+          ))}
         </div>
 
-        {/* ── Containers GTM expansíveis ── */}
-        <Card style={{ marginBottom: 20 }}>
-          <CardHeader
-            title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Tag size={14} color="#B9915B" />
-                <span>
-                  GTM — {selectedGTM === 'all'
-                    ? `${visibleContainers.length} container${visibleContainers.length !== 1 ? 's' : ''}`
-                    : visibleContainers[0]?.name || selectedGTM}
-                </span>
-              </div>
-            }
-            action={gtmLoading ? <Spinner size={16} /> : <StatusBadge status={gtmHasReal ? 'ok' : 'warn'} />}
-          />
-          <CardBody style={{ padding: '8px 16px 12px' }}>
+        {/* ── Faixa de Conexões (dropdown) ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
+
+          {/* GTM */}
+          <ConnectionDropdown
+            icon={Tag}
+            title="GTM"
+            summary={`${visibleContainers.length} container${visibleContainers.length !== 1 ? 's' : ''}`}
+            status={gtmLoading ? 'loading' : gtmHasReal ? 'ok' : 'warn'}
+            loading={gtmLoading}
+          >
             {visibleContainers.length === 0 ? (
-              <div style={{ fontSize: 12, color: '#8A9BAA', padding: '8px 0' }}>
-                Nenhum container disponível. Verifique a conexão GTM em Configurações.
-              </div>
+              <div style={{ fontSize: 12, color: '#8A9BAA' }}>Nenhum container. Configure em Configurações.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {visibleContainers.map(c => (
-                  <ContainerCard
-                    key={c.id}
-                    container={c}
-                    detail={gtmData[c.id]}
-                    loading={gtmLoading && !gtmData[c.id]}
-                  />
+                  <ContainerCard key={c.id} container={c} detail={gtmData[c.id]} loading={gtmLoading && !gtmData[c.id]} />
                 ))}
               </div>
             )}
-          </CardBody>
-        </Card>
+          </ConnectionDropdown>
+
+          {/* GA4 */}
+          <ConnectionDropdown
+            icon={BarChart2}
+            title="GA4"
+            summary={ga4Loading ? '…' : `${totalEvents.toLocaleString('pt-BR')} eventos`}
+            status={ga4Status}
+            loading={ga4Loading}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Row label="Property" value={selectedGA4} />
+              <Row label="Eventos (7d)" value={ga4Loading ? '…' : totalEvents.toLocaleString('pt-BR')} />
+              <Row label="Usuários (7d)" value={ga4Loading ? '…' : totalUsers.toLocaleString('pt-BR')} />
+              {ga4Data?.mock && <WarnNote>Dados simulados — adicione o service account à conta GA4.</WarnNote>}
+            </div>
+          </ConnectionDropdown>
+
+          {/* Meta */}
+          <ConnectionDropdown
+            icon={Activity}
+            title="Meta Ads"
+            summary="Pixel + CAPI"
+            status="warn"
+            loading={false}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Row label="Match rate" value="—" />
+              <Row label="Eventos 24h" value="—" />
+              <WarnNote>Conexão com Meta Ads API pendente.</WarnNote>
+            </div>
+          </ConnectionDropdown>
+
+          {/* Databricks */}
+          <ConnectionDropdown
+            icon={Database}
+            title="Databricks"
+            summary={execLoading ? '…' : exec?.mock ? 'mock' : `${fmtNum(exec?.mqls_7d)} MQLs 7d`}
+            status={execLoading ? 'loading' : exec?.mock ? 'warn' : 'ok'}
+            loading={execLoading}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Row label="Warehouse" value="bbae754ea44f67e0" mono />
+              <Row label="Catalog" value="production" />
+              <Row label="MQLs hoje" value={execLoading ? '…' : fmtNum(exec?.mqls_hoje)} />
+              <Row label="Ganhos hoje" value={execLoading ? '…' : fmtNum(exec?.ganhos_hoje)} />
+              <Row label="Conv% 7d" value={execLoading ? '…' : `${exec?.conv_7d ?? 0}%`} />
+              {exec?.mock && <WarnNote>Dados simulados — verifique credenciais Databricks.</WarnNote>}
+            </div>
+          </ConnectionDropdown>
+
+        </div>
 
         {/* ── Gráfico + Status ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-          <EventsChartCard chartData={chartData} loading={ga4Loading} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16, marginBottom: 20 }}>
+          <EventsChartCard chartData={chartData} loading={ga4Loading} days={days} />
           <AlertsCard ga4Mock={!!ga4Data?.mock} gtmMock={!gtmHasReal && Object.keys(gtmData).length > 0} />
         </div>
 
@@ -263,31 +377,79 @@ function TagList({ tags }) {
   )
 }
 
-// ── Semáforo ───────────────────────────────────────────────────────────────
-function SemaphoreCard({ icon: Icon, title, subtitle, status, metrics, loading }) {
-  const statusBorder = { ok: '#22C55E', warn: '#F59E0B', error: '#EF4444', loading: '#B9915B' }
+// ── ConnectionDropdown ─────────────────────────────────────────────────────
+const STATUS_COLOR = { ok: '#22C55E', warn: '#F59E0B', error: '#EF4444', loading: '#B9915B' }
+
+function ConnectionDropdown({ icon: Icon, title, summary, status, loading, children }) {
+  const [open, setOpen] = useState(false)
+  const col = STATUS_COLOR[status] ?? '#B9915B'
+
   return (
-    <Card style={{ borderColor: statusBorder[status] ?? '#B9915B', transition: 'border-color 0.3s ease' }}>
-      <CardHeader
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon size={15} color="#B9915B" strokeWidth={1.8} />
-            <span style={{ fontFamily: "'PPMuseum','Georgia',serif", fontSize: 14, color: '#B9915B' }}>{title}</span>
-          </div>
+    <div style={{
+      background: '#0D1B26',
+      border: `1px solid ${col}33`,
+      borderRadius: 10,
+      overflow: 'hidden',
+      transition: 'border-color 0.2s',
+    }}>
+      {/* Header clicável */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '11px 14px', background: 'transparent', border: 'none', cursor: 'pointer', gap: 8,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          {/* Dot de status */}
+          {loading
+            ? <Spinner size={12} />
+            : <div style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }} />
+          }
+          <Icon size={13} color={col} strokeWidth={2} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#F5F4F3', whiteSpace: 'nowrap' }}>{title}</span>
+          <span style={{
+            fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{summary}</span>
+        </div>
+        {open
+          ? <ChevronDown size={13} color="#6B7280" style={{ flexShrink: 0 }} />
+          : <ChevronRight size={13} color="#6B7280" style={{ flexShrink: 0 }} />
         }
-        action={loading ? <Spinner size={16} /> : <StatusBadge status={status} />}
-      />
-      <CardBody>
-        {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}><Spinner /></div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            {metrics.map((m, i) => <Metric key={i} {...m} />)}
-          </div>
-        )}
-        <div style={{ marginTop: 12, fontSize: 11, color: '#8A9BAA' }}>{subtitle}</div>
-      </CardBody>
-    </Card>
+      </button>
+
+      {/* Conteúdo expansível */}
+      {open && (
+        <div style={{
+          borderTop: `1px solid ${col}22`,
+          background: 'rgba(0,15,30,0.4)',
+          padding: '10px 14px 12px',
+        }}>
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Row({ label, value, mono = false }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{
+        fontSize: 11, color: '#D1D5DB', fontFamily: mono ? 'monospace' : undefined,
+        textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>{value}</span>
+    </div>
+  )
+}
+
+function WarnNote({ children }) {
+  return (
+    <div style={{
+      fontSize: 10, color: '#F59E0B', background: 'rgba(245,158,11,0.07)',
+      border: '1px solid rgba(245,158,11,0.2)', borderRadius: 5, padding: '5px 8px', marginTop: 4,
+    }}>{children}</div>
   )
 }
 
@@ -299,10 +461,10 @@ const MOCK_CHART = [
   { data: '07/04', eventos: 1900 },
 ]
 
-function EventsChartCard({ chartData, loading }) {
+function EventsChartCard({ chartData, loading, days = 7 }) {
   return (
     <Card>
-      <CardHeader title="Eventos GA4 — últimos 7 dias" />
+      <CardHeader title={`Eventos GA4 — últimos ${days === 1 ? 'dia' : `${days} dias`}`} />
       <CardBody style={{ paddingTop: 8 }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner /></div>
@@ -400,7 +562,7 @@ function IntegrityChecklist({ ga4Data, gtmData }) {
     <Card>
       <CardHeader title="Checklist de integridade" />
       <CardBody>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
           {items.map((item, i) => (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', gap: 10,

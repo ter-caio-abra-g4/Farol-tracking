@@ -147,7 +147,7 @@ export default function SettingsPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header title="Configurações" subtitle="Conexões e preferências do Farol" />
 
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
 
         {/* Fontes de dados */}
         <Card style={{ marginBottom: 20 }}>

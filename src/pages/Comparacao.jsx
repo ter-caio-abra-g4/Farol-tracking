@@ -219,7 +219,8 @@ export default function ComparacaoPage() {
   const [lastUpdated, setLastUpdated]   = useState(null)
   const [isMock, setIsMock]             = useState(false)
 
-  async function loadAll(d) {
+  async function loadAll(d, forceRefresh = false) {
+    if (forceRefresh) await api.databricksCacheClear()
     setLoading(true)
     const [ch, mr, rv, pr, ca, fa] = await Promise.all([
       api.databricksCompareChannels(d),
@@ -292,7 +293,7 @@ export default function ComparacaoPage() {
       <Header
         title="Comparação de Fontes"
         subtitle="GA4 · Meta Ads · CRM — dados reais Databricks"
-        onRefresh={() => loadAll(days)}
+        onRefresh={() => loadAll(days, true)}
         lastUpdated={lastUpdated}
         action={
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -317,7 +318,7 @@ export default function ComparacaoPage() {
         }
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 'clamp(12px, 2vw, 24px) clamp(14px, 2.5vw, 28px)', display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 80 }}>
             <Spinner />
@@ -325,7 +326,7 @@ export default function ComparacaoPage() {
         ) : (
           <>
             {/* ── KPIs ──────────────────────────────────────────────────── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
               <KpiCard icon={Users}      label={`MQLs totais (${days}d)`}    value={fmtNum(totalMQLs)}    sub="Todas as fontes"           color="#6366F1" />
               <KpiCard icon={TrendingUp} label={`Ganhos totais (${days}d)`}  value={fmtNum(totalGanhos)}  sub={`Conv. geral: ${convGeral}%`} color="#22C55E" />
               <KpiCard icon={Zap}        label={`Gasto mídia paga (${days}d)`} value={fmtMoney(totalGasto)} sub="Meta + Google"             color="#3B82F6" />
@@ -558,7 +559,7 @@ export default function ComparacaoPage() {
                   const txMQL  = s.total_form_completados > 0 ? ((s.total_mqls              / s.total_form_completados) * 100).toFixed(1) : '—'
                   const txVnd  = s.total_mqls             > 0 ? ((s.total_vendas             / s.total_mqls)             * 100).toFixed(1) : '—'
                   return (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
                       {[
                         { label: 'Forms iniciados',   value: fmtNum(s.total_form_iniciados),   color: '#9CA3AF' },
                         { label: 'Forms completados', value: fmtNum(s.total_form_completados), sub: `${txConc}% conclusão`, color: '#6366F1' },

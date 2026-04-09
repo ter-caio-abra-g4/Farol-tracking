@@ -10,6 +10,7 @@ import {
   Tooltip, ResponsiveContainer, Legend, Cell,
 } from 'recharts'
 import { ChevronDown, ChevronRight, TrendingDown } from 'lucide-react'
+import PeriodSelect from '../components/ui/PeriodSelect'
 
 export default function GA4Page() {
   const { ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
@@ -21,7 +22,7 @@ export default function GA4Page() {
   const [sourceMedium, setSourceMedium] = useState(null)
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
-  const [days, setDays]               = useState(28)
+  const [days, setDays]               = useState(30)
 
   async function loadData(propId, d) {
     setLoading(true)
@@ -81,33 +82,10 @@ export default function GA4Page() {
         subtitle="Eventos e métricas das propriedades"
         onRefresh={() => loadData(selectedGA4, days)}
         lastUpdated={lastUpdated}
+        action={<PeriodSelect value={days} onChange={setDays} />}
       />
 
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-
-        {/* ── Controles ── */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 16, gap: 8 }}>
-          <span style={{ fontSize: 12, color: '#8A9BAA' }}>Período:</span>
-          {[7, 28, 90].map(d => (
-            <button
-              key={d}
-              onClick={() => setDays(d)}
-              style={{
-                padding: '4px 12px',
-                borderRadius: 6,
-                border: `1px solid ${days === d ? '#B9915B' : 'rgba(185,145,91,0.3)'}`,
-                background: days === d ? 'rgba(185,145,91,0.15)' : 'transparent',
-                color: days === d ? '#B9915B' : '#8A9BAA',
-                fontSize: 12,
-                fontWeight: days === d ? 700 : 400,
-                cursor: 'pointer',
-                fontFamily: 'Manrope, sans-serif',
-              }}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
+      <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
 
         {/* ── Cards de propriedades ── */}
         <div style={{

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, screen } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -19,12 +19,25 @@ async function startApiServer() {
   }
 }
 
+// Guarda bounds da janela antes de maximizar para restaurar depois
+let restoredBounds = null
+
 function createWindow() {
+  const { workArea } = screen.getPrimaryDisplay()
+
+  // Tamanho inicial = 2/3 da workArea centralizado (será maximizado logo depois)
+  const initW = Math.round(workArea.width  * (2 / 3))
+  const initH = Math.round(workArea.height * (2 / 3))
+  const initX = workArea.x + Math.round((workArea.width  - initW) / 2)
+  const initY = workArea.y + Math.round((workArea.height - initH) / 2)
+
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 700,
+    x: initX,
+    y: initY,
+    width: initW,
+    height: initH,
+    minWidth: 800,
+    minHeight: 600,
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#031A26',
@@ -35,6 +48,21 @@ function createWindow() {
     },
     icon: path.join(__dirname, '..', 'src', 'assets', 'icon.png'),
   })
+
+  // Abre já maximizado — o maximize() nativo respeita taskbar e snap do Windows
+  mainWindow.maximize()
+
+  // Notifica o renderer quando o estado muda (maximizado vs janela)
+  const emitWindowState = () => {
+    if (!mainWindow) return
+    mainWindow.webContents.send(
+      'window-state',
+      mainWindow.isMaximized() ? 'maximized' : 'normal'
+    )
+  }
+  mainWindow.on('maximize',   emitWindowState)
+  mainWindow.on('unmaximize', emitWindowState)
+  mainWindow.on('restore',    emitWindowState)
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5175')
@@ -52,8 +80,28 @@ function createWindow() {
 // IPC: window controls
 ipcMain.on('window-minimize', () => mainWindow?.minimize())
 ipcMain.on('window-maximize', () => {
-  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
-  else mainWindow?.maximize()
+  if (!mainWindow) return
+  const { workArea } = screen.getPrimaryDisplay()
+
+  if (mainWindow.isMaximized()) {
+    // Restaura para bounds guardados ou 2/3 centralizado como fallback
+    if (restoredBounds) {
+      mainWindow.unmaximize()
+      mainWindow.setBounds(restoredBounds, true)
+    } else {
+      const w = Math.round(workArea.width  * (2 / 3))
+      const h = Math.round(workArea.height * (2 / 3))
+      const x = workArea.x + Math.round((workArea.width  - w) / 2)
+      const y = workArea.y + Math.round((workArea.height - h) / 2)
+      mainWindow.unmaximize()
+      mainWindow.setBounds({ x, y, width: w, height: h }, true)
+    }
+    restoredBounds = null
+  } else {
+    // Salva bounds atuais antes de maximizar
+    restoredBounds = mainWindow.getBounds()
+    mainWindow.maximize()
+  }
 })
 ipcMain.on('window-close', () => mainWindow?.close())
 

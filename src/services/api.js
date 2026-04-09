@@ -48,6 +48,8 @@ export const api = {
   ga4SourceMedium: (propertyId, days = 28) => get(`/api/ga4/source-medium/${propertyId}?days=${days}`, { mock: true, rows: [] }),
 
   // Databricks
+  databricksCacheClear: () => post('/api/databricks/cache-clear', {}),
+  databricksExecutiveSummary: () => get('/api/databricks/executive-summary', { mock: true }),
   databricksStatus: () => get('/api/databricks/status', { mock: true }),
   databricksTables: () => get('/api/databricks/tables', { mock: true, tables: [] }),
   databricksPreview: (tableName) => get(`/api/databricks/preview?table=${encodeURIComponent(tableName)}`, { mock: true, columns: [], rows: [] }),
@@ -55,6 +57,7 @@ export const api = {
   databricksFunnelLostReasons: (days = 30) => get(`/api/databricks/funnel/lost-reasons?days=${days}`, { mock: true, reasons: [] }),
   databricksFunnelProducts: (days = 30) => get(`/api/databricks/funnel/products?days=${days}`, { mock: true, products: [] }),
   databricksFunnelTrend: (days = 30) => get(`/api/databricks/funnel/trend?days=${days}`, { mock: true, trend: [] }),
+  databricksFunnelOrganicVsPaid: (days = 30) => get(`/api/databricks/funnel/organic-vs-paid?days=${days}`, { mock: true, sources: [], totals: {} }),
 
   // Comparação GA4 × Meta × CRM
   databricksCompareChannels: (days = 30) => get(`/api/databricks/compare/channels?days=${days}`, { mock: true, channels: [] }),

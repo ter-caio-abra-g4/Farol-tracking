@@ -80,6 +80,7 @@ export default function App() {
             <main
               style={{
                 flex: 1,
+                minWidth: 0,       // evita que flex item estoure o container
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',

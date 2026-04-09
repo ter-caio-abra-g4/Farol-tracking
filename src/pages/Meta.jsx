@@ -9,6 +9,7 @@ import {
   RadialBarChart, RadialBar,
 } from 'recharts'
 import { Settings, X, Eye, EyeOff, Save, ChevronRight } from 'lucide-react'
+import PeriodSelect from '../components/ui/PeriodSelect'
 
 const QUALITY_COLOR = {
   Excelente: '#22C55E',
@@ -61,7 +62,6 @@ export default function MetaPage() {
     loadData()
   }, [])
 
-  // Recarrega volume quando days muda
   useEffect(() => {
     api.metaVolume(volumeDays).then(r => setVolume(r))
   }, [volumeDays])
@@ -97,24 +97,28 @@ export default function MetaPage() {
         onRefresh={() => { loadPixels(); loadData() }}
         lastUpdated={lastUpdated}
         action={
-          <button
-            onClick={() => setShowModal(true)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 14px', borderRadius: 6,
-              border: '1px solid rgba(185,145,91,0.4)',
-              background: 'rgba(185,145,91,0.08)',
-              color: '#B9915B', fontSize: 12, fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
-            }}
-          >
-            <Settings size={13} />
-            Configurar
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <PeriodSelect value={volumeDays} onChange={setVolumeDays} />
+            <div style={{ width: 1, height: 18, background: 'rgba(185,145,91,0.2)' }} />
+            <button
+              onClick={() => setShowModal(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '4px 12px', borderRadius: 6,
+                border: '1px solid rgba(185,145,91,0.4)',
+                background: 'rgba(185,145,91,0.08)',
+                color: '#B9915B', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+              }}
+            >
+              <Settings size={13} />
+              Configurar
+            </button>
+          </div>
         }
       />
 
-      <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
 
         {/* Mock warning */}
         {isMock && !loading && (

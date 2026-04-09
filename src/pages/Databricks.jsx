@@ -78,7 +78,7 @@ export default function DatabricksPage() {
         }
       />
 
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 24, gap: 16 }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 'clamp(12px, 2vw, 24px)', gap: 16, minWidth: 0 }}>
 
         {/* Alerta de expiração */}
         {tokenExpiring && !loading && (

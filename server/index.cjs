@@ -282,6 +282,23 @@ app.get('/api/databricks/funnel/trend', async (req, res) => {
   }
 })
 
+app.get('/api/databricks/executive-summary', async (req, res) => {
+  try { res.json(await databricksService.getExecutiveSummary()) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message }) }
+})
+
+// Invalida todo o cache Databricks (chamado pelo botão Refresh do front)
+app.post('/api/databricks/cache-clear', (req, res) => {
+  databricksService.clearCache()
+  res.json({ ok: true, ts: Date.now() })
+})
+
+app.get('/api/databricks/funnel/organic-vs-paid', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getOrganicVsPaid(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, sources: [], totals: {} }) }
+})
+
 // ─── Comparação GA4 × Meta × CRM ──────────────────────────────────────────
 app.get('/api/databricks/compare/channels', async (req, res) => {
   const days = parseInt(req.query.days) || 30

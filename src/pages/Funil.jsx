@@ -83,28 +83,44 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 // ─── Componente principal ────────────────────────────────────────────────────
+// Cores fixas por fonte
+const SOURCE_COLORS = {
+  facebook: '#1877F2', google: '#EA4335', instagram: '#E1306C',
+  hubspot: '#FF7A59', produto: '#14B8A6', prospeccao: '#8B5CF6',
+  whatsapp: '#25D366', youtube: '#FF0000', tiktok: '#010101',
+  linkedin: '#0A66C2', 'tiktok-ads': '#69C9D0', 'youtube-ads': '#FF0000',
+  'linkedin-ads': '#0A66C2',
+}
+function sourceColor(fonte) {
+  return SOURCE_COLORS[fonte?.toLowerCase()] || '#6366F1'
+}
+
 export default function FunilPage() {
   const [days, setDays]               = useState(30)
   const [stages, setStages]           = useState(null)
   const [lostReasons, setLostReasons] = useState(null)
   const [products, setProducts]       = useState(null)
   const [trend, setTrend]             = useState(null)
+  const [ovp, setOvp]                 = useState(null)   // organic vs paid
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [isMock, setIsMock]           = useState(false)
 
-  async function loadAll(d) {
+  async function loadAll(d, forceRefresh = false) {
+    if (forceRefresh) await api.databricksCacheClear()
     setLoading(true)
-    const [s, l, p, t] = await Promise.all([
+    const [s, l, p, t, o] = await Promise.all([
       api.databricksFunnelStages(d),
       api.databricksFunnelLostReasons(d),
       api.databricksFunnelProducts(d),
       api.databricksFunnelTrend(d),
+      api.databricksFunnelOrganicVsPaid(d),
     ])
     setStages(s)
     setLostReasons(l)
     setProducts(p)
     setTrend(t)
+    setOvp(o)
     setIsMock(!!(s?.mock || p?.mock))
     setLastUpdated(new Date())
     setLoading(false)
@@ -180,7 +196,7 @@ export default function FunilPage() {
               ))}
             </div>
             <button
-              onClick={() => loadAll(days)}
+              onClick={() => loadAll(days, true)}
               style={{
                 background: '#1A1B23', border: '1px solid rgba(255,255,255,0.1)',
                 color: '#9CA3AF', borderRadius: 8, padding: '6px 14px',
@@ -191,7 +207,7 @@ export default function FunilPage() {
         }
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: 'clamp(12px, 2vw, 24px) clamp(14px, 2.5vw, 28px)', display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 }}>
 
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 80 }}>
@@ -200,7 +216,7 @@ export default function FunilPage() {
         ) : (
           <>
             {/* ── KPIs ─────────────────────────────────────────────────── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
               <KpiCard
                 icon={Users}
                 label={`MQLs (${days}d)`}
@@ -365,6 +381,234 @@ export default function FunilPage() {
                 </CardBody>
               </Card>
             </div>
+
+            {/* ── Orgânico vs Pago ──────────────────────────────────── */}
+            {(() => {
+              const totais = ovp?.totals || {}
+              const pago   = totais['Pago']           || { mqls: 0, ganhos: 0, receita: 0, conv_pct: 0 }
+              const org    = totais['Orgânico']        || { mqls: 0, ganhos: 0, receita: 0, conv_pct: 0 }
+              const direto = totais['Direto/Sem UTM']  || { mqls: 0, ganhos: 0, receita: 0, conv_pct: 0 }
+
+              const fontesPagas = (ovp?.sources || []).filter(s => s.canal === 'Pago').slice(0, 8)
+              const fontesOrg   = (ovp?.sources || []).filter(s => s.canal === 'Orgânico').slice(0, 8)
+
+              const chartPago = fontesPagas.map(s => ({ name: s.fonte, Pago: s.mqls, conv: s.conv_pct }))
+              const chartOrg  = fontesOrg.map(s => ({ name: s.fonte, Orgânico: s.mqls, conv: s.conv_pct }))
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Cabeçalho da seção */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 3, height: 20, background: '#6366F1', borderRadius: 2 }} />
+                    <span style={{ color: '#F9FAFB', fontWeight: 700, fontSize: 15 }}>Atribuição por Canal</span>
+                    <span style={{ color: '#6B7280', fontSize: 13 }}>last-touch UTM do MQL — {days}d</span>
+                  </div>
+
+                  {/* Aviso de limitação */}
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)',
+                    borderRadius: 8, padding: '10px 14px', fontSize: 12,
+                  }}>
+                    <span style={{ color: '#F59E0B', flexShrink: 0, marginTop: 1 }}>⚠</span>
+                    <span style={{ color: '#D1D5DB' }}>
+                      <strong style={{ color: '#FCD34D' }}>Atribuição last-touch:</strong> canal capturado no momento do preenchimento do formulário (último UTM antes do form submit).
+                      Leads sem UTM são classificados como <strong>Direto/Sem UTM</strong> — podem incluir tráfego orgânico não rastreado, digitação direta, dark social ou ligação/contato direto.
+                      Para jornada completa, é necessário capturar <code style={{ color: '#A5B4FC' }}>ga_client_id</code> no form.
+                    </span>
+                  </div>
+
+                  {/* KPIs — 3 cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+                    {/* Pago */}
+                    <div style={{
+                      background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(99,102,241,0.03) 100%)',
+                      border: '1px solid rgba(99,102,241,0.25)', borderRadius: 12, padding: '18px 20px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                        <span style={{ background: '#6366F1', color: '#fff', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>PAGO</span>
+                        <span style={{ color: '#6B7280', fontSize: 11 }}>utm_medium = cpc</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                        {[
+                          { label: 'MQLs',    value: fmtNum(pago.mqls),         color: '#6366F1' },
+                          { label: 'Ganhos',  value: fmtNum(pago.ganhos),        color: '#22C55E' },
+                          { label: 'Conv%',   value: `${pago.conv_pct ?? 0}%`,   color: '#F59E0B' },
+                          { label: 'Receita', value: fmtMoney(pago.receita),     color: '#14B8A6' },
+                        ].map(k => (
+                          <div key={k.label} style={{ textAlign: 'center', background: 'rgba(0,0,0,0.15)', borderRadius: 8, padding: '8px 4px' }}>
+                            <div style={{ color: k.color, fontSize: 18, fontWeight: 700 }}>{k.value}</div>
+                            <div style={{ color: '#6B7280', fontSize: 10, marginTop: 2 }}>{k.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Orgânico */}
+                    <div style={{
+                      background: 'linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(34,197,94,0.03) 100%)',
+                      border: '1px solid rgba(34,197,94,0.25)', borderRadius: 12, padding: '18px 20px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                        <span style={{ background: '#22C55E', color: '#fff', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>ORGÂNICO</span>
+                        <span style={{ color: '#6B7280', fontSize: 11 }}>com UTM, sem cpc</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                        {[
+                          { label: 'MQLs',    value: fmtNum(org.mqls),          color: '#6366F1' },
+                          { label: 'Ganhos',  value: fmtNum(org.ganhos),         color: '#22C55E' },
+                          { label: 'Conv%',   value: `${org.conv_pct ?? 0}%`,    color: '#F59E0B' },
+                          { label: 'Receita', value: fmtMoney(org.receita),      color: '#14B8A6' },
+                        ].map(k => (
+                          <div key={k.label} style={{ textAlign: 'center', background: 'rgba(0,0,0,0.15)', borderRadius: 8, padding: '8px 4px' }}>
+                            <div style={{ color: k.color, fontSize: 18, fontWeight: 700 }}>{k.value}</div>
+                            <div style={{ color: '#6B7280', fontSize: 10, marginTop: 2 }}>{k.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Direto / Sem UTM */}
+                    <div style={{
+                      background: 'linear-gradient(135deg, rgba(107,114,128,0.08) 0%, rgba(107,114,128,0.03) 100%)',
+                      border: '1px solid rgba(107,114,128,0.25)', borderRadius: 12, padding: '18px 20px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                        <span style={{ background: '#6B7280', color: '#fff', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>DIRETO</span>
+                        <span style={{ color: '#6B7280', fontSize: 11 }}>sem UTM / não rastreado</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                        {[
+                          { label: 'MQLs',    value: fmtNum(direto.mqls),        color: '#6366F1' },
+                          { label: 'Ganhos',  value: fmtNum(direto.ganhos),       color: '#22C55E' },
+                          { label: 'Conv%',   value: `${direto.conv_pct ?? 0}%`,  color: '#F59E0B' },
+                          { label: 'Receita', value: fmtMoney(direto.receita),    color: '#14B8A6' },
+                        ].map(k => (
+                          <div key={k.label} style={{ textAlign: 'center', background: 'rgba(0,0,0,0.15)', borderRadius: 8, padding: '8px 4px' }}>
+                            <div style={{ color: k.color, fontSize: 18, fontWeight: 700 }}>{k.value}</div>
+                            <div style={{ color: '#6B7280', fontSize: 10, marginTop: 2 }}>{k.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gráficos de barras por fonte */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    {/* Fontes pagas */}
+                    <Card>
+                      <CardHeader title="Fontes Pagas" subtitle="MQLs por fonte (utm_medium = cpc)" />
+                      <CardBody>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={chartPago} layout="vertical" margin={{ top: 0, right: 50, left: 10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                            <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <YAxis type="category" dataKey="name" tick={{ fill: '#D1D5DB', fontSize: 12 }} width={80} axisLine={false} tickLine={false} />
+                            <Tooltip content={({ active, payload, label }) => {
+                              if (!active || !payload?.length) return null
+                              const d = payload[0]?.payload
+                              return (
+                                <div style={{ background: '#1E1F2A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+                                  <div style={{ color: '#F9FAFB', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+                                  <div style={{ color: '#6366F1' }}>MQLs: {fmtNum(d?.Pago)}</div>
+                                  <div style={{ color: '#F59E0B' }}>Conv%: {d?.conv}%</div>
+                                </div>
+                              )
+                            }} />
+                            <Bar dataKey="Pago" name="MQLs" radius={[0, 4, 4, 0]}>
+                              {chartPago.map((entry, i) => (
+                                <Cell key={i} fill={sourceColor(entry.name)} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+
+                    {/* Fontes orgânicas */}
+                    <Card>
+                      <CardHeader title="Fontes Orgânicas" subtitle="MQLs por fonte (social, email, whatsapp…)" />
+                      <CardBody>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={chartOrg} layout="vertical" margin={{ top: 0, right: 50, left: 10, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                            <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <YAxis type="category" dataKey="name" tick={{ fill: '#D1D5DB', fontSize: 12 }} width={80} axisLine={false} tickLine={false} />
+                            <Tooltip content={({ active, payload, label }) => {
+                              if (!active || !payload?.length) return null
+                              const d = payload[0]?.payload
+                              return (
+                                <div style={{ background: '#1E1F2A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+                                  <div style={{ color: '#F9FAFB', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+                                  <div style={{ color: '#22C55E' }}>MQLs: {fmtNum(d?.Orgânico)}</div>
+                                  <div style={{ color: '#F59E0B' }}>Conv%: {d?.conv}%</div>
+                                </div>
+                              )
+                            }} />
+                            <Bar dataKey="Orgânico" name="MQLs" radius={[0, 4, 4, 0]}>
+                              {chartOrg.map((entry, i) => (
+                                <Cell key={i} fill={sourceColor(entry.name)} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+                  </div>
+
+                  {/* Tabela detalhada de fontes */}
+                  <Card>
+                    <CardHeader title="Detalhamento por Fonte" subtitle="MQL · Ganhos · Conv% · Receita" />
+                    <CardBody>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                              {['Canal','Fonte','MQLs','Ganhos','Conv%','Receita'].map(h => (
+                                <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Canal' || h === 'Fonte' ? 'left' : 'right', color: '#9CA3AF', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(ovp?.sources || []).slice(0, 15).map((s, i) => (
+                              <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                <td style={{ padding: '8px 12px' }}>
+                                  <span style={{
+                                    background: s.canal === 'Pago'
+                                      ? 'rgba(99,102,241,0.15)'
+                                      : s.canal === 'Orgânico'
+                                        ? 'rgba(34,197,94,0.12)'
+                                        : 'rgba(107,114,128,0.18)',
+                                    color: s.canal === 'Pago'
+                                      ? '#818CF8'
+                                      : s.canal === 'Orgânico'
+                                        ? '#4ADE80'
+                                        : '#9CA3AF',
+                                    borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700,
+                                  }}>{s.canal === 'Direto/Sem UTM' ? 'Direto' : s.canal}</span>
+                                </td>
+                                <td style={{ padding: '8px 12px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: sourceColor(s.fonte), flexShrink: 0 }} />
+                                    <span style={{ color: '#D1D5DB' }}>{s.fonte}</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: '#A5B4FC', fontWeight: 600 }}>{fmtNum(s.mqls)}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: '#4ADE80' }}>{fmtNum(s.ganhos)}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: s.conv_pct >= 10 ? '#4ADE80' : s.conv_pct >= 5 ? '#FCD34D' : '#F87171' }}>
+                                  {s.conv_pct ? `${s.conv_pct}%` : '—'}
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', color: '#9CA3AF' }}>{fmtMoney(s.receita)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardBody>
+                  </Card>
+                </div>
+              )
+            })()}
 
             {/* ── Nota de fonte ─────────────────────────────────────── */}
             <div style={{

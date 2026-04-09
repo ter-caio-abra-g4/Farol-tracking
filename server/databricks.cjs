@@ -7,6 +7,29 @@
 const fetch = require('node-fetch')
 const { loadConfig } = require('./config.cjs')
 
+// ─── Cache em memória — TTL 5 minutos ────────────────────────────────────────
+const CACHE_TTL_MS = 5 * 60 * 1000   // 5 min
+const _cache = new Map()
+
+function cacheGet(key) {
+  const entry = _cache.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.ts > CACHE_TTL_MS) { _cache.delete(key); return null }
+  return entry.value
+}
+function cacheSet(key, value) { _cache.set(key, { value, ts: Date.now() }) }
+function cacheClear(key) {
+  if (key) { _cache.delete(key) } else { _cache.clear() }
+}
+// Wrapper: se há cache válido retorna direto; senão executa fn() e armazena
+async function withCache(key, fn) {
+  const hit = cacheGet(key)
+  if (hit !== null) return hit
+  const result = await fn()
+  cacheSet(key, result)
+  return result
+}
+
 function getCredentials() {
   const cfg = loadConfig()
   const db = cfg.databricks ?? {}
@@ -632,6 +655,158 @@ async function getTopCampaigns(days = 30) {
   }
 }
 
+// ─── Resumo Executivo: KPIs do dia para o Dashboard ──────────────────────────
+async function getExecutiveSummary() {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, ...getMockExecutiveSummary() }
+  try {
+    const data = await executeStatement(
+      `SELECT
+         -- Hoje
+         SUM(CASE WHEN DATE(event_at) = CURRENT_DATE AND event = 'mql'  THEN 1 ELSE 0 END) AS mqls_hoje,
+         SUM(CASE WHEN DATE(event_at) = CURRENT_DATE AND event = 'won'  THEN 1 ELSE 0 END) AS ganhos_hoje,
+         SUM(CASE WHEN DATE(event_at) = CURRENT_DATE AND event = 'lost' THEN 1 ELSE 0 END) AS perdidos_hoje,
+         -- Ontem
+         SUM(CASE WHEN DATE(event_at) = CURRENT_DATE - INTERVAL 1 DAY AND event = 'mql'  THEN 1 ELSE 0 END) AS mqls_ontem,
+         SUM(CASE WHEN DATE(event_at) = CURRENT_DATE - INTERVAL 1 DAY AND event = 'won'  THEN 1 ELSE 0 END) AS ganhos_ontem,
+         -- Semana (7d)
+         SUM(CASE WHEN event_at >= CAST(CURRENT_DATE - INTERVAL 7 DAYS AS STRING) AND event = 'mql'  THEN 1 ELSE 0 END) AS mqls_7d,
+         SUM(CASE WHEN event_at >= CAST(CURRENT_DATE - INTERVAL 7 DAYS AS STRING) AND event = 'won'  THEN 1 ELSE 0 END) AS ganhos_7d,
+         -- Semana anterior (7d-14d para comparar)
+         SUM(CASE WHEN event_at >= CAST(CURRENT_DATE - INTERVAL 14 DAYS AS STRING)
+                   AND event_at <  CAST(CURRENT_DATE - INTERVAL 7  DAYS AS STRING)
+                   AND event = 'mql'  THEN 1 ELSE 0 END) AS mqls_semana_ant,
+         SUM(CASE WHEN event_at >= CAST(CURRENT_DATE - INTERVAL 14 DAYS AS STRING)
+                   AND event_at <  CAST(CURRENT_DATE - INTERVAL 7  DAYS AS STRING)
+                   AND event = 'won'  THEN 1 ELSE 0 END) AS ganhos_semana_ant,
+         -- Receita 7d
+         ROUND(SUM(CASE WHEN event_at >= CAST(CURRENT_DATE - INTERVAL 7 DAYS AS STRING)
+                         AND event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END), 0) AS receita_7d,
+         ROUND(SUM(CASE WHEN event_at >= CAST(CURRENT_DATE - INTERVAL 14 DAYS AS STRING)
+                         AND event_at <  CAST(CURRENT_DATE - INTERVAL 7  DAYS AS STRING)
+                         AND event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END), 0) AS receita_semana_ant
+       FROM production.diamond.funil_marketing
+       WHERE event_at >= CAST(CURRENT_DATE - INTERVAL 14 DAYS AS STRING)
+         AND event IN ('mql','won','lost')`, 35
+    )
+    const { rows } = parseResult(data)
+    const r = rows[0] || {}
+    const mqls_hoje       = parseInt(r.mqls_hoje)       || 0
+    const ganhos_hoje     = parseInt(r.ganhos_hoje)     || 0
+    const mqls_ontem      = parseInt(r.mqls_ontem)      || 0
+    const ganhos_ontem    = parseInt(r.ganhos_ontem)    || 0
+    const mqls_7d         = parseInt(r.mqls_7d)         || 0
+    const ganhos_7d       = parseInt(r.ganhos_7d)       || 0
+    const mqls_ant        = parseInt(r.mqls_semana_ant) || 0
+    const ganhos_ant      = parseInt(r.ganhos_semana_ant) || 0
+    const receita_7d      = parseFloat(r.receita_7d)    || 0
+    const receita_ant     = parseFloat(r.receita_semana_ant) || 0
+
+    const conv_7d  = mqls_7d  > 0 ? parseFloat(((ganhos_7d  / mqls_7d)  * 100).toFixed(1)) : 0
+    const conv_ant = mqls_ant > 0 ? parseFloat(((ganhos_ant / mqls_ant) * 100).toFixed(1)) : 0
+
+    // Deltas (absoluto)
+    const delta_mqls    = mqls_hoje - mqls_ontem
+    const delta_ganhos  = ganhos_hoje - ganhos_ontem
+    const delta_conv    = parseFloat((conv_7d - conv_ant).toFixed(1))
+    const delta_receita = receita_7d - receita_ant
+
+    return {
+      mock: false,
+      mqls_hoje, mqls_ontem, delta_mqls,
+      ganhos_hoje, ganhos_ontem, delta_ganhos,
+      conv_7d, conv_ant, delta_conv,
+      receita_7d, receita_ant, delta_receita,
+      mqls_7d, ganhos_7d,
+    }
+  } catch (err) {
+    console.error('[Databricks] getExecutiveSummary error:', err.message)
+    return { mock: true, error: err.message, ...getMockExecutiveSummary() }
+  }
+}
+
+function getMockExecutiveSummary() {
+  return {
+    mqls_hoje: 146, mqls_ontem: 741, delta_mqls: -595,
+    ganhos_hoje: 15, ganhos_ontem: 79, delta_ganhos: -64,
+    conv_7d: 7.0, conv_ant: 6.2, delta_conv: 0.8,
+    receita_7d: 4744621, receita_ant: 3980000, delta_receita: 764621,
+    mqls_7d: 5768, ganhos_7d: 402,
+  }
+}
+
+// ─── Orgânico vs Pago: funil completo por fonte ──────────────────────────────
+async function getOrganicVsPaid(days = 30) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, sources: getMockOrganicVsPaid() }
+  try {
+    const data = await executeStatement(
+      `SELECT
+         CASE
+           WHEN utm_medium = 'cpc'                        THEN 'Pago'
+           WHEN utm_source IS NULL
+             OR utm_source IN ('null','','(direct)')      THEN 'Direto/Sem UTM'
+           ELSE 'Orgânico'
+         END AS canal,
+         COALESCE(utm_source, '(direto)') AS fonte,
+         SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) AS mqls,
+         SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) AS ganhos,
+         SUM(CASE WHEN event = 'lost' THEN 1 ELSE 0 END) AS perdidos,
+         ROUND(SUM(CASE WHEN event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END), 0) AS receita,
+         ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
+           NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) AS conv_pct
+       FROM production.diamond.funil_marketing
+       WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+         AND event IN ('mql','won','lost')
+       GROUP BY 1, 2
+       ORDER BY mqls DESC
+       LIMIT 35`, 35
+    )
+    const { rows } = parseResult(data)
+    const sources = rows.map(r => ({
+      canal:    r.canal,
+      fonte:    r.fonte,
+      mqls:     parseInt(r.mqls)      || 0,
+      ganhos:   parseInt(r.ganhos)    || 0,
+      perdidos: parseInt(r.perdidos)  || 0,
+      receita:  parseFloat(r.receita) || 0,
+      conv_pct: parseFloat(r.conv_pct) || 0,
+    }))
+
+    // Totais agregados por canal (3 buckets)
+    const totals = {
+      'Pago':          { mqls: 0, ganhos: 0, receita: 0 },
+      'Orgânico':      { mqls: 0, ganhos: 0, receita: 0 },
+      'Direto/Sem UTM':{ mqls: 0, ganhos: 0, receita: 0 },
+    }
+    sources.forEach(s => {
+      const t = totals[s.canal]
+      if (t) { t.mqls += s.mqls; t.ganhos += s.ganhos; t.receita += s.receita }
+    })
+    Object.keys(totals).forEach(k => {
+      totals[k].conv_pct = totals[k].mqls > 0
+        ? parseFloat(((totals[k].ganhos / totals[k].mqls) * 100).toFixed(1)) : 0
+    })
+
+    return { mock: false, days, sources, totals }
+  } catch (err) {
+    console.error('[Databricks] getOrganicVsPaid error:', err.message)
+    return { mock: true, error: err.message, sources: getMockOrganicVsPaid(), totals: {} }
+  }
+}
+
+function getMockOrganicVsPaid() {
+  return [
+    { canal: 'Pago',           fonte: 'facebook',   mqls: 9941, ganhos: 995, perdidos: 6890, receita: 4011332, conv_pct: 10.0 },
+    { canal: 'Pago',           fonte: 'google',     mqls: 2038, ganhos: 150, perdidos: 2427, receita: 848092,  conv_pct: 7.4  },
+    { canal: 'Orgânico',       fonte: 'instagram',  mqls: 3262, ganhos: 146, perdidos: 4008, receita: 3670210, conv_pct: 4.5  },
+    { canal: 'Orgânico',       fonte: 'hubspot',    mqls: 2835, ganhos: 283, perdidos: 2427, receita: 2446839, conv_pct: 10.0 },
+    { canal: 'Orgânico',       fonte: 'produto',    mqls: 940,  ganhos: 73,  perdidos: 1109, receita: 8558089, conv_pct: 7.8  },
+    { canal: 'Orgânico',       fonte: 'prospeccao', mqls: 563,  ganhos: 125, perdidos: 447,  receita: 3851799, conv_pct: 22.2 },
+    { canal: 'Direto/Sem UTM', fonte: '(direto)',   mqls: 1705, ganhos: 120, perdidos: 980,  receita: 890000,  conv_pct: 7.0  },
+  ]
+}
+
 // ─── Atribuição: Form → Lead → MQL → Venda ────────────────────────────────────
 // Funil completo de formulário até venda, com internal_ref quando disponível
 async function getFormAttribution(days = 30) {
@@ -775,9 +950,43 @@ function getMockCampaigns() {
   ]
 }
 
+// ─── Wrappers cacheados ───────────────────────────────────────────────────────
+// Chaves determinísticas por função + parâmetros relevantes
+const cached = {
+  getStatus:              ()       => withCache('status',              getStatus),
+  getExecutiveSummary:    ()       => withCache('executive-summary',   getExecutiveSummary),
+  getFunnelStages:        (d)      => withCache(`funnel-stages:${d}`,  () => getFunnelStages(d)),
+  getLostReasons:         (d)      => withCache(`lost-reasons:${d}`,   () => getLostReasons(d)),
+  getTopProducts:         (d)      => withCache(`top-products:${d}`,   () => getTopProducts(d)),
+  getMarketingFunnel:     (d)      => withCache(`mkt-funnel:${d}`,     () => getMarketingFunnel(d)),
+  getFunnelTrend:         (d)      => withCache(`funnel-trend:${d}`,   () => getFunnelTrend(d)),
+  getOrganicVsPaid:       (d)      => withCache(`organic-paid:${d}`,   () => getOrganicVsPaid(d)),
+  getCompareByChannel:    (d)      => withCache(`cmp-channel:${d}`,    () => getCompareByChannel(d)),
+  getMediaROI:            (d)      => withCache(`media-roi:${d}`,      () => getMediaROI(d)),
+  getRevenueByChannel:    (d)      => withCache(`rev-channel:${d}`,    () => getRevenueByChannel(d)),
+  getConversionByProfile: (d)      => withCache(`conv-profile:${d}`,   () => getConversionByProfile(d)),
+  getTopCampaigns:        (d)      => withCache(`top-campaigns:${d}`,  () => getTopCampaigns(d)),
+  getFormAttribution:     (d)      => withCache(`form-attr:${d}`,      () => getFormAttribution(d)),
+}
+
 module.exports = {
-  getStatus, listTables, previewTable,
-  getFunnelStages, getLostReasons, getTopProducts, getMarketingFunnel, getFunnelTrend,
-  getCompareByChannel, getMediaROI, getRevenueByChannel, getConversionByProfile, getTopCampaigns,
-  getFormAttribution,
+  // Versões cacheadas (uso normal)
+  getStatus:              cached.getStatus,
+  getExecutiveSummary:    cached.getExecutiveSummary,
+  getFunnelStages:        cached.getFunnelStages,
+  getLostReasons:         cached.getLostReasons,
+  getTopProducts:         cached.getTopProducts,
+  getMarketingFunnel:     cached.getMarketingFunnel,
+  getFunnelTrend:         cached.getFunnelTrend,
+  getOrganicVsPaid:       cached.getOrganicVsPaid,
+  getCompareByChannel:    cached.getCompareByChannel,
+  getMediaROI:            cached.getMediaROI,
+  getRevenueByChannel:    cached.getRevenueByChannel,
+  getConversionByProfile: cached.getConversionByProfile,
+  getTopCampaigns:        cached.getTopCampaigns,
+  getFormAttribution:     cached.getFormAttribution,
+  // Sem cache (listagem/preview sempre frescos)
+  listTables, previewTable,
+  // Utilitário para invalidação forçada
+  clearCache: (key) => cacheClear(key),
 }
