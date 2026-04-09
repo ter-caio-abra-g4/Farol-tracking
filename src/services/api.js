@@ -72,6 +72,7 @@ export const api = {
   analyticsGetTrend:   (days = 90) => get(`/api/databricks/analytics/trend?days=${days}`,            { mock: true, trend: [], projection: [] }),
   analyticsGetJourney: (days = 30) => get(`/api/databricks/analytics/journey?days=${days}`,           { mock: true, journeys: [], totals: {} }),
   analyticsGetMedia:   (days = 90) => get(`/api/databricks/analytics/media-performance?days=${days}`, { mock: true, weekly: [], totals: [], campaigns: [], projection: [] }),
+  analyticsGetOrganic: (days = 90) => get(`/api/databricks/analytics/organic?days=${days}`, { mock: true }),
 
   // Meta
   metaPixels: () => get('/api/meta/pixels', { mock: true, pixels: [] }),

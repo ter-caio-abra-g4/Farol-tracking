@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronDown,
   LineChart,
+  Sprout,
 } from 'lucide-react'
 
 // ── Estrutura de navegação agrupada ──────────────────────────────────────────
@@ -39,6 +40,7 @@ const navGroups = [
       { to: '/funil',      icon: TrendingUp, label: 'Funil'      },
       { to: '/comparacao', icon: GitCompare, label: 'Comparação' },
       { to: '/analytics',  icon: LineChart,  label: 'Analytics'  },
+      { to: '/seo',        icon: Sprout,     label: 'Orgânico'   },
     ],
   },
   {

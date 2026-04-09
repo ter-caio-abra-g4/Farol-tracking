@@ -431,6 +431,12 @@ app.get('/api/databricks/analytics/media-performance', async (req, res) => {
   catch (err) { res.status(500).json({ mock: true, error: err.message, weekly: [], totals: [], campaigns: [], projection: [] }) }
 })
 
+app.get('/api/databricks/analytics/organic', async (req, res) => {
+  const days = parseInt(req.query.days) || 90
+  try { res.json(await databricksService.getOrganicAttribution(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message }) }
+})
+
 // ─── Start ─────────────────────────────────────────────────────────────────
 function startServer() {
   return new Promise((resolve, reject) => {

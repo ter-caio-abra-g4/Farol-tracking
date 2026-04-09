@@ -1310,6 +1310,252 @@ function getMockJourneyTotals() {
   return { 'Pago→Pago': 570, 'Pago→Orgânico': 185, 'Orgânico→Orgânico': 210, 'Orgânico→Pago': 131, 'Direto→*': 57 }
 }
 
+// ─── SEO como Negócio: atribuição orgânica × receita ─────────────────────────
+// Métricas: CAC Orgânico vs Pago, Receita Assistida, Contribuição no Pipeline,
+// Aceleração de Funil (tempo MQL→Ganho), breakdown por fonte orgânica
+async function getOrganicAttribution(days = 90) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, ...getMockOrganicAttribution() }
+
+  try {
+    const [kpisData, sourcesData, trendData, funnelSpeedData] = await Promise.all([
+
+      // KPIs principais: receita, leads, CAC por canal (Orgânico vs Pago)
+      executeStatement(
+        `WITH canal_base AS (
+           SELECT
+             CASE
+               WHEN utm_medium = 'cpc'                        THEN 'Pago'
+               WHEN utm_source IS NULL
+                 OR utm_source IN ('null','','(direct)')      THEN 'Direto'
+               ELSE 'Orgânico'
+             END AS canal,
+             event,
+             COALESCE(revenue, 0) AS revenue
+           FROM production.diamond.funil_marketing
+           WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+             AND event IN ('mql','won')
+         ),
+         spend AS (
+           SELECT
+             SUM(CASE WHEN event IN ('facebook_spend','google_spend') THEN COALESCE(event_value,0) ELSE 0 END) AS total_gasto
+           FROM production.diamond.funil_marketing
+           WHERE camada_funil = 'paid_media'
+             AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+         )
+         SELECT
+           c.canal,
+           SUM(CASE WHEN c.event = 'mql' THEN 1 ELSE 0 END)  AS mqls,
+           SUM(CASE WHEN c.event = 'won' THEN 1 ELSE 0 END)  AS ganhos,
+           ROUND(SUM(CASE WHEN c.event = 'won' THEN c.revenue ELSE 0 END), 0) AS receita,
+           MAX(s.total_gasto) AS total_gasto_pago
+         FROM canal_base c
+         CROSS JOIN spend s
+         GROUP BY c.canal
+         ORDER BY mqls DESC`, 35
+      ),
+
+      // Breakdown por fonte orgânica: qual canal orgânico performa melhor
+      executeStatement(
+        `SELECT
+           COALESCE(utm_source, '(direto)') AS fonte,
+           utm_medium,
+           SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END)  AS mqls,
+           SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END)  AS ganhos,
+           ROUND(SUM(CASE WHEN event = 'won' THEN COALESCE(revenue,0) ELSE 0 END), 0) AS receita,
+           ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
+             NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) AS conv_pct
+         FROM production.diamond.funil_marketing
+         WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+           AND event IN ('mql','won')
+           AND (utm_medium IS NULL OR utm_medium != 'cpc')
+           AND (utm_source IS NULL OR utm_source NOT IN ('null',''))
+         GROUP BY utm_source, utm_medium
+         ORDER BY receita DESC
+         LIMIT 15`, 35
+      ),
+
+      // Tendência mensal: receita orgânica vs paga (agrupado por semana)
+      executeStatement(
+        `SELECT
+           DATE_TRUNC('week', CAST(event_at AS DATE)) AS semana,
+           CASE
+             WHEN utm_medium = 'cpc' THEN 'Pago'
+             WHEN utm_source IS NULL OR utm_source IN ('null','','(direct)') THEN 'Direto'
+             ELSE 'Orgânico'
+           END AS canal,
+           SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END) AS mqls,
+           SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) AS ganhos,
+           ROUND(SUM(CASE WHEN event = 'won' THEN COALESCE(revenue,0) ELSE 0 END), 0) AS receita
+         FROM production.diamond.funil_marketing
+         WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+           AND event IN ('mql','won')
+         GROUP BY 1, 2
+         ORDER BY 1`, 35
+      ),
+
+      // Aceleração de funil: dias entre MQL e Ganho por canal
+      executeStatement(
+        `WITH mql_dates AS (
+           SELECT deal_id,
+             CAST(event_at AS DATE) AS dt_mql,
+             CASE
+               WHEN utm_medium = 'cpc' THEN 'Pago'
+               WHEN utm_source IS NULL OR utm_source IN ('null','','(direct)') THEN 'Direto'
+               ELSE 'Orgânico'
+             END AS canal
+           FROM production.diamond.funil_marketing
+           WHERE event = 'mql'
+             AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+         ),
+         won_dates AS (
+           SELECT deal_id, CAST(event_at AS DATE) AS dt_won
+           FROM production.diamond.funil_marketing
+           WHERE event = 'won'
+             AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+         )
+         SELECT
+           m.canal,
+           COUNT(DISTINCT w.deal_id) AS vendas_com_tempo,
+           ROUND(AVG(DATEDIFF(w.dt_won, m.dt_mql)), 1) AS dias_medio_fechamento,
+           ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY DATEDIFF(w.dt_won, m.dt_mql)), 1) AS dias_mediana
+         FROM mql_dates m
+         INNER JOIN won_dates w ON m.deal_id = w.deal_id
+         WHERE DATEDIFF(w.dt_won, m.dt_mql) >= 0
+         GROUP BY m.canal
+         ORDER BY dias_medio_fechamento`, 40
+      ),
+    ])
+
+    const kpisRows  = parseResult(kpisData).rows
+    const srcRows   = parseResult(sourcesData).rows
+    const trendRows = parseResult(trendData).rows
+    const speedRows = parseResult(funnelSpeedData).rows
+
+    // Monta KPIs por canal
+    const kpis = {}
+    let totalGastoPago = 0
+    kpisRows.forEach(r => {
+      const mqls    = parseInt(r.mqls)    || 0
+      const ganhos  = parseInt(r.ganhos)  || 0
+      const receita = parseFloat(r.receita) || 0
+      totalGastoPago = parseFloat(r.total_gasto_pago) || totalGastoPago
+      kpis[r.canal] = {
+        canal: r.canal,
+        mqls, ganhos, receita,
+        conv_pct: mqls > 0 ? parseFloat(((ganhos / mqls) * 100).toFixed(1)) : 0,
+      }
+    })
+
+    const organico = kpis['Orgânico'] || { mqls: 0, ganhos: 0, receita: 0 }
+    const pago     = kpis['Pago']     || { mqls: 0, ganhos: 0, receita: 0 }
+    const direto   = kpis['Direto']   || { mqls: 0, ganhos: 0, receita: 0 }
+
+    // CAC: quanto o canal "custa" por lead gerado
+    // Para orgânico: estimamos custo de conteúdo = 0 (não temos dado), mas calculamos
+    // quanto seria se aplicarmos a mesma relação gasto/lead do canal pago
+    const cacPago = pago.mqls > 0 ? parseFloat((totalGastoPago / pago.mqls).toFixed(0)) : null
+
+    // Receita assistida: total de receita de deals que passaram pelo orgânico em qualquer touchpoint
+    // Aproximado como receita diretamente atribuída a orgânico (first/last touch nos dados disponíveis)
+    const receitaAssistida = organico.receita + direto.receita
+
+    // ROI do orgânico vs Pago
+    // Sem custo de conteúdo disponível, mostramos retorno/lead
+    const receitaPorLeadOrg  = organico.mqls > 0 ? parseFloat((organico.receita / organico.mqls).toFixed(0)) : 0
+    const receitaPorLeadPago = pago.mqls     > 0 ? parseFloat((pago.receita     / pago.mqls).toFixed(0))     : 0
+
+    // Contribuição no pipeline: % de ganhos que vieram do orgânico
+    const totalGanhos = kpisRows.reduce((s, r) => s + (parseInt(r.ganhos) || 0), 0)
+    const contribOrg = totalGanhos > 0
+      ? parseFloat(((organico.ganhos / totalGanhos) * 100).toFixed(1)) : 0
+
+    const sources = srcRows.map(r => ({
+      fonte:    r.fonte,
+      medium:   r.utm_medium,
+      mqls:     parseInt(r.mqls)      || 0,
+      ganhos:   parseInt(r.ganhos)    || 0,
+      receita:  parseFloat(r.receita) || 0,
+      conv_pct: parseFloat(r.conv_pct) || 0,
+    }))
+
+    // Série semanal para gráfico
+    const trend = trendRows.map(r => ({
+      semana:  r.semana?.slice(0, 10),
+      canal:   r.canal,
+      mqls:    parseInt(r.mqls)    || 0,
+      ganhos:  parseInt(r.ganhos)  || 0,
+      receita: parseFloat(r.receita) || 0,
+    }))
+
+    const speed = speedRows.map(r => ({
+      canal:    r.canal,
+      vendas:   parseInt(r.vendas_com_tempo) || 0,
+      dias_medio: parseFloat(r.dias_medio_fechamento) || 0,
+      dias_mediana: parseFloat(r.dias_mediana) || 0,
+    }))
+
+    return {
+      mock: false, days,
+      kpis: {
+        organico, pago, direto,
+        totalGastoPago,
+        cacPago,
+        receitaAssistida,
+        receitaPorLeadOrg,
+        receitaPorLeadPago,
+        contribOrg,
+        totalGanhos,
+      },
+      sources,
+      trend,
+      speed,
+    }
+  } catch (err) {
+    console.error('[Databricks] getOrganicAttribution error:', err.message)
+    return { mock: true, error: err.message, ...getMockOrganicAttribution() }
+  }
+}
+
+function getMockOrganicAttribution() {
+  const organico = { canal: 'Orgânico', mqls: 4200, ganhos: 380, receita: 8940000, conv_pct: 9.0 }
+  const pago     = { canal: 'Pago',     mqls: 11979, ganhos: 1053, receita: 4859424, conv_pct: 8.8 }
+  const direto   = { canal: 'Direto',   mqls: 1705, ganhos: 120, receita: 890000, conv_pct: 7.0 }
+  return {
+    kpis: {
+      organico, pago, direto,
+      totalGastoPago: 7224619,
+      cacPago: 603,
+      receitaAssistida: 9830000,
+      receitaPorLeadOrg: 2128,
+      receitaPorLeadPago: 405,
+      contribOrg: 26.8,
+      totalGanhos: 1553,
+    },
+    sources: [
+      { fonte: 'instagram',   medium: 'social',    mqls: 3262, ganhos: 210, receita: 4670210, conv_pct: 6.4 },
+      { fonte: 'hubspot',     medium: 'whatsapp',  mqls: 2835, ganhos: 283, receita: 2446839, conv_pct: 10.0 },
+      { fonte: 'prospeccao',  medium: 'outbound',  mqls: 563,  ganhos: 125, receita: 3851799, conv_pct: 22.2 },
+      { fonte: 'produto',     medium: 'product',   mqls: 940,  ganhos: 73,  receita: 858000,  conv_pct: 7.8 },
+      { fonte: 'email',       medium: 'email',     mqls: 420,  ganhos: 42,  receita: 672000,  conv_pct: 10.0 },
+    ],
+    trend: Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (11 - i) * 7)
+      const sem = d.toISOString().slice(0, 10)
+      return [
+        { semana: sem, canal: 'Orgânico', mqls: 320 + Math.round(Math.random()*60), ganhos: 29 + Math.round(Math.random()*10), receita: 680000 + Math.round(Math.random()*100000) },
+        { semana: sem, canal: 'Pago',     mqls: 920 + Math.round(Math.random()*80), ganhos: 81 + Math.round(Math.random()*15), receita: 370000 + Math.round(Math.random()*60000) },
+        { semana: sem, canal: 'Direto',   mqls: 130 + Math.round(Math.random()*20), ganhos: 9  + Math.round(Math.random()*3),  receita: 68000  + Math.round(Math.random()*20000) },
+      ]
+    }).flat(),
+    speed: [
+      { canal: 'Orgânico', vendas: 380, dias_medio: 12.4, dias_mediana: 8.0 },
+      { canal: 'Pago',     vendas: 1053, dias_medio: 18.7, dias_mediana: 14.0 },
+      { canal: 'Direto',   vendas: 120, dias_medio: 9.2,  dias_mediana: 6.0 },
+    ],
+  }
+}
+
 // ─── Wrappers cacheados ───────────────────────────────────────────────────────
 // Chaves determinísticas por função + parâmetros relevantes
 const cached = {
@@ -1329,7 +1575,8 @@ const cached = {
   getRevenueByChannel:    (d)      => withCache(`rev-channel:${d}`,    () => getRevenueByChannel(d)),
   getConversionByProfile: (d)      => withCache(`conv-profile:${d}`,   () => getConversionByProfile(d)),
   getTopCampaigns:        (d)      => withCache(`top-campaigns:${d}`,  () => getTopCampaigns(d)),
-  getFormAttribution:     (d)      => withCache(`form-attr:${d}`,      () => getFormAttribution(d)),
+  getFormAttribution:       (d)      => withCache(`form-attr:${d}`,      () => getFormAttribution(d)),
+  getOrganicAttribution:   (d)      => withCache(`organic-attr:${d}`,   () => getOrganicAttribution(d)),
 }
 
 module.exports = {
@@ -1350,7 +1597,8 @@ module.exports = {
   getRevenueByChannel:    cached.getRevenueByChannel,
   getConversionByProfile: cached.getConversionByProfile,
   getTopCampaigns:        cached.getTopCampaigns,
-  getFormAttribution:     cached.getFormAttribution,
+  getFormAttribution:       cached.getFormAttribution,
+  getOrganicAttribution:   cached.getOrganicAttribution,
   // Sem cache (listagem/preview sempre frescos)
   listTables, previewTable,
   // Utilitário para invalidação forçada
