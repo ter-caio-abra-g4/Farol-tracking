@@ -48,6 +48,7 @@ export const api = {
   ga4SourceMedium: (propertyId, days = 28) => get(`/api/ga4/source-medium/${propertyId}?days=${days}`, { mock: true, rows: [] }),
 
   // Databricks
+  databricksSetConfig: (cfg) => post('/api/databricks/config', cfg),
   databricksCacheClear: () => post('/api/databricks/cache-clear', {}),
   databricksExecutiveSummary: () => get('/api/databricks/executive-summary', { mock: true }),
   databricksStatus: () => get('/api/databricks/status', { mock: true }),
@@ -67,9 +68,18 @@ export const api = {
   databricksCompareCampaigns: (days = 30) => get(`/api/databricks/compare/campaigns?days=${days}`, { mock: true, campaigns: [] }),
   databricksFormAttribution: (days = 30) => get(`/api/databricks/compare/form-attribution?days=${days}`, { mock: true, rows: [], summary: {} }),
 
+  // Analytics
+  analyticsGetTrend:   (days = 90) => get(`/api/databricks/analytics/trend?days=${days}`,            { mock: true, trend: [], projection: [] }),
+  analyticsGetJourney: (days = 30) => get(`/api/databricks/analytics/journey?days=${days}`,           { mock: true, journeys: [], totals: {} }),
+  analyticsGetMedia:   (days = 90) => get(`/api/databricks/analytics/media-performance?days=${days}`, { mock: true, weekly: [], totals: [], campaigns: [], projection: [] }),
+
   // Meta
   metaPixels: () => get('/api/meta/pixels', { mock: true, pixels: [] }),
   metaStats: () => get('/api/meta/stats', { mock: true }),
   metaEvents: () => get('/api/meta/events', { mock: true, events: [] }),
   metaVolume: (days = 7) => get(`/api/meta/volume?days=${days}`, { mock: true, rows: [] }),
+  metaSetToken: (access_token) => post('/api/meta/token', { access_token }),
+  metaSetPixel: (pixel_id, pixel_ids) => post('/api/meta/pixel', { pixel_id, pixel_ids }),
+  metaAudience: (days = 30) => get(`/api/meta/audience?days=${days}`, { mock: true }),
+  metaCreatives: (days = 30) => get(`/api/meta/creatives?days=${days}`, { mock: true, ads: [] }),
 }

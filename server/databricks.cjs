@@ -950,10 +950,373 @@ function getMockCampaigns() {
   ]
 }
 
+// ─── Analytics: série histórica longa + projeção linear ──────────────────────
+// Retorna MQL/Ganho/Perdido diário por N dias + projeção para os próximos 14
+async function getAnalyticsTrend(days = 90) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, trend: getMockAnalyticsTrend(days), projection: getMockProjection() }
+  try {
+    const data = await executeStatement(
+      `SELECT DATE(event_at) as dia,
+              SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) as mqls,
+              SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) as ganhos,
+              SUM(CASE WHEN event = 'lost' THEN 1 ELSE 0 END) as perdidos
+       FROM production.diamond.funil_marketing
+       WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+         AND event IN ('mql','won','lost')
+       GROUP BY DATE(event_at)
+       ORDER BY dia`, 35
+    )
+    const { rows } = parseResult(data)
+    const trend = rows.map(r => ({
+      dia:      r.dia,
+      mqls:     parseInt(r.mqls)     || 0,
+      ganhos:   parseInt(r.ganhos)   || 0,
+      perdidos: parseInt(r.perdidos) || 0,
+    }))
+    const projection = buildLinearProjection(trend, 14)
+    return { mock: false, days, trend, projection }
+  } catch (err) {
+    console.error('[Databricks] getAnalyticsTrend error:', err.message)
+    return { mock: true, error: err.message, trend: getMockAnalyticsTrend(days), projection: getMockProjection() }
+  }
+}
+
+// Regressão linear simples (mínimos quadrados) sobre série de MQLs
+function buildLinearProjection(trend, forecastDays = 14) {
+  if (trend.length < 7) return []
+  const n = trend.length
+  const xMean = (n - 1) / 2
+  const yMean = trend.reduce((s, r) => s + r.mqls, 0) / n
+  let num = 0, den = 0
+  trend.forEach((r, i) => { num += (i - xMean) * (r.mqls - yMean); den += (i - xMean) ** 2 })
+  const slope = den !== 0 ? num / den : 0
+  const intercept = yMean - slope * xMean
+
+  const lastDate = new Date(trend[trend.length - 1].dia)
+  return Array.from({ length: forecastDays }, (_, i) => {
+    const d = new Date(lastDate)
+    d.setDate(d.getDate() + i + 1)
+    const projected = Math.max(0, Math.round(intercept + slope * (n + i)))
+    return { dia: d.toISOString().slice(0, 10), mqls_proj: projected }
+  })
+}
+
+function getMockAnalyticsTrend(days) {
+  return Array.from({ length: days }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (days - 1 - i))
+    const base = 180 + Math.sin(i / 7) * 30
+    return {
+      dia:      d.toISOString().slice(0, 10),
+      mqls:     Math.round(base + Math.random() * 40),
+      ganhos:   Math.round(base * 0.07 + Math.random() * 5),
+      perdidos: Math.round(base * 0.45 + Math.random() * 20),
+    }
+  })
+}
+function getMockProjection() {
+  return Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() + i + 1)
+    return { dia: d.toISOString().slice(0, 10), mqls_proj: 190 + i * 2 }
+  })
+}
+
+// ─── Analytics: Mídia Paga — ROAS, ROI, série semanal + projeção ─────────────
+async function getMediaPerformance(days = 90) {
+  const { host, token } = getCredentials()
+  if (!host || !token) {
+    const mockWeekly = getMockMediaWeekly(days)
+    const weeklyAgg = {}
+    mockWeekly.forEach(r => {
+      if (!weeklyAgg[r.semana]) weeklyAgg[r.semana] = { semana: r.semana, gasto: 0, receita: 0 }
+      weeklyAgg[r.semana].gasto   += r.gasto
+      weeklyAgg[r.semana].receita += r.receita
+    })
+    const weekSeries = Object.values(weeklyAgg).sort((a, b) => a.semana > b.semana ? 1 : -1)
+    return {
+      mock: true,
+      weekly:     mockWeekly,
+      totals:     getMockMediaTotals(),
+      campaigns:  getMockMediaCampaigns(),
+      projection: buildWeeklyProjection(weekSeries, 4),
+    }
+  }
+  try {
+    const [weeklyData, totalsData, campaignData] = await Promise.all([
+      // Série semanal: investimento × receita (para projeção)
+      executeStatement(
+        `SELECT
+           DATE_TRUNC('week', CAST(event_at AS DATE)) AS semana,
+           CASE WHEN event LIKE 'facebook%' OR utm_source IN ('facebook','instagram') THEN 'Meta'
+                ELSE 'Google' END AS plataforma,
+           SUM(CASE WHEN event IN ('facebook_spend','google_spend') THEN event_value ELSE 0 END) AS gasto,
+           SUM(CASE WHEN event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END) AS receita,
+           SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) AS mqls,
+           SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) AS ganhos
+         FROM production.diamond.funil_marketing
+         WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+           AND (camada_funil = 'paid_media'
+             OR (camada_funil = 'negociacao_deal' AND utm_source IN ('facebook','instagram','google')))
+         GROUP BY 1, 2
+         ORDER BY 1`, 35
+      ),
+      // Totais consolidados por plataforma — duas sub-queries independentes (gasto + leads/receita)
+      executeStatement(
+        `WITH gasto_plat AS (
+           SELECT
+             CASE WHEN event LIKE 'facebook%' OR event LIKE 'instagram%' THEN 'Meta' ELSE 'Google' END AS plataforma,
+             SUM(CASE WHEN event IN ('facebook_spend','google_spend') THEN COALESCE(event_value,0) ELSE 0 END) AS gasto,
+             SUM(CASE WHEN event IN ('facebook_clicks','google_clicks') THEN COALESCE(event_value,0) ELSE 0 END) AS cliques,
+             SUM(CASE WHEN event IN ('facebook_impressions','google_impressions') THEN COALESCE(event_value,0) ELSE 0 END) AS impressoes
+           FROM production.diamond.funil_marketing
+           WHERE camada_funil = 'paid_media'
+             AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+           GROUP BY 1
+         ),
+         leads_plat AS (
+           SELECT
+             CASE
+               WHEN utm_source IN ('facebook','instagram') THEN 'Meta'
+               WHEN utm_source IN ('google') THEN 'Google'
+               ELSE NULL
+             END AS plataforma,
+             SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END) AS mqls,
+             SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) AS ganhos,
+             SUM(CASE WHEN event = 'won' THEN COALESCE(revenue,0) ELSE 0 END) AS receita
+           FROM production.diamond.funil_marketing
+           WHERE utm_source IN ('facebook','instagram','google')
+             AND event IN ('mql','won')
+             AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+           GROUP BY 1
+         )
+         SELECT
+           g.plataforma,
+           COALESCE(g.gasto,0)      AS gasto,
+           COALESCE(g.cliques,0)    AS cliques,
+           COALESCE(g.impressoes,0) AS impressoes,
+           COALESCE(l.mqls,0)       AS mqls,
+           COALESCE(l.ganhos,0)     AS ganhos,
+           COALESCE(l.receita,0)    AS receita
+         FROM gasto_plat g
+         LEFT JOIN leads_plat l ON g.plataforma = l.plataforma`, 35
+      ),
+      // Top campanhas com ROAS
+      executeStatement(
+        `SELECT
+           COALESCE(utm_campaign, '(sem campanha)') AS campanha,
+           utm_source AS plataforma,
+           SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) AS mqls,
+           SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) AS ganhos,
+           SUM(CASE WHEN event = 'won'  THEN COALESCE(revenue, 0) ELSE 0 END) AS receita,
+           ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
+             NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) AS conv_pct
+         FROM production.diamond.funil_marketing
+         WHERE camada_funil = 'negociacao_deal'
+           AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+           AND utm_source IN ('facebook','instagram','google')
+           AND event IN ('mql','won')
+         GROUP BY utm_campaign, utm_source
+         ORDER BY receita DESC
+         LIMIT 12`, 30
+      ),
+    ])
+
+    const weekly = parseResult(weeklyData).rows.map(r => ({
+      semana:    r.semana?.slice(0, 10),
+      plataforma: r.plataforma,
+      gasto:    parseFloat(r.gasto)   || 0,
+      receita:  parseFloat(r.receita) || 0,
+      mqls:     parseInt(r.mqls)      || 0,
+      ganhos:   parseInt(r.ganhos)    || 0,
+      roas:     parseFloat(r.gasto) > 0
+        ? parseFloat((parseFloat(r.receita) / parseFloat(r.gasto)).toFixed(2)) : 0,
+    }))
+
+    const totals = parseResult(totalsData).rows.map(r => {
+      const gasto   = parseFloat(r.gasto)   || 0
+      const receita = parseFloat(r.receita) || 0
+      const mqls    = parseInt(r.mqls)      || 0
+      const ganhos  = parseInt(r.ganhos)    || 0
+      return {
+        plataforma:  r.plataforma,
+        gasto, receita, mqls, ganhos,
+        cliques:     parseFloat(r.cliques)    || 0,
+        impressoes:  parseFloat(r.impressoes) || 0,
+        roas:    gasto > 0 ? parseFloat((receita / gasto).toFixed(2))     : 0,
+        roi_pct: gasto > 0 ? parseFloat(((receita - gasto) / gasto * 100).toFixed(1)) : 0,
+        cpl:     mqls   > 0 ? parseFloat((gasto / mqls).toFixed(0))   : 0,
+        cpv:     ganhos > 0 ? parseFloat((gasto / ganhos).toFixed(0)) : 0,
+      }
+    })
+
+    const campaigns = parseResult(campaignData).rows.map(r => {
+      const gasto = 0  // gasto por campanha não está disponível nesta query — ROAS estimado
+      return {
+        campanha:   r.campanha,
+        plataforma: r.plataforma,
+        mqls:    parseInt(r.mqls)      || 0,
+        ganhos:  parseInt(r.ganhos)    || 0,
+        receita: parseFloat(r.receita) || 0,
+        conv_pct: parseFloat(r.conv_pct) || 0,
+      }
+    })
+
+    // Projeção semanal de receita (regressão sobre série Meta + Google somados)
+    const weeklyAgg = {}
+    weekly.forEach(r => {
+      if (!weeklyAgg[r.semana]) weeklyAgg[r.semana] = { semana: r.semana, gasto: 0, receita: 0 }
+      weeklyAgg[r.semana].gasto   += r.gasto
+      weeklyAgg[r.semana].receita += r.receita
+    })
+    const weekSeries = Object.values(weeklyAgg).sort((a, b) => a.semana > b.semana ? 1 : -1)
+    const projection = buildWeeklyProjection(weekSeries, 4)
+
+    return { mock: false, days, weekly, totals, campaigns, projection }
+  } catch (err) {
+    console.error('[Databricks] getMediaPerformance error:', err.message)
+    return { mock: true, error: err.message, weekly: getMockMediaWeekly(days), totals: getMockMediaTotals(), campaigns: getMockMediaCampaigns(), projection: [] }
+  }
+}
+
+// Regressão linear semanal sobre receita
+function buildWeeklyProjection(series, weeks = 4) {
+  if (series.length < 4) return []
+  const n = series.length
+  const xMean = (n - 1) / 2
+  const yMean = series.reduce((s, r) => s + r.receita, 0) / n
+  let num = 0, den = 0
+  series.forEach((r, i) => { num += (i - xMean) * (r.receita - yMean); den += (i - xMean) ** 2 })
+  const slope = den !== 0 ? num / den : 0
+  const intercept = yMean - slope * xMean
+
+  const lastDate = new Date(series[series.length - 1].semana)
+  return Array.from({ length: weeks }, (_, i) => {
+    const d = new Date(lastDate)
+    d.setDate(d.getDate() + (i + 1) * 7)
+    return {
+      semana: d.toISOString().slice(0, 10),
+      receita_proj: Math.max(0, Math.round(intercept + slope * (n + i))),
+    }
+  })
+}
+
+function getMockMediaWeekly(days) {
+  const weeks = Math.ceil(days / 7)
+  return Array.from({ length: weeks * 2 }, (_, i) => {
+    const plat = i % 2 === 0 ? 'Meta' : 'Google'
+    const week = Math.floor(i / 2)
+    const d = new Date(); d.setDate(d.getDate() - (weeks - 1 - week) * 7)
+    const gasto = plat === 'Meta' ? 220000 + Math.random() * 30000 : 18000 + Math.random() * 5000
+    const roas  = plat === 'Meta' ? 0.55 + Math.random() * 0.3    : 1.4 + Math.random() * 0.4
+    return { semana: d.toISOString().slice(0, 10), plataforma: plat, gasto, receita: gasto * roas, mqls: Math.round(300 + Math.random() * 80), ganhos: Math.round(24 + Math.random() * 8), roas: parseFloat(roas.toFixed(2)) }
+  })
+}
+function getMockMediaTotals() {
+  return [
+    { plataforma: 'Meta',   gasto: 6663430, receita: 3664600, mqls: 9925, ganhos: 748, cliques: 1933684, impressoes: 149151437, roas: 0.55, roi_pct: -45.0, cpl: 671, cpv: 8908 },
+    { plataforma: 'Google', gasto: 561189,  receita: 848092,  mqls: 1690, ganhos: 105, cliques: 151013,  impressoes: 3002336,   roas: 1.51, roi_pct: 51.1,  cpl: 332, cpv: 5345 },
+  ]
+}
+function getMockMediaCampaigns() {
+  return [
+    { campanha: 'always-on',           plataforma: 'instagram', mqls: 2674, ganhos: 118, receita: 3670210, conv_pct: 4.4 },
+    { campanha: 'g4_bau_lgen_bofu',    plataforma: 'facebook',  mqls: 2316, ganhos: 4,   receita: 92000,   conv_pct: 0.2 },
+    { campanha: 'g4_traction_remarketing', plataforma: 'google', mqls: 680, ganhos: 55,  receita: 495000,  conv_pct: 8.1 },
+  ]
+}
+
+// ─── Analytics: atribuição de jornada (primeiro toque × último toque) ────────
+async function getJourneyAttribution(days = 30) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, journeys: getMockJourneys(), totals: getMockJourneyTotals() }
+  try {
+    // Agrega jornadas por canal de entrada e canal de fechamento
+    const data = await executeStatement(
+      `WITH first_touch AS (
+         SELECT deal_id,
+           CASE
+             WHEN utm_medium = 'cpc' THEN 'Pago'
+             WHEN utm_source IS NULL OR utm_source IN ('null','','(direct)') THEN 'Direto'
+             ELSE 'Orgânico'
+           END AS canal_entrada,
+           utm_source AS fonte_entrada
+         FROM production.diamond.funil_marketing
+         WHERE event = 'mql'
+           AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+       ),
+       last_touch AS (
+         SELECT deal_id,
+           CASE
+             WHEN utm_medium = 'cpc' THEN 'Pago'
+             WHEN utm_source IS NULL OR utm_source IN ('null','','(direct)') THEN 'Direto'
+             ELSE 'Orgânico'
+           END AS canal_fechamento,
+           utm_source AS fonte_fechamento
+         FROM production.diamond.funil_marketing
+         WHERE event = 'won'
+           AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
+       )
+       SELECT
+         f.canal_entrada,
+         l.canal_fechamento,
+         f.fonte_entrada,
+         COUNT(DISTINCT f.deal_id) AS total_leads,
+         COUNT(DISTINCT l.deal_id) AS convertidos,
+         ROUND(100.0 * COUNT(DISTINCT l.deal_id) /
+           NULLIF(COUNT(DISTINCT f.deal_id), 0), 1) AS conv_pct
+       FROM first_touch f
+       LEFT JOIN last_touch l ON f.deal_id = l.deal_id
+       GROUP BY 1, 2, 3
+       ORDER BY total_leads DESC
+       LIMIT 20`, 35
+    )
+    const { rows } = parseResult(data)
+    const journeys = rows.map(r => ({
+      canal_entrada:    r.canal_entrada,
+      canal_fechamento: r.canal_fechamento || '—',
+      fonte_entrada:    r.fonte_entrada,
+      total_leads:      parseInt(r.total_leads)  || 0,
+      convertidos:      parseInt(r.convertidos)  || 0,
+      conv_pct:         parseFloat(r.conv_pct)   || 0,
+    }))
+
+    // Totais por combinação entrada→fechamento
+    const totals = { 'Pago→Pago': 0, 'Pago→Orgânico': 0, 'Orgânico→Orgânico': 0, 'Orgânico→Pago': 0, 'Direto→*': 0 }
+    journeys.forEach(j => {
+      const key = `${j.canal_entrada}→${j.canal_fechamento}`
+      if (key.startsWith('Direto')) totals['Direto→*'] += j.convertidos
+      else if (totals[key] !== undefined) totals[key] += j.convertidos
+      else totals['Outros'] = (totals['Outros'] || 0) + j.convertidos
+    })
+
+    return { mock: false, days, journeys, totals }
+  } catch (err) {
+    console.error('[Databricks] getJourneyAttribution error:', err.message)
+    return { mock: true, error: err.message, journeys: getMockJourneys(), totals: getMockJourneyTotals() }
+  }
+}
+
+function getMockJourneys() {
+  return [
+    { canal_entrada: 'Pago',     canal_fechamento: 'Pago',     fonte_entrada: 'facebook',   total_leads: 4821, convertidos: 482, conv_pct: 10.0 },
+    { canal_entrada: 'Pago',     canal_fechamento: 'Orgânico', fonte_entrada: 'facebook',   total_leads: 2310, convertidos: 185, conv_pct: 8.0  },
+    { canal_entrada: 'Orgânico', canal_fechamento: 'Orgânico', fonte_entrada: 'instagram',  total_leads: 1870, convertidos: 210, conv_pct: 11.2 },
+    { canal_entrada: 'Orgânico', canal_fechamento: 'Pago',     fonte_entrada: 'prospeccao', total_leads: 940,  convertidos: 131, conv_pct: 13.9 },
+    { canal_entrada: 'Direto',   canal_fechamento: '—',        fonte_entrada: '(direct)',   total_leads: 820,  convertidos: 57,  conv_pct: 7.0  },
+    { canal_entrada: 'Pago',     canal_fechamento: 'Pago',     fonte_entrada: 'google',     total_leads: 730,  convertidos: 88,  conv_pct: 12.1 },
+  ]
+}
+function getMockJourneyTotals() {
+  return { 'Pago→Pago': 570, 'Pago→Orgânico': 185, 'Orgânico→Orgânico': 210, 'Orgânico→Pago': 131, 'Direto→*': 57 }
+}
+
 // ─── Wrappers cacheados ───────────────────────────────────────────────────────
 // Chaves determinísticas por função + parâmetros relevantes
 const cached = {
   getStatus:              ()       => withCache('status',              getStatus),
+  getAnalyticsTrend:      (d)      => withCache(`analytics-trend:${d}`,  () => getAnalyticsTrend(d)),
+  getJourneyAttribution:  (d)      => withCache(`journey-attr:${d}`,     () => getJourneyAttribution(d)),
+  getMediaPerformance:    (d)      => withCache(`media-performance:${d}`, () => getMediaPerformance(d)),
   getExecutiveSummary:    ()       => withCache('executive-summary',   getExecutiveSummary),
   getFunnelStages:        (d)      => withCache(`funnel-stages:${d}`,  () => getFunnelStages(d)),
   getLostReasons:         (d)      => withCache(`lost-reasons:${d}`,   () => getLostReasons(d)),
@@ -972,6 +1335,9 @@ const cached = {
 module.exports = {
   // Versões cacheadas (uso normal)
   getStatus:              cached.getStatus,
+  getAnalyticsTrend:      cached.getAnalyticsTrend,
+  getJourneyAttribution:  cached.getJourneyAttribution,
+  getMediaPerformance:    cached.getMediaPerformance,
   getExecutiveSummary:    cached.getExecutiveSummary,
   getFunnelStages:        cached.getFunnelStages,
   getLostReasons:         cached.getLostReasons,

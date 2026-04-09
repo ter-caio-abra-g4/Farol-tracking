@@ -1,474 +1,731 @@
 import { useState, useEffect } from 'react'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
-import StatusBadge from '../components/ui/StatusBadge'
 import Spinner from '../components/ui/Spinner'
 import { api } from '../services/api'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  RadialBarChart, RadialBar,
+  AreaChart, Area, Cell,
 } from 'recharts'
-import { Settings, X, Eye, EyeOff, Save, ChevronRight } from 'lucide-react'
-import PeriodSelect from '../components/ui/PeriodSelect'
+import { Settings, X, Eye, EyeOff, Save, TrendingUp, TrendingDown, Minus, Users, Monitor, Layers } from 'lucide-react'
 
-const QUALITY_COLOR = {
-  Excelente: '#22C55E',
-  Alto: '#22C55E',
-  Médio: '#F59E0B',
-  Medio: '#F59E0B',
-  Baixo: '#EF4444',
+const TT = { contentStyle: { background: '#001A2E', border: '1px solid rgba(185,145,91,0.3)', borderRadius: 8, fontSize: 12, color: '#F5F4F3' } }
+const FUNNEL_COLORS = ['#B9915B', '#A07848', '#885F36', '#6F4724', '#572F13']
+
+function fmtMoney(v) {
+  if (!v && v !== 0) return '—'
+  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000)     return `R$ ${(v / 1_000).toFixed(0)}K`
+  return `R$ ${v.toFixed(0)}`
+}
+function fmtNum(v) {
+  if (v === null || v === undefined) return '—'
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000)     return `${(v / 1_000).toFixed(1)}k`
+  return String(v)
 }
 
-const PRIORITY_CONFIG = {
-  alta:  { color: '#EF4444', bg: 'rgba(239,68,68,0.08)',  label: 'Alta'  },
-  media: { color: '#F59E0B', bg: 'rgba(245,158,11,0.08)', label: 'Média' },
-  baixa: { color: '#22C55E', bg: 'rgba(34,197,94,0.08)',  label: 'Baixa' },
+const TABS = [
+  { id: 'pixel',    label: 'Pixel',      icon: Layers },
+  { id: 'audience', label: 'Audiência',  icon: Users  },
+  { id: 'creative', label: 'Criativos',  icon: Monitor },
+]
+
+const PERIOD_OPTIONS = [
+  { label: '7d',  days: 7  },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
+]
+
+// ── Paleta de gênero / plataforma ─────────────────────────────────────────────
+const GENDER_COLOR = { male: '#6366F1', female: '#EC4899', unknown: '#6B7280' }
+const PLATFORM_COLOR = {
+  instagram: '#E1306C',
+  facebook:  '#1877F2',
+  messenger: '#0084FF',
+  threads:   '#1C1C1C',
+  'audience_network': '#9CA3AF',
+}
+const AGE_COLORS = ['#B9915B','#A07848','#6366F1','#8B5CF6','#06B6D4','#22C55E']
+
+// ── CPL badge ─────────────────────────────────────────────────────────────────
+function CplBadge({ cpl }) {
+  if (cpl === null || cpl === undefined) return <span style={{ color: '#6B7280', fontSize: 12 }}>—</span>
+  const color = cpl < 150 ? '#22C55E' : cpl < 300 ? '#F59E0B' : '#EF4444'
+  return <span style={{ color, fontWeight: 700, fontSize: 13 }}>{fmtMoney(cpl)}</span>
 }
 
-export default function MetaPage() {
-  const [stats, setStats]           = useState(null)
-  const [volume, setVolume]         = useState(null)
-  const [pixels, setPixels]         = useState([])
-  const [pixelsLoading, setPixelsLoading] = useState(true)
-  const [loading, setLoading]       = useState(true)
-  const [lastUpdated, setLastUpdated] = useState(null)
-  const [showModal, setShowModal]   = useState(false)
-  const [config, setConfig]         = useState(null)
-  const [volumeDays, setVolumeDays] = useState(7)
+// ── Colunas de KPIs por plataforma ─────────────────────────────────────────────
+function PlatformCard({ p }) {
+  const color = PLATFORM_COLOR[p.platform] || '#9CA3AF'
+  const label = p.platform.charAt(0).toUpperCase() + p.platform.slice(1)
+  return (
+    <div style={{
+      background: '#031A26', border: `1px solid ${color}44`,
+      borderRadius: 10, padding: '16px 18px',
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 12 }}>{label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {[
+          { label: 'Investido',  value: fmtMoney(p.spend) },
+          { label: 'Leads',      value: fmtNum(p.leads) },
+          { label: 'CPL',        value: <CplBadge cpl={p.cpl} /> },
+          { label: 'CPM',        value: fmtMoney(p.cpm) },
+          { label: 'CTR',        value: `${p.ctr}%` },
+          { label: 'Alcance',    value: fmtNum(p.reach) },
+        ].map(m => (
+          <div key={m.label}>
+            <div style={{ fontSize: 10, color: '#6B7280' }}>{m.label}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F4F3' }}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
-  async function loadPixels() {
-    setPixelsLoading(true)
-    const r = await api.metaPixels()
-    setPixels(r?.pixels ?? [])
-    setPixelsLoading(false)
+// ── Tab Audiência ──────────────────────────────────────────────────────────────
+function TabAudience({ data, days }) {
+  const [view, setView] = useState('heatmap') // 'heatmap' | 'chart'
+  if (!data) return null
+
+  const ageRows = data.ageRows || []
+  const platforms = data.platforms || []
+
+  // Monta estrutura: { age, male: {spend,leads,cpl}, female: {...} }
+  const ageMap = {}
+  for (const r of ageRows) {
+    if (!ageMap[r.age]) ageMap[r.age] = { age: r.age, male: null, female: null }
+    ageMap[r.age][r.gender] = r
   }
+  const ageBands = Object.keys(ageMap).sort()
+
+  // Melhor segmento = menor CPL com leads > 0
+  const withLeads = ageRows.filter(r => r.leads > 0 && r.cpl !== null)
+  const bestCpl = withLeads.length ? withLeads.reduce((b, r) => (r.cpl < b.cpl ? r : b)) : null
+  const mostLeads = ageRows.length ? ageRows.reduce((b, r) => (r.leads > b.leads ? r : b)) : null
+  const totalSpend = ageRows.reduce((s, r) => s + r.spend, 0)
+  const totalLeads = ageRows.reduce((s, r) => s + r.leads, 0)
+  const totalCpl   = totalLeads > 0 ? Math.round(totalSpend / totalLeads) : null
+
+  // Dados para gráfico de barras agrupado por faixa de idade
+  const barData = ageBands.map(age => {
+    const m = ageMap[age].male   || {}
+    const f = ageMap[age].female || {}
+    return {
+      age,
+      Male:   m.leads || 0,
+      Female: f.leads || 0,
+      MaleCpl:   m.cpl,
+      FemaleCpl: f.cpl,
+      MaleSpend: m.spend || 0,
+      FemaleSpend: f.spend || 0,
+    }
+  })
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {data.mock && <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 6, padding: '6px 14px', fontSize: 11, color: '#F59E0B' }}>MOCK — conecte o token Meta para dados reais</div>}
+
+      {/* KPIs de topo */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {[
+          { label: 'Total investido', value: fmtMoney(totalSpend), sub: `${days}d (3 contas)`, color: '#B9915B' },
+          { label: 'Total leads',     value: fmtNum(totalLeads),    sub: `${days}d`,          color: '#6366F1' },
+          { label: 'CPL médio',       value: <CplBadge cpl={totalCpl} />, sub: 'geral',        color: '#F59E0B' },
+          { label: 'Melhor segmento', value: bestCpl ? `${bestCpl.age} · ${bestCpl.gender === 'male' ? 'H' : 'M'}` : '—', sub: bestCpl ? `CPL ${fmtMoney(bestCpl.cpl)}` : '', color: '#22C55E' },
+        ].map((k, i) => (
+          <Card key={i}>
+            <CardBody style={{ padding: '14px 16px' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#F5F4F3', lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: 11, color: k.color, marginTop: 4, fontWeight: 600 }}>{k.label}</div>
+              <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2 }}>{k.sub}</div>
+            </CardBody>
+          </Card>
+        ))}
+      </div>
+
+      {/* Heatmap + Chart toggle */}
+      <Card>
+        <CardHeader
+          title="Leads por faixa etária e gênero"
+          subtitle={`Período: ${days}d · ${ageRows.filter(r => r.gender !== 'unknown').length} segmentos`}
+          action={
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[{id:'heatmap', label:'Heatmap'}, {id:'chart', label:'Barras'}].map(v => (
+                <button key={v.id} onClick={() => setView(v.id)} style={{
+                  padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+                  background: view === v.id ? 'rgba(185,145,91,0.15)' : 'transparent',
+                  border: `1px solid ${view === v.id ? 'rgba(185,145,91,0.5)' : 'rgba(185,145,91,0.15)'}`,
+                  color: view === v.id ? '#B9915B' : '#8A9BAA',
+                }}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+        <CardBody>
+          {view === 'heatmap' ? (
+            // Heatmap de CPL: linhas = faixas etárias, colunas = H/M
+            <div>
+              {/* Header colunas */}
+              <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div />
+                {['Homens', 'Mulheres'].map(g => (
+                  <div key={g} style={{ textAlign: 'center', fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>{g}</div>
+                ))}
+              </div>
+              {ageBands.map(age => {
+                const m = ageMap[age].male
+                const f = ageMap[age].female
+                // Cor do CPL: verde=bom, amarelo=médio, vermelho=alto
+                const cellBg = (cpl) => {
+                  if (!cpl) return 'rgba(255,255,255,0.03)'
+                  if (cpl < 150) return 'rgba(34,197,94,0.12)'
+                  if (cpl < 300) return 'rgba(245,158,11,0.10)'
+                  return 'rgba(239,68,68,0.10)'
+                }
+                const cellBorder = (cpl) => {
+                  if (!cpl) return 'rgba(255,255,255,0.06)'
+                  if (cpl < 150) return 'rgba(34,197,94,0.3)'
+                  if (cpl < 300) return 'rgba(245,158,11,0.25)'
+                  return 'rgba(239,68,68,0.25)'
+                }
+                return (
+                  <div key={age} style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: '#F5F4F3', fontWeight: 700 }}>{age}</div>
+                    {[m, f].map((row, gi) => {
+                      if (!row) return <div key={gi} style={{ borderRadius: 8, padding: '10px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', color: '#6B7280', fontSize: 11, textAlign: 'center' }}>—</div>
+                      return (
+                        <div key={gi} style={{ borderRadius: 8, padding: '10px 14px', background: cellBg(row.cpl), border: `1px solid ${cellBorder(row.cpl)}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3' }}>{fmtNum(row.leads)} leads</span>
+                            <CplBadge cpl={row.cpl} />
+                          </div>
+                          <div style={{ display: 'flex', gap: 10, fontSize: 10, color: '#8A9BAA' }}>
+                            <span>{fmtMoney(row.spend)}</span>
+                            <span>CTR {row.ctr}%</span>
+                            <span>CPM {fmtMoney(row.cpm)}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+              <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 11, color: '#6B7280' }}>
+                <span><span style={{ color: '#22C55E' }}>●</span> CPL &lt; R$150</span>
+                <span><span style={{ color: '#F59E0B' }}>●</span> R$150–300</span>
+                <span><span style={{ color: '#EF4444' }}>●</span> &gt; R$300</span>
+              </div>
+            </div>
+          ) : (
+            // Gráfico de barras: leads por faixa, agrupado H/M
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={barData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="age" tick={{ fill: '#8A9BAA', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#8A9BAA', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null
+                    const d = payload[0]?.payload
+                    return (
+                      <div style={TT.contentStyle}>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
+                        <div style={{ color: GENDER_COLOR.male }}>Homens: {fmtNum(d.Male)} leads · CPL {fmtMoney(d.MaleCpl)} · {fmtMoney(d.MaleSpend)}</div>
+                        <div style={{ color: GENDER_COLOR.female }}>Mulheres: {fmtNum(d.Female)} leads · CPL {fmtMoney(d.FemaleCpl)} · {fmtMoney(d.FemaleSpend)}</div>
+                      </div>
+                    )
+                  }}
+                />
+                <Bar dataKey="Male"   name="Homens"  fill={GENDER_COLOR.male}   radius={[3,3,0,0]} />
+                <Bar dataKey="Female" name="Mulheres" fill={GENDER_COLOR.female} radius={[3,3,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardBody>
+      </Card>
+
+      {/* Plataformas */}
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F4F3', marginBottom: 12 }}>Performance por plataforma — {days}d</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          {platforms.map(p => <PlatformCard key={p.platform} p={p} />)}
+        </div>
+      </div>
+
+      {/* Tabela detalhada de segmentos */}
+      <Card>
+        <CardHeader title="Todos os segmentos" subtitle="Ordenados por investimento" />
+        <CardBody style={{ padding: 0 }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.15)' }}>
+                  {['Faixa / Gênero','Investido','Leads','CPL','CPM','CTR','Alcance'].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Faixa / Gênero' ? 'left' : 'right', fontSize: 11, color: '#8A9BAA', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ageRows.filter(r => r.gender !== 'unknown').map((r, i) => {
+                  const gColor = GENDER_COLOR[r.gender] || '#9CA3AF'
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(185,145,91,0.06)' }}>
+                      <td style={{ padding: '9px 14px' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3' }}>{r.age}</span>
+                        <span style={{ marginLeft: 8, fontSize: 11, color: gColor, background: gColor + '22', borderRadius: 4, padding: '1px 6px' }}>
+                          {r.gender === 'male' ? 'H' : 'M'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '9px 14px', textAlign: 'right', color: '#F5F4F3' }}>{fmtMoney(r.spend)}</td>
+                      <td style={{ padding: '9px 14px', textAlign: 'right', color: '#6366F1', fontWeight: 700 }}>{fmtNum(r.leads)}</td>
+                      <td style={{ padding: '9px 14px', textAlign: 'right' }}><CplBadge cpl={r.cpl} /></td>
+                      <td style={{ padding: '9px 14px', textAlign: 'right', color: '#9CA3AF' }}>{fmtMoney(r.cpm)}</td>
+                      <td style={{ padding: '9px 14px', textAlign: 'right', color: '#9CA3AF' }}>{r.ctr}%</td>
+                      <td style={{ padding: '9px 14px', textAlign: 'right', color: '#9CA3AF' }}>{fmtNum(r.reach)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
+    </div>
+  )
+}
+
+// ── Tab Criativos ──────────────────────────────────────────────────────────────
+function TabCreative({ data, days }) {
+  const [sortBy, setSortBy] = useState('spend') // spend | leads | cpl | ctr
+  if (!data) return null
+
+  const ads = (data.ads || []).slice().sort((a, b) => {
+    if (sortBy === 'cpl')  return (a.cpl ?? 99999) - (b.cpl ?? 99999)
+    if (sortBy === 'leads') return b.leads - a.leads
+    if (sortBy === 'ctr')   return b.ctr - a.ctr
+    return b.spend - a.spend
+  })
+
+  const maxSpend = Math.max(...ads.map(a => a.spend), 1)
+
+  // Extrai tipo do criativo a partir do nome (estático, vídeo, carrossel)
+  function creativeType(name) {
+    const n = (name || '').toLowerCase()
+    if (n.includes('video') || n.includes('video'))  return { label: 'Vídeo', color: '#6366F1' }
+    if (n.includes('carrossel') || n.includes('carousel')) return { label: 'Carrossel', color: '#8B5CF6' }
+    if (n.includes('estatico') || n.includes('png') || n.includes('jpg')) return { label: 'Estático', color: '#B9915B' }
+    if (n.includes('dinamico') || n.includes('dynamic')) return { label: 'Dinâmico', color: '#06B6D4' }
+    return { label: 'Anúncio', color: '#9CA3AF' }
+  }
+
+  // KPIs de resumo
+  const totalSpend = ads.reduce((s, a) => s + a.spend, 0)
+  const totalLeads = ads.reduce((s, a) => s + a.leads, 0)
+  const totalCpl   = totalLeads > 0 ? Math.round(totalSpend / totalLeads) : null
+  const bestAd = ads.filter(a => a.cpl && a.leads >= 10).sort((a, b) => a.cpl - b.cpl)[0]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {data.mock && <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 6, padding: '6px 14px', fontSize: 11, color: '#F59E0B' }}>MOCK</div>}
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {[
+          { label: `Top ${ads.length} anúncios`, value: `${ads.length} ads`, sub: `${days}d por gasto`, color: '#B9915B' },
+          { label: 'Total investido', value: fmtMoney(totalSpend), sub: 'nos top ads', color: '#F59E0B' },
+          { label: 'Total leads', value: fmtNum(totalLeads), sub: 'atribuídos', color: '#6366F1' },
+          { label: 'Melhor CPL', value: bestAd ? fmtMoney(bestAd.cpl) : '—', sub: bestAd ? bestAd.name?.slice(0, 30) + '…' : '', color: '#22C55E' },
+        ].map((k, i) => (
+          <Card key={i}>
+            <CardBody style={{ padding: '14px 16px' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#F5F4F3', lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: 11, color: k.color, marginTop: 4, fontWeight: 600 }}>{k.label}</div>
+              <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.sub}</div>
+            </CardBody>
+          </Card>
+        ))}
+      </div>
+
+      {/* Gráfico de barras: investimento por ad (top 10) */}
+      <Card>
+        <CardHeader title="Investimento por anúncio — top 10" subtitle="Volume de gasto e leads por criativo" />
+        <CardBody>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={ads.slice(0, 10).map(a => ({ ...a, shortName: a.name?.slice(0, 28) || a.id }))} layout="vertical" margin={{ top: 0, right: 14, left: 8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+              <XAxis type="number" tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => fmtMoney(v)} />
+              <YAxis type="category" dataKey="shortName" width={180} tick={{ fill: '#D1D5DB', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null
+                  const d = payload[0]?.payload
+                  return (
+                    <div style={{ ...TT.contentStyle, maxWidth: 320 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 11, color: '#F5F4F3' }}>{d.name}</div>
+                      <div style={{ color: '#B9915B' }}>Gasto: {fmtMoney(d.spend)}</div>
+                      <div style={{ color: '#6366F1' }}>Leads: {fmtNum(d.leads)}</div>
+                      <div style={{ color: '#22C55E' }}>CPL: {fmtMoney(d.cpl)}</div>
+                      <div style={{ color: '#9CA3AF' }}>CTR: {d.ctr}% · CPM: {fmtMoney(d.cpm)} · Freq: {d.frequency?.toFixed(1)}</div>
+                      <div style={{ color: '#6B7280', fontSize: 10, marginTop: 2 }}>{d.campaign}</div>
+                    </div>
+                  )
+                }}
+              />
+              <Bar dataKey="spend" name="Investimento" radius={[0,4,4,0]}>
+                {ads.slice(0,10).map((a, i) => (
+                  <Cell key={i} fill={creativeType(a.name).color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </CardBody>
+      </Card>
+
+      {/* Tabela completa */}
+      <Card>
+        <CardHeader
+          title="Comparação de criativos"
+          subtitle="Todos os anúncios com investimento > R$100"
+          action={
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[
+                { id: 'spend', label: 'Gasto' },
+                { id: 'leads', label: 'Leads' },
+                { id: 'cpl',   label: 'CPL' },
+                { id: 'ctr',   label: 'CTR' },
+              ].map(s => (
+                <button key={s.id} onClick={() => setSortBy(s.id)} style={{
+                  padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+                  background: sortBy === s.id ? 'rgba(185,145,91,0.15)' : 'transparent',
+                  border: `1px solid ${sortBy === s.id ? 'rgba(185,145,91,0.5)' : 'rgba(185,145,91,0.15)'}`,
+                  color: sortBy === s.id ? '#B9915B' : '#8A9BAA',
+                }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          }
+        />
+        <CardBody style={{ padding: 0 }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.15)' }}>
+                  {['Anúncio','Tipo','Campanha','Gasto','Leads','CPL','CTR','CPM','Freq','Alcance','Gasto%'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Anúncio' || h === 'Campanha' ? 'left' : 'right', fontSize: 11, color: '#8A9BAA', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ads.map((ad, i) => {
+                  const type = creativeType(ad.name)
+                  const spendPct = totalSpend > 0 ? Math.round((ad.spend / totalSpend) * 100) : 0
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(185,145,91,0.06)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                      <td style={{ padding: '9px 12px', maxWidth: 220 }}>
+                        <div style={{ fontSize: 12, color: '#F5F4F3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }} title={ad.name}>
+                          {ad.name?.slice(0, 40)}{ad.name?.length > 40 ? '…' : ''}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#6B7280', marginTop: 1 }}>{ad.adset?.slice(0,40)}</div>
+                      </td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 4, padding: '2px 6px', background: type.color + '22', color: type.color }}>
+                          {type.label}
+                        </span>
+                      </td>
+                      <td style={{ padding: '9px 12px', color: '#9CA3AF', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ad.campaign}>
+                        {ad.campaign?.slice(0, 25)}{ad.campaign?.length > 25 ? '…' : ''}
+                      </td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: '#F5F4F3', fontWeight: 700 }}>{fmtMoney(ad.spend)}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: ad.leads > 0 ? '#6366F1' : '#6B7280', fontWeight: 700 }}>{fmtNum(ad.leads)}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right' }}><CplBadge cpl={ad.cpl} /></td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: ad.ctr > 1 ? '#22C55E' : '#9CA3AF' }}>{ad.ctr?.toFixed(2)}%</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: '#9CA3AF' }}>{fmtMoney(ad.cpm)}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: ad.frequency > 3 ? '#F59E0B' : '#9CA3AF' }}>{ad.frequency?.toFixed(1)}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right', color: '#9CA3AF' }}>{fmtNum(ad.reach)}</td>
+                      <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                          <span style={{ fontSize: 11, color: '#B9915B' }}>{spendPct}%</span>
+                          <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${spendPct}%`, height: '100%', background: '#B9915B', borderRadius: 2 }} />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
+    </div>
+  )
+
+  function creativeType(name) {
+    const n = (name || '').toLowerCase()
+    if (n.includes('video'))  return { label: 'Vídeo', color: '#6366F1' }
+    if (n.includes('carrossel') || n.includes('carousel')) return { label: 'Carrossel', color: '#8B5CF6' }
+    if (n.includes('estatico') || n.includes('png') || n.includes('jpg')) return { label: 'Estático', color: '#B9915B' }
+    if (n.includes('dinamico') || n.includes('dynamic')) return { label: 'Dinâmico', color: '#06B6D4' }
+    return { label: 'Anúncio', color: '#9CA3AF' }
+  }
+}
+
+// ── Página principal ───────────────────────────────────────────────────────────
+export default function MetaPage() {
+  const [tab, setTab]         = useState('pixel')
+  const [days, setDays]       = useState(30)
+  const [stats, setStats]     = useState(null)
+  const [audience, setAudience] = useState(null)
+  const [creatives, setCreatives] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [showModal, setShowModal] = useState(false)
+  const [config, setConfig]   = useState(null)
+  const [activeHourEvent, setActiveHourEvent] = useState('total')
 
   async function loadData() {
     setLoading(true)
-    const [s, vol, cfg] = await Promise.all([
+    const [s, cfg, aud, cre] = await Promise.all([
       api.metaStats(),
-      api.metaVolume(volumeDays),
       api.getConfig(),
+      api.metaAudience(days),
+      api.metaCreatives(days),
     ])
     setStats(s)
-    setVolume(vol)
     setConfig(cfg)
+    setAudience(aud)
+    setCreatives(cre)
     setLoading(false)
     setLastUpdated(Date.now())
   }
 
-  useEffect(() => {
-    loadPixels()
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [days])
 
-  useEffect(() => {
-    api.metaVolume(volumeDays).then(r => setVolume(r))
-  }, [volumeDays])
+  const isMock     = stats?.mock ?? true
+  const pixelId    = stats?.pixelId ?? config?.meta?.pixel_id ?? '—'
+  const events     = stats?.events ?? []
+  const funnel     = stats?.funnel ?? []
+  const hourSeries = stats?.hourSeries ?? []
+  const totalEvents = stats?.totalEvents ?? 0
 
-  const isMock    = stats?.mock ?? true
-  const data      = stats ?? {}
-  const events    = data.events ?? []
-  const score     = data.score ?? 0
-  const matchRate = data.matchRate ?? 0
-  const dedup     = data.deduplication ?? null
-  const pixelId   = data.pixelId ?? config?.meta?.pixel_id ?? '—'
-  const volRows   = volume?.rows ?? []
-  const volMock   = volume?.mock ?? true
-
-  const avgMatchRate = events.filter(e => e.matchRate > 0).length > 0
-    ? Math.round(
-        events.filter(e => e.matchRate > 0).reduce((s, e) => s + (e.matchRate || 0), 0) /
-        events.filter(e => e.matchRate > 0).length
-      )
-    : matchRate
-
-  const scoreColor  = score >= 85 ? '#22C55E' : score >= 70 ? '#F59E0B' : '#EF4444'
-  const scoreStatus = score >= 85 ? 'ok' : score >= 70 ? 'warn' : 'error'
-
-  // Recomendações dinâmicas baseadas nos dados reais
-  const recommendations = buildRecommendations(events, dedup)
+  const fPV = funnel.find(f => f.stage === 'PageView')?.count  ?? 0
+  const fLD = funnel.find(f => f.stage === 'Lead')?.count      ?? 0
+  const fCO = funnel.find(f => f.stage === 'Checkout')?.count  ?? 0
+  const fPU = funnel.find(f => f.stage === 'Purchase')?.count  ?? 0
+  const fKPIs = [
+    { label: 'Total de eventos', value: totalEvents.toLocaleString('pt-BR'),  sub: 'últimas 24h' },
+    { label: 'PageViews',         value: fPV.toLocaleString('pt-BR'),          sub: 'sessões' },
+    { label: 'Leads captados',    value: fLD.toLocaleString('pt-BR'),          sub: `${fPV > 0 ? (fLD/fPV*100).toFixed(2) : 0}% do tráfego` },
+    { label: 'Checkouts',         value: fCO.toLocaleString('pt-BR'),          sub: `${fLD > 0 ? (fCO/fLD*100).toFixed(1) : 0}% dos leads` },
+    { label: 'Purchases',         value: fPU.toLocaleString('pt-BR'),          sub: `${fCO > 0 ? (fPU/fCO*100).toFixed(1) : 0}% dos checkouts` },
+  ]
+  const maxFunnel = funnel[0]?.count || 1
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
         title="Meta Ads"
-        subtitle={`Pixel ${pixelId} — Conversions API`}
-        onRefresh={() => { loadPixels(); loadData() }}
+        subtitle={`Pixel ${pixelId} · 3 contas G4`}
+        onRefresh={loadData}
         lastUpdated={lastUpdated}
         action={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <PeriodSelect value={volumeDays} onChange={setVolumeDays} />
-            <div style={{ width: 1, height: 18, background: 'rgba(185,145,91,0.2)' }} />
-            <button
-              onClick={() => setShowModal(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '4px 12px', borderRadius: 6,
-                border: '1px solid rgba(185,145,91,0.4)',
-                background: 'rgba(185,145,91,0.08)',
-                color: '#B9915B', fontSize: 12, fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
-              }}
-            >
-              <Settings size={13} />
-              Configurar
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Seletor de período */}
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(185,145,91,0.06)', borderRadius: 6, padding: 2 }}>
+              {PERIOD_OPTIONS.map(o => (
+                <button key={o.days} onClick={() => setDays(o.days)} style={{
+                  background: days === o.days ? 'rgba(185,145,91,0.2)' : 'transparent',
+                  color: days === o.days ? '#B9915B' : '#8A9BAA',
+                  border: 'none', borderRadius: 4, padding: '3px 10px', cursor: 'pointer',
+                  fontSize: 11, fontWeight: 600, fontFamily: 'Manrope, sans-serif',
+                }}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {!isMock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>LIVE</span>}
+            {isMock   && <span style={{ fontSize: 10, color: '#F59E0B', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>MOCK</span>}
+            <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(185,145,91,0.4)', background: 'rgba(185,145,91,0.08)', color: '#B9915B', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Manrope, sans-serif' }}>
+              <Settings size={13} /> Configurar
             </button>
           </div>
         }
       />
 
-      <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
-
-        {/* Mock warning */}
-        {isMock && !loading && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 16px', marginBottom: 16,
-            background: 'rgba(245,158,11,0.08)',
-            border: '1px solid rgba(245,158,11,0.3)',
-            borderRadius: 8,
-          }}>
-            <span style={{ fontSize: 12, color: '#F59E0B' }}>
-              Exibindo dados mock — configure o Access Token e Pixel ID para dados reais
-            </span>
-            <button
-              onClick={() => setShowModal(true)}
-              style={{
-                fontSize: 11, color: '#F59E0B', fontWeight: 700,
-                background: 'none', border: 'none', cursor: 'pointer',
-                textDecoration: 'underline', fontFamily: 'Manrope, sans-serif',
-              }}
-            >
-              Configurar agora
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 2, padding: '0 clamp(12px, 2vw, 24px)', borderBottom: '1px solid rgba(185,145,91,0.12)', background: '#001420' }}>
+        {TABS.map(t => {
+          const Icon = t.icon
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '10px 16px', background: 'none', border: 'none',
+              borderBottom: `2px solid ${tab === t.id ? '#B9915B' : 'transparent'}`,
+              color: tab === t.id ? '#B9915B' : '#8A9BAA',
+              fontSize: 13, fontWeight: tab === t.id ? 700 : 500,
+              cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+              transition: 'all 0.15s',
+            }}>
+              <Icon size={14} />
+              {t.label}
             </button>
-          </div>
-        )}
+          )
+        })}
+      </div>
 
-        {/* Pixels disponíveis */}
-        {!pixelsLoading && pixels.length > 1 && (
-          <Card style={{ marginBottom: 16 }}>
-            <CardHeader title="Pixels disponíveis" action={
-              <span style={{ fontSize: 11, color: '#8A9BAA' }}>{pixels.length} pixels</span>
-            } />
-            <div style={{ display: 'flex', gap: 8, padding: '8px 16px 14px', flexWrap: 'wrap' }}>
-              {pixels.map(px => {
-                const isActive = px.id === pixelId
-                return (
-                  <button
-                    key={px.id}
-                    onClick={async () => {
-                      await api.saveConfig({ meta: { pixel_id: px.id } })
-                      loadData()
-                    }}
-                    style={{
-                      padding: '6px 14px', borderRadius: 6,
-                      border: `1px solid ${isActive ? '#B9915B' : 'rgba(185,145,91,0.25)'}`,
-                      background: isActive ? 'rgba(185,145,91,0.12)' : 'transparent',
-                      color: isActive ? '#B9915B' : '#8A9BAA',
-                      cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
-                      fontSize: 12, fontWeight: isActive ? 700 : 400,
-                      textAlign: 'left',
-                    }}
-                  >
-                    <div style={{ fontWeight: 600 }}>{px.name}</div>
-                    <div style={{ fontSize: 10, fontFamily: 'monospace', opacity: 0.7 }}>{px.id}</div>
-                  </button>
-                )
-              })}
-            </div>
-          </Card>
-        )}
-
+      <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner /></div>
         ) : (
           <>
-            {/* Score + métricas principais */}
-            <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16, marginBottom: 20 }}>
+            {/* ── Tab Pixel ─────────────────────────────────────────── */}
+            {tab === 'pixel' && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+                  {fKPIs.map((k, i) => (
+                    <Card key={i}>
+                      <CardBody style={{ padding: '14px 16px' }}>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: '#F5F4F3', lineHeight: 1 }}>{k.value}</div>
+                        <div style={{ fontSize: 11, color: '#B9915B', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
+                        <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2 }}>{k.sub}</div>
+                      </CardBody>
+                    </Card>
+                  ))}
+                </div>
 
-              {/* Score card */}
-              <Card>
-                <CardBody style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 24 }}>
-                  <div style={{
-                    fontFamily: "'PPMuseum','Georgia',serif",
-                    fontSize: 12, color: '#8A9BAA', marginBottom: 16,
-                    letterSpacing: '0.04em', textTransform: 'uppercase',
-                  }}>
-                    Event Match Quality
-                  </div>
-                  <div style={{ position: 'relative', width: 130, height: 130 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadialBarChart
-                        innerRadius="70%" outerRadius="100%"
-                        data={[{ value: score }]}
-                        startAngle={220} endAngle={-40}
-                      >
-                        <RadialBar
-                          dataKey="value" cornerRadius={6}
-                          fill={scoreColor}
-                          background={{ fill: `${scoreColor}11` }}
-                        />
-                      </RadialBarChart>
-                    </ResponsiveContainer>
-                    <div style={{
-                      position: 'absolute', top: '50%', left: '50%',
-                      transform: 'translate(-50%, -50%)', textAlign: 'center',
-                    }}>
-                      <div style={{ fontSize: 30, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>
-                        {score || '—'}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+                  <Card>
+                    <CardHeader title="Funil de conversão — 24h" />
+                    <CardBody style={{ paddingTop: 8 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {funnel.map((step, i) => {
+                          const barPct = (step.count / maxFunnel) * 100
+                          const isLast = i === funnel.length - 1
+                          return (
+                            <div key={step.stage}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 600 }}>{step.stage}</span>
+                                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                                  <span style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 700 }}>{step.count.toLocaleString('pt-BR')}</span>
+                                  <span style={{ fontSize: 11, color: '#B9915B', minWidth: 60, textAlign: 'right' }}>{i === 0 ? '100%' : `${step.rate}%`}</span>
+                                </div>
+                              </div>
+                              <div style={{ height: 10, background: 'rgba(255,255,255,0.05)', borderRadius: 5, overflow: 'hidden' }}>
+                                <div style={{ width: `${barPct}%`, height: '100%', background: FUNNEL_COLORS[i], borderRadius: 5, transition: 'width 0.6s ease' }} />
+                              </div>
+                              {!isLast && <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 3, textAlign: 'right' }}>↓ próximo passo: {funnel[i+1]?.rate}% convertem</div>}
+                            </div>
+                          )
+                        })}
                       </div>
-                      <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2 }}>/ 100</div>
-                    </div>
-                  </div>
-                  <StatusBadge
-                    status={scoreStatus}
-                    label={score >= 85 ? 'Qualidade boa' : score >= 70 ? 'Precisa melhorar' : 'Crítico'}
-                    style={{ marginTop: 12 }}
-                  />
-                  {isMock && (
-                    <span style={{
-                      fontSize: 10, color: '#8A9BAA',
-                      background: 'rgba(138,155,170,0.1)',
-                      border: '1px solid rgba(138,155,170,0.2)',
-                      padding: '2px 7px', borderRadius: 10, marginTop: 8,
-                    }}>
-                      mock
-                    </span>
-                  )}
-                </CardBody>
-              </Card>
-
-              {/* Métricas rápidas + gráfico */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                {[
-                  { label: 'Match Rate médio',  value: `${avgMatchRate}%`,                       sub: 'últimas 24h' },
-                  { label: 'Deduplicação',       value: dedup ? `${dedup}%` : '—',                sub: 'CAPI + Pixel' },
-                  { label: 'Eventos ativos',     value: events.length > 0 ? events.length : '—', sub: 'rastreados' },
-                ].map((m, i) => (
-                  <Card key={i}>
-                    <CardBody>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: '#F5F4F3', lineHeight: 1 }}>{m.value}</div>
-                      <div style={{ fontSize: 12, color: '#B9915B', marginTop: 4, fontWeight: 600 }}>{m.label}</div>
-                      <div style={{ fontSize: 10, color: '#8A9BAA', marginTop: 2 }}>{m.sub}</div>
                     </CardBody>
                   </Card>
-                ))}
 
-                {/* Gráfico CAPI vs Pixel */}
-                <Card style={{ gridColumn: '1 / -1' }}>
-                  <CardHeader
-                    title={`CAPI vs Pixel — ${volumeDays === 1 ? 'hoje' : `últimos ${volumeDays} dias`}`}
-                    action={
+                  <Card>
+                    <CardHeader title="Volume por hora — hoje" action={
                       <div style={{ display: 'flex', gap: 6 }}>
-                        {[1, 7, 14, 28].map(d => (
-                          <button
-                            key={d}
-                            onClick={() => setVolumeDays(d)}
-                            style={{
-                              padding: '3px 9px', borderRadius: 4,
-                              border: `1px solid ${volumeDays === d ? '#B9915B' : 'rgba(185,145,91,0.25)'}`,
-                              background: volumeDays === d ? 'rgba(185,145,91,0.12)' : 'transparent',
-                              color: volumeDays === d ? '#B9915B' : '#8A9BAA',
-                              cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                              fontFamily: 'Manrope, sans-serif',
-                            }}
-                          >
-                            {d === 1 ? '1d' : `${d}d`}
-                          </button>
+                        {['total', 'leads', 'checkouts', 'purchases'].map(k => (
+                          <button key={k} onClick={() => setActiveHourEvent(k)} style={{
+                            padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+                            border: `1px solid ${activeHourEvent === k ? '#B9915B' : 'rgba(185,145,91,0.2)'}`,
+                            background: activeHourEvent === k ? 'rgba(185,145,91,0.12)' : 'transparent',
+                            color: activeHourEvent === k ? '#B9915B' : '#8A9BAA',
+                          }}>{k}</button>
                         ))}
-                        {volMock && (
-                          <span style={{ fontSize: 10, color: '#F59E0B', alignSelf: 'center', marginLeft: 4 }}>mock</span>
-                        )}
                       </div>
-                    }
-                  />
-                  <CardBody style={{ paddingTop: 8 }}>
-                    <ResponsiveContainer width="100%" height={90}>
-                      <BarChart data={volRows} margin={{ top: 0, right: 4, left: -24, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#B9915B11" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 10, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={TOOLTIP_STYLE} />
-                        <Bar dataKey="capi"  name="CAPI"  fill="#B9915B"   radius={[3, 3, 0, 0]} />
-                        <Bar dataKey="pixel" name="Pixel" fill="#B9915B44" radius={[3, 3, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardBody>
+                    } />
+                    <CardBody style={{ paddingTop: 4 }}>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <AreaChart data={hourSeries} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="hg" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#B9915B" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="#B9915B" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#B9915B11" />
+                          <XAxis dataKey="hour" tick={{ fontSize: 9, fill: '#8A9BAA' }} axisLine={false} tickLine={false} interval={3} />
+                          <YAxis tick={{ fontSize: 9, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
+                          <Tooltip {...TT} />
+                          <Area type="monotone" dataKey={activeHourEvent} name={activeHourEvent} stroke="#B9915B" fill="url(#hg)" strokeWidth={2} dot={false} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </CardBody>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader title="Todos os eventos — 24h vs 24h anteriores" action={<span style={{ fontSize: 11, color: '#8A9BAA' }}>{events.length} eventos</span>} />
+                  {events.length === 0 ? (
+                    <CardBody><div style={{ fontSize: 12, color: '#8A9BAA', textAlign: 'center', padding: 24 }}>Nenhum evento encontrado.</div></CardBody>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)' }}>
+                          {['Evento', 'Volume 24h', '% do total', 'vs ontem', 'Barra'].map(h => (
+                            <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {events.map((ev, i) => {
+                          const maxCount = events[0]?.count || 1
+                          const barW = Math.round((ev.count / maxCount) * 100)
+                          const deltaColor = ev.delta === null ? '#8A9BAA' : ev.delta > 0 ? '#22C55E' : ev.delta < 0 ? '#EF4444' : '#8A9BAA'
+                          const DeltaIcon = ev.delta === null ? Minus : ev.delta > 0 ? TrendingUp : TrendingDown
+                          return (
+                            <tr key={i} style={{ borderBottom: '1px solid rgba(185,145,91,0.06)' }}>
+                              <td style={{ padding: '11px 16px', fontSize: 13, fontWeight: 700, color: '#F5F4F3', fontFamily: 'monospace' }}>{ev.name}</td>
+                              <td style={{ padding: '11px 16px', fontSize: 14, fontWeight: 800, color: '#F5F4F3' }}>{(ev.count || 0).toLocaleString('pt-BR')}</td>
+                              <td style={{ padding: '11px 16px', fontSize: 12, color: '#8A9BAA' }}>{ev.pct}%</td>
+                              <td style={{ padding: '11px 16px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: deltaColor }}>
+                                  <DeltaIcon size={12} />
+                                  <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.delta === null ? '—' : `${ev.delta > 0 ? '+' : ''}${ev.delta}%`}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '11px 16px', width: 160 }}>
+                                <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                                  <div style={{ width: `${barW}%`, height: '100%', background: '#B9915B', borderRadius: 3 }} />
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </Card>
-              </div>
-            </div>
-
-            {/* Tabela de eventos */}
-            <Card style={{ marginBottom: 20 }}>
-              <CardHeader title="Qualidade por evento" action={
-                <span style={{ fontSize: 11, color: '#8A9BAA' }}>{events.length} eventos</span>
-              } />
-              {events.length === 0 ? (
-                <CardBody>
-                  <div style={{ fontSize: 12, color: '#8A9BAA', textAlign: 'center', padding: 24 }}>
-                    Nenhum evento encontrado. Verifique se o Pixel está disparando.
-                  </div>
-                </CardBody>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)' }}>
-                      {['Evento', 'Recebidos', 'Matched', 'Match Rate', 'Qualidade', 'Status'].map((h) => (
-                        <th key={h} style={{
-                          padding: '10px 16px', textAlign: 'left',
-                          fontSize: 11, color: '#8A9BAA', fontWeight: 600,
-                          letterSpacing: '0.06em', textTransform: 'uppercase',
-                        }}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.map((ev, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid rgba(185,145,91,0.08)' }}>
-                        <td style={{ padding: '11px 16px', fontSize: 13, fontWeight: 600, color: '#F5F4F3', fontFamily: 'monospace' }}>
-                          {ev.name}
-                        </td>
-                        <td style={{ padding: '11px 16px', fontSize: 13, color: '#F5F4F3' }}>
-                          {(ev.received || 0).toLocaleString('pt-BR')}
-                        </td>
-                        <td style={{ padding: '11px 16px', fontSize: 13, color: '#F5F4F3' }}>
-                          {(ev.matched || 0).toLocaleString('pt-BR')}
-                        </td>
-                        <td style={{ padding: '11px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ width: 80, height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
-                              <div style={{
-                                width: `${ev.matchRate || 0}%`, height: '100%', borderRadius: 3,
-                                background: (ev.matchRate || 0) >= 85 ? '#22C55E' : (ev.matchRate || 0) >= 75 ? '#F59E0B' : '#EF4444',
-                              }} />
-                            </div>
-                            <span style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 600 }}>
-                              {ev.matchRate || 0}%
-                            </span>
-                          </div>
-                        </td>
-                        <td style={{ padding: '11px 16px' }}>
-                          <span style={{
-                            fontSize: 11, fontWeight: 700,
-                            color: QUALITY_COLOR[ev.quality] ?? '#F5F4F3',
-                          }}>
-                            {ev.quality || '—'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '11px 16px' }}>
-                          <StatusBadge status={ev.status || 'ok'} size="sm" />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </Card>
-
-            {/* Recomendações */}
-            {recommendations.length > 0 && (
-              <Card>
-                <CardHeader title="Recomendações" />
-                <CardBody>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {recommendations.map((rec, i) => {
-                      const cfg = PRIORITY_CONFIG[rec.priority]
-                      return (
-                        <div key={i} style={{
-                          display: 'flex', gap: 14, padding: '14px 16px',
-                          background: cfg.bg, border: `1px solid ${cfg.color}33`, borderRadius: 8,
-                        }}>
-                          <div style={{
-                            width: 6, height: 6, borderRadius: '50%',
-                            background: cfg.color, marginTop: 6, flexShrink: 0,
-                            boxShadow: `0 0 6px ${cfg.color}88`,
-                          }} />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: '#F5F4F3' }}>{rec.title}</span>
-                              <span style={{
-                                fontSize: 10, fontWeight: 700, color: cfg.color,
-                                background: `${cfg.color}22`, padding: '2px 7px',
-                                borderRadius: 4, letterSpacing: '0.06em',
-                              }}>
-                                {cfg.label.toUpperCase()}
-                              </span>
-                            </div>
-                            <p style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.5 }}>{rec.description}</p>
-                          </div>
-                          <ChevronRight size={14} color="#8A9BAA" style={{ marginTop: 4, flexShrink: 0 }} />
-                        </div>
-                      )
-                    })}
-                  </div>
-                </CardBody>
-              </Card>
+              </>
             )}
+
+            {/* ── Tab Audiência ─────────────────────────────────────── */}
+            {tab === 'audience' && <TabAudience data={audience} days={days} />}
+
+            {/* ── Tab Criativos ─────────────────────────────────────── */}
+            {tab === 'creative' && <TabCreative data={creatives} days={days} />}
           </>
         )}
       </div>
 
-      {/* Modal de configuração */}
       {showModal && (
         <MetaConfigModal
           currentConfig={config?.meta ?? {}}
           onClose={() => setShowModal(false)}
-          onSaved={() => { setShowModal(false); loadPixels(); loadData() }}
+          onSaved={() => { setShowModal(false); loadData() }}
         />
       )}
     </div>
   )
 }
 
-// ── Recomendações dinâmicas ──────────────────────────────────────────────────
-function buildRecommendations(events, dedup) {
-  const recs = []
-
-  // Eventos com match rate < 80%
-  const lowMatch = events.filter(e => e.matchRate > 0 && e.matchRate < 80)
-  for (const ev of lowMatch.slice(0, 2)) {
-    recs.push({
-      priority: ev.matchRate < 70 ? 'alta' : 'media',
-      title: `Melhorar match rate do evento ${ev.name}`,
-      description: `Match rate atual: ${ev.matchRate}%. Adicione parâmetros como email, phone e external_id para aumentar para 85%+.`,
-    })
-  }
-
-  // Deduplicação baixa
-  if (dedup !== null && dedup < 90) {
-    recs.push({
-      priority: dedup < 80 ? 'alta' : 'media',
-      title: 'Aumentar cobertura de deduplicação CAPI + Pixel',
-      description: `Deduplicação em ${dedup}%. Certifique que o event_id está sendo enviado tanto pelo Pixel quanto pelo CAPI.`,
-    })
-  }
-
-  // Eventos com 0 match rate (sem enriquecimento)
-  const zeroMatch = events.filter(e => e.matchRate === 0)
-  if (zeroMatch.length > 0) {
-    recs.push({
-      priority: 'media',
-      title: `${zeroMatch.length} evento(s) sem match rate informado`,
-      description: `${zeroMatch.map(e => e.name).join(', ')} não retornaram match_rate_approx. Verifique a configuração do CAPI ou se o evento tem volume suficiente.`,
-    })
-  }
-
-  // Se não há problemas, mostra recomendação positiva + LDP
-  if (recs.length === 0) {
-    recs.push({
-      priority: 'baixa',
-      title: 'Verificar LDP (Limited Data Processing)',
-      description: 'Confirme as configurações de privacidade para compliance LGPD e demais regulamentos aplicáveis.',
-    })
-  }
-
-  return recs
-}
-
-// ── Modal de configuração ────────────────────────────────────────────────────
+// ── Modal de configuração ─────────────────────────────────────────────────────
 function MetaConfigModal({ currentConfig, onClose, onSaved }) {
   const hasExistingToken = !!(currentConfig?.access_token)
   const [token, setToken]         = useState('')
@@ -478,13 +735,12 @@ function MetaConfigModal({ currentConfig, onClose, onSaved }) {
   const [error, setError]         = useState(null)
   const [testing, setTesting]     = useState(false)
   const [testResult, setTestResult] = useState(null)
-  const [step, setStep]           = useState('form') // 'guide' | 'form'
+  const [step, setStep]           = useState('form')
 
-  // Aviso de expiração: token_created_at salvo no config (dias desde criação)
   const tokenAge = currentConfig?.token_created_at
     ? Math.floor((Date.now() - new Date(currentConfig.token_created_at).getTime()) / 86400000)
     : null
-  const tokenExpiring = tokenAge !== null && tokenAge >= 75 // avisa nos últimos 15 dias dos 90
+  const tokenExpiring = tokenAge !== null && tokenAge >= 75
 
   async function handleSave() {
     if (!pixelId.trim()) { setError('Preencha o Pixel ID.'); return }
@@ -492,17 +748,10 @@ function MetaConfigModal({ currentConfig, onClose, onSaved }) {
     setSaving(true); setError(null)
     try {
       const metaUpdate = { pixel_id: pixelId.trim() }
-      if (token.trim()) {
-        metaUpdate.access_token = token.trim()
-        metaUpdate.token_created_at = new Date().toISOString()
-      }
+      if (token.trim()) { metaUpdate.access_token = token.trim(); metaUpdate.token_created_at = new Date().toISOString() }
       const result = await api.saveConfig({ meta: metaUpdate })
       if (result?.ok) { onSaved() } else { setError('Erro ao salvar configuração.') }
-    } catch (e) {
-      setError('Erro ao salvar: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) { setError('Erro ao salvar: ' + e.message) } finally { setSaving(false) }
   }
 
   async function handleTest() {
@@ -522,277 +771,55 @@ function MetaConfigModal({ currentConfig, onClose, onSaved }) {
   }
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      background: 'rgba(0,15,26,0.85)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      backdropFilter: 'blur(4px)',
-    }}>
-      <div style={{
-        width: 500, background: '#001A2E',
-        border: '1px solid rgba(185,145,91,0.3)',
-        borderRadius: 12, padding: 28,
-        boxShadow: '0 24px 60px rgba(0,0,0,0.6)',
-        maxHeight: '90vh', overflowY: 'auto',
-      }}>
-        {/* Header */}
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,15,26,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+      <div style={{ width: 500, background: '#001A2E', border: '1px solid rgba(185,145,91,0.3)', borderRadius: 12, padding: 28, boxShadow: '0 24px 60px rgba(0,0,0,0.6)', maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
-            <h2 style={{ fontFamily: "'PPMuseum','Georgia',serif", fontSize: 16, color: '#B9915B', fontWeight: 600 }}>
-              Configurar Meta Ads
-            </h2>
-            <p style={{ fontSize: 12, color: '#8A9BAA', marginTop: 4 }}>
-              Token de longa duração + Pixel ID para dados reais
-            </p>
+            <h2 style={{ fontFamily: "'PPMuseum','Georgia',serif", fontSize: 16, color: '#B9915B', fontWeight: 600 }}>Configurar Meta Ads</h2>
+            <p style={{ fontSize: 12, color: '#8A9BAA', marginTop: 4 }}>Token de longa duração + Pixel ID</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              onClick={() => setStep(s => s === 'guide' ? 'form' : 'guide')}
-              style={{
-                fontSize: 11, color: '#8A9BAA', background: 'rgba(138,155,170,0.1)',
-                border: '1px solid rgba(138,155,170,0.2)', borderRadius: 5,
-                padding: '4px 10px', cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
-              }}
-            >
+            <button onClick={() => setStep(s => s === 'guide' ? 'form' : 'guide')} style={{ fontSize: 11, color: '#8A9BAA', background: 'rgba(138,155,170,0.1)', border: '1px solid rgba(138,155,170,0.2)', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: 'Manrope, sans-serif' }}>
               {step === 'guide' ? '← Voltar' : 'Como configurar?'}
             </button>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', padding: 4 }}>
-              <X size={18} />
-            </button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', padding: 4 }}><X size={18} /></button>
           </div>
         </div>
 
-        {/* Alerta de expiração */}
         {tokenExpiring && step === 'form' && (
-          <div style={{
-            padding: '10px 14px', marginBottom: 16,
-            background: 'rgba(245,158,11,0.08)',
-            border: '1px solid rgba(245,158,11,0.35)',
-            borderRadius: 7, fontSize: 12, color: '#F59E0B',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-          }}>
-            <span>
-              Token configurado há <strong>{tokenAge} dias</strong> — expira em ~{90 - tokenAge} dias. Renove antes de expirar.
-            </span>
-            <a
-              href="https://business.facebook.com/settings/system-users"
-              target="_blank" rel="noreferrer"
-              style={{ fontSize: 11, color: '#F59E0B', fontWeight: 700, textDecoration: 'underline', whiteSpace: 'nowrap' }}
-            >
-              Renovar agora
-            </a>
+          <div style={{ padding: '10px 14px', marginBottom: 16, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 7, fontSize: 12, color: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <span>Token configurado há <strong>{tokenAge} dias</strong> — expira em ~{90 - tokenAge} dias.</span>
+            <a href="https://business.facebook.com/settings/system-users" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#F59E0B', fontWeight: 700, textDecoration: 'underline', whiteSpace: 'nowrap' }}>Renovar agora</a>
           </div>
         )}
 
-        {/* Mini-manual */}
-        {step === 'guide' && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 14 }}>
-              Siga os passos abaixo para obter as credenciais necessárias.
-            </div>
-            {[
-              {
-                num: '1',
-                title: 'Encontre o Pixel ID',
-                desc: 'Acesse o Gerenciador de Eventos. Clique na fonte de dados (pixel) na coluna da esquerda. O número abaixo do nome é o Pixel ID.',
-                link: 'https://business.facebook.com/events_manager',
-                linkLabel: 'Abrir Gerenciador de Eventos',
-              },
-              {
-                num: '2',
-                title: 'Gere um System User Token',
-                desc: 'Em Business Settings → System Users, crie um System User com função "Employee". Clique em "Gerar token", selecione seu app, marque as permissões ads_read e business_management. Validade máxima: 90 dias.',
-                link: 'https://business.facebook.com/settings/system-users',
-                linkLabel: 'Abrir System Users',
-              },
-              {
-                num: '3',
-                title: 'Alternativa: token pessoal (curta duração)',
-                desc: 'Se não tiver Business Manager, use o Graph API Explorer para gerar um token com ads_read. Atenção: expira em 60 dias e precisa de renovação manual.',
-                link: 'https://developers.facebook.com/tools/explorer/',
-                linkLabel: 'Abrir Graph API Explorer',
-              },
-              {
-                num: '4',
-                title: 'Cole as credenciais e teste',
-                desc: 'Volte ao formulário, preencha o Pixel ID e o Access Token, clique em "Testar conexão" para validar antes de salvar.',
-              },
-            ].map((s) => (
-              <div key={s.num} style={{
-                display: 'flex', gap: 14, padding: '12px 14px', marginBottom: 8,
-                background: 'rgba(185,145,91,0.04)',
-                border: '1px solid rgba(185,145,91,0.12)',
-                borderRadius: 8,
-              }}>
-                <div style={{
-                  width: 22, height: 22, borderRadius: '50%',
-                  background: 'rgba(185,145,91,0.15)',
-                  border: '1px solid rgba(185,145,91,0.3)',
-                  color: '#B9915B', fontSize: 11, fontWeight: 800,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0, marginTop: 1,
-                }}>
-                  {s.num}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F4F3', marginBottom: 4 }}>{s.title}</div>
-                  <p style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.55, margin: 0 }}>{s.desc}</p>
-                  {s.link && (
-                    <a
-                      href={s.link} target="_blank" rel="noreferrer"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        fontSize: 11, color: '#B9915B', textDecoration: 'none',
-                        marginTop: 6, fontWeight: 600,
-                      }}
-                    >
-                      {s.linkLabel}
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 8.5L8.5 1.5M8.5 1.5H3.5M8.5 1.5V6.5" stroke="#B9915B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
-            <button
-              onClick={() => setStep('form')}
-              style={{
-                width: '100%', marginTop: 4, padding: '9px', borderRadius: 6,
-                border: '1px solid rgba(185,145,91,0.4)',
-                background: 'transparent', color: '#B9915B',
-                fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                fontFamily: 'Manrope, sans-serif',
-              }}
-            >
-              Ir para o formulário →
-            </button>
-          </div>
-        )}
-
-        {/* Formulário */}
         {step === 'form' && (
           <>
-            {/* Pixel ID */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Pixel ID
-                </label>
-                <a
-                  href="https://business.facebook.com/events_manager"
-                  target="_blank" rel="noreferrer"
-                  style={{ fontSize: 11, color: '#B9915B', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
-                >
-                  Onde encontrar?
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 8.5L8.5 1.5M8.5 1.5H3.5M8.5 1.5V6.5" stroke="#B9915B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </a>
-              </div>
-              <input
-                value={pixelId}
-                onChange={e => setPixelId(e.target.value)}
-                placeholder="ex: 702432142505333"
-                style={INPUT_STYLE}
-              />
-              <p style={{ fontSize: 11, color: '#8A9BAA', marginTop: 5, lineHeight: 1.5 }}>
-                No Gerenciador de Eventos, clique na fonte de dados — o ID numérico aparece abaixo do nome.
-              </p>
+              <label style={{ display: 'block', fontSize: 11, color: '#8A9BAA', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pixel ID</label>
+              <input value={pixelId} onChange={e => setPixelId(e.target.value)} placeholder="ex: 702432142505333" style={INPUT_STYLE} />
             </div>
-
-            {/* Access Token */}
             <div style={{ marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Access Token
-                </label>
-                <a
-                  href="https://business.facebook.com/settings/system-users"
-                  target="_blank" rel="noreferrer"
-                  style={{ fontSize: 11, color: '#B9915B', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
-                >
-                  Gerar token
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 8.5L8.5 1.5M8.5 1.5H3.5M8.5 1.5V6.5" stroke="#B9915B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </a>
-              </div>
+              <label style={{ display: 'block', fontSize: 11, color: '#8A9BAA', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Access Token</label>
               <div style={{ position: 'relative' }}>
-                <input
-                  type={showToken ? 'text' : 'password'}
-                  value={token}
-                  onChange={e => setToken(e.target.value)}
-                  placeholder={hasExistingToken ? '••••••••  (token já configurado — deixe em branco para manter)' : 'dapi... ou EAAxxxxx (token de longa duração)'}
-                  style={{ ...INPUT_STYLE, paddingRight: 40 }}
-                />
-                <button
-                  onClick={() => setShowToken(v => !v)}
-                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA' }}
-                >
+                <input type={showToken ? 'text' : 'password'} value={token} onChange={e => setToken(e.target.value)} placeholder={hasExistingToken ? '•••• (token já configurado)' : 'EAAxxxxx...'} style={{ ...INPUT_STYLE, paddingRight: 40 }} />
+                <button onClick={() => setShowToken(v => !v)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA' }}>
                   {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </div>
-
-            {/* Hint */}
-            <p style={{ fontSize: 11, color: '#8A9BAA', marginBottom: 20, lineHeight: 1.5 }}>
-              Use um <strong style={{ color: '#F5F4F3' }}>System User Token</strong> com permissão{' '}
-              <code style={{ color: '#B9915B' }}>ads_read</code> e{' '}
-              <code style={{ color: '#B9915B' }}>business_management</code>. Validade máxima: 90 dias.{' '}
-              <button
-                onClick={() => setStep('guide')}
-                style={{ background: 'none', border: 'none', color: '#B9915B', cursor: 'pointer', fontSize: 11, padding: 0, textDecoration: 'underline', fontFamily: 'Manrope, sans-serif' }}
-              >
-                Ver passo a passo
-              </button>
-            </p>
-
-            {/* Error / Test result */}
-            {error && (
-              <div style={{ padding: '8px 12px', marginBottom: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, fontSize: 12, color: '#EF4444' }}>
-                {error}
-              </div>
-            )}
+            {error && <div style={{ padding: '8px 12px', marginBottom: 12, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, fontSize: 12, color: '#EF4444' }}>{error}</div>}
             {testResult && (
-              <div style={{
-                padding: '8px 12px', marginBottom: 12, borderRadius: 6, fontSize: 12,
-                background: testResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-                border: `1px solid ${testResult.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
-                color: testResult.ok ? '#22C55E' : '#EF4444',
-              }}>
+              <div style={{ padding: '8px 12px', marginBottom: 12, borderRadius: 6, fontSize: 12, background: testResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${testResult.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`, color: testResult.ok ? '#22C55E' : '#EF4444' }}>
                 {testResult.ok ? '✓ ' : '✗ '}{testResult.detail}
               </div>
             )}
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button
-                onClick={handleTest}
-                disabled={testing}
-                style={{
-                  padding: '8px 18px', borderRadius: 6,
-                  border: '1px solid rgba(185,145,91,0.4)',
-                  background: 'transparent',
-                  color: '#B9915B', fontSize: 13, fontWeight: 600,
-                  cursor: testing ? 'not-allowed' : 'pointer',
-                  opacity: testing ? 0.6 : 1,
-                  fontFamily: 'Manrope, sans-serif',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {testing ? <Spinner size={13} /> : null}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={handleTest} disabled={testing} style={{ padding: '8px 18px', borderRadius: 6, border: '1px solid rgba(185,145,91,0.4)', background: 'transparent', color: '#B9915B', fontSize: 13, fontWeight: 600, cursor: testing ? 'not-allowed' : 'pointer', fontFamily: 'Manrope, sans-serif' }}>
                 {testing ? 'Testando...' : 'Testar conexão'}
               </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                style={{
-                  padding: '8px 20px', borderRadius: 6,
-                  border: 'none',
-                  background: saving ? 'rgba(185,145,91,0.5)' : '#B9915B',
-                  color: '#001F35', fontSize: 13, fontWeight: 700,
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  fontFamily: 'Manrope, sans-serif',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {saving ? <Spinner size={13} /> : <Save size={13} />}
-                {saving ? 'Salvando...' : 'Salvar'}
+              <button onClick={handleSave} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#B9915B', color: '#001F35', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Save size={13} />{saving ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
           </>
@@ -800,12 +827,6 @@ function MetaConfigModal({ currentConfig, onClose, onSaved }) {
       </div>
     </div>
   )
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-const TOOLTIP_STYLE = {
-  background: '#001F35', border: '1px solid #B9915B55',
-  borderRadius: 6, fontSize: 12, color: '#F5F4F3',
 }
 
 const INPUT_STYLE = {

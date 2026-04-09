@@ -12,6 +12,10 @@
     "token": "dapi7bebf6ee7b8bb8b66cd2159bae0a1f84",
     "token_created_at": "2026-04-09T14:26:26.502Z"
   },
-  "meta": {},
+  "meta": {
+    "access_token": "EAANvGxHuv6oBRHtZB03UVJvhLHLOtYTkiBGNiemn45wZBzCvCgl5kYgPYNylZCdwpxyUvjqD4rpB2KCQjkaZBXDyxBYr88EQZBMnn5TeVy9q7v8cc9nXeZAUBEZAjaj80cNIkjZCIzQkLVYboad6TvyeKsSGNLjTL4HfBEkXZBPWf570K2FVDRyMMSBdZA2ywIqgZDZD",
+    "pixel_id": "702432142505333",
+    "pixel_ids": ["702432142505333"]
+  },
   "gtm": {}
 }

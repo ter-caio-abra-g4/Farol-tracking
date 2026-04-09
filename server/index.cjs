@@ -213,7 +213,83 @@ app.get('/api/meta/volume', async (req, res) => {
   }
 })
 
+app.get('/api/meta/audience', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try {
+    const result = await metaService.getAudienceInsights(days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
+app.get('/api/meta/creatives', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try {
+    const result = await metaService.getAdCreativeInsights(days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
+app.post('/api/meta/token', (req, res) => {
+  try {
+    const { access_token } = req.body
+    if (!access_token) return res.status(400).json({ ok: false, error: 'access_token obrigatório' })
+    const current = loadConfig()
+    saveConfig({ ...current, meta: { ...current.meta, access_token } })
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.post('/api/meta/pixel', (req, res) => {
+  try {
+    const { pixel_id, pixel_ids } = req.body
+    if (!pixel_id) return res.status(400).json({ ok: false, error: 'pixel_id obrigatório' })
+    const current = loadConfig()
+    saveConfig({
+      ...current,
+      meta: {
+        ...current.meta,
+        pixel_id,
+        pixel_ids: pixel_ids || [pixel_id],
+      },
+    })
+    res.json({ ok: true, pixel_id })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
 // ─── Databricks ────────────────────────────────────────────────────────────
+app.post('/api/databricks/config', (req, res) => {
+  try {
+    const { host, http_path, token, catalog, schema } = req.body
+    if (!host || !http_path || !token) {
+      return res.status(400).json({ ok: false, error: 'host, http_path e token são obrigatórios' })
+    }
+    const current = loadConfig()
+    saveConfig({
+      ...current,
+      databricks: {
+        ...current.databricks,
+        host,
+        http_path,
+        token,
+        ...(catalog && { catalog }),
+        ...(schema && { schema }),
+        token_created_at: new Date().toISOString(),
+      },
+    })
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
 app.get('/api/databricks/status', async (req, res) => {
   try {
     const result = await databricksService.getStatus()
@@ -334,6 +410,25 @@ app.get('/api/databricks/compare/form-attribution', async (req, res) => {
   const days = parseInt(req.query.days) || 30
   try { res.json(await databricksService.getFormAttribution(days)) }
   catch (err) { res.status(500).json({ mock: true, error: err.message, rows: [], summary: {} }) }
+})
+
+// ─── Analytics ─────────────────────────────────────────────────────────────
+app.get('/api/databricks/analytics/trend', async (req, res) => {
+  const days = parseInt(req.query.days) || 90
+  try { res.json(await databricksService.getAnalyticsTrend(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, trend: [], projection: [] }) }
+})
+
+app.get('/api/databricks/analytics/journey', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getJourneyAttribution(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, journeys: [], totals: {} }) }
+})
+
+app.get('/api/databricks/analytics/media-performance', async (req, res) => {
+  const days = parseInt(req.query.days) || 90
+  try { res.json(await databricksService.getMediaPerformance(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, weekly: [], totals: [], campaigns: [], projection: [] }) }
 })
 
 // ─── Start ─────────────────────────────────────────────────────────────────

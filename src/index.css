@@ -261,22 +261,79 @@ main {
     opacity    var(--sb-dur-content) var(--sb-ease-in-out) 0s;
 }
 
+/* ── Grupos colapsáveis ── */
+.sidebar__group {
+  margin-bottom: 4px;
+}
+
+.sidebar__group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 12px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--sb-text);
+  /* Label e chevron somem quando sidebar está colapsada */
+  max-height: 28px;
+  opacity: 1;
+  overflow: hidden;
+  transition:
+    max-height var(--sb-dur-content) var(--sb-ease-in-out) 0s,
+    opacity    var(--sb-dur-content) var(--sb-ease-in-out) 0s,
+    padding    var(--sb-dur-layout)  var(--sb-ease-spring);
+}
+.sidebar--collapsed .sidebar__group-header {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  pointer-events: none;
+}
+
+.sidebar__group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(138, 155, 170, 0.6);
+  white-space: nowrap;
+}
+
+.sidebar__group-chevron {
+  display: flex;
+  align-items: center;
+  color: rgba(138, 155, 170, 0.5);
+  transition: transform var(--sb-dur-content) var(--sb-ease-in-out);
+}
+
+.sidebar__group-items {
+  overflow: hidden;
+  transition: max-height var(--sb-dur-layout) var(--sb-ease-spring);
+}
+
 /* ── Footer ── */
 .sidebar__footer {
-  padding: 10px 16px 0;
+  padding: 8px 8px 0;
   border-top: 1px solid rgba(185, 145, 91, 0.12);
+  flex-shrink: 0;
+}
+
+.sidebar__footer-info {
   font-size: 11px;
   color: var(--sb-text);
-  flex-shrink: 0;
+  padding: 6px 12px 4px;
   overflow: hidden;
-  max-height: 40px;
+  max-height: 36px;
   opacity: 1;
   /* Expand */
   transition:
     opacity    var(--sb-dur-content) var(--sb-ease-in-out) 0.22s,
     max-height var(--sb-dur-layout)  var(--sb-ease-spring) 0.1s;
 }
-.sidebar--collapsed .sidebar__footer {
+.sidebar--collapsed .sidebar__footer-info {
   max-height: 0;
   opacity: 0;
   pointer-events: none;

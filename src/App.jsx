@@ -10,6 +10,7 @@ import MetaPage from './pages/Meta'
 import DatabricksPage from './pages/Databricks'
 import FunilPage from './pages/Funil'
 import ComparacaoPage from './pages/Comparacao'
+import AnalyticsPage from './pages/Analytics'
 import SettingsPage from './pages/Settings'
 import SetupWizard from './pages/Setup'
 import { TrackingProvider } from './context/TrackingContext'
@@ -96,6 +97,7 @@ export default function App() {
                 <Route path="/databricks" element={<DatabricksPage />} />
                 <Route path="/funil" element={<FunilPage />} />
                 <Route path="/comparacao" element={<ComparacaoPage />} />
+                <Route path="/analytics" element={<AnalyticsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </main>

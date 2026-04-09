@@ -11,19 +11,47 @@ import {
   TrendingUp,
   GitCompare,
   ChevronLeft,
+  ChevronDown,
+  LineChart,
 } from 'lucide-react'
 
-const navItems = [
-  { to: '/',           icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/explorer',   icon: Database,        label: 'Explorador' },
-  { to: '/gtm',        icon: Tag,             label: 'GTM'        },
-  { to: '/ga4',        icon: BarChart2,       label: 'GA4'        },
-  { to: '/meta',       icon: Activity,        label: 'Meta Ads'   },
-  { to: '/databricks', icon: Layers,          label: 'Databricks' },
-  { to: '/funil',      icon: TrendingUp,      label: 'Funil'      },
-  { to: '/comparacao', icon: GitCompare,      label: 'Comparação' },
-  { to: '/settings',   icon: Settings,        label: 'Config'     },
+// ── Estrutura de navegação agrupada ──────────────────────────────────────────
+const navGroups = [
+  {
+    // Sem label — Dashboard isolado no topo
+    items: [
+      { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+    ],
+  },
+  {
+    label: 'Canais',
+    defaultOpen: true,
+    items: [
+      { to: '/gtm',  icon: Tag,       label: 'GTM'      },
+      { to: '/ga4',  icon: BarChart2, label: 'GA4'      },
+      { to: '/meta', icon: Activity,  label: 'Meta Ads' },
+    ],
+  },
+  {
+    label: 'Funil',
+    defaultOpen: true,
+    items: [
+      { to: '/funil',      icon: TrendingUp, label: 'Funil'      },
+      { to: '/comparacao', icon: GitCompare, label: 'Comparação' },
+      { to: '/analytics',  icon: LineChart,  label: 'Analytics'  },
+    ],
+  },
+  {
+    label: 'Dados',
+    defaultOpen: false,
+    items: [
+      { to: '/explorer',   icon: Database, label: 'Explorador' },
+      { to: '/databricks', icon: Layers,   label: 'Databricks' },
+    ],
+  },
 ]
+
+const settingsItem = { to: '/settings', icon: Settings, label: 'Config' }
 
 const EXPANDED_W  = 220
 const COLLAPSED_W = 56
@@ -36,7 +64,6 @@ export default function Sidebar() {
       className={collapsed ? 'sidebar sidebar--collapsed' : 'sidebar'}
       style={{ '--sidebar-w': EXPANDED_W + 'px', '--sidebar-collapsed-w': COLLAPSED_W + 'px' }}
     >
-      {/* clip interno */}
       <div className="sidebar__clip">
 
         {/* Logo */}
@@ -48,17 +75,24 @@ export default function Sidebar() {
           </div>
         </div>
 
-        {/* Nav */}
+        {/* Nav com grupos */}
         <nav className="sidebar__nav">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavItem key={to} to={to} icon={Icon} label={label} collapsed={collapsed} />
-          ))}
+          {navGroups.map((group, i) =>
+            group.label
+              ? <NavGroup key={group.label} group={group} collapsed={collapsed} />
+              : group.items.map(item => (
+                  <NavItem key={item.to} {...item} collapsed={collapsed} />
+                ))
+          )}
         </nav>
 
-        {/* Footer */}
+        {/* Footer com Config */}
         <div className="sidebar__footer">
-          <div className="sidebar__footer-company">G4 Education</div>
-          <div className="sidebar__footer-version">v1.0.0</div>
+          <NavItem {...settingsItem} collapsed={collapsed} />
+          <div className="sidebar__footer-info">
+            <div className="sidebar__footer-company">G4 Education</div>
+            <div className="sidebar__footer-version">v1.0.0</div>
+          </div>
         </div>
 
       </div>
@@ -72,6 +106,45 @@ export default function Sidebar() {
         <ChevronLeft size={12} strokeWidth={2.5} />
       </button>
     </aside>
+  )
+}
+
+// ── NavGroup — seção colapsável ───────────────────────────────────────────────
+function NavGroup({ group, collapsed }) {
+  const [open, setOpen] = useState(group.defaultOpen)
+
+  // Quando a sidebar colapsa, expande todos os grupos (ícones ficam todos visíveis)
+  const effectiveOpen = collapsed ? true : open
+
+  return (
+    <div className="sidebar__group">
+      {/* Header do grupo — só visível quando expandido */}
+      <button
+        className="sidebar__group-header"
+        onClick={() => !collapsed && setOpen(o => !o)}
+        tabIndex={collapsed ? -1 : 0}
+      >
+        <span className="sidebar__group-label">{group.label}</span>
+        <span
+          className="sidebar__group-chevron"
+          style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+        >
+          <ChevronDown size={10} strokeWidth={2} />
+        </span>
+      </button>
+
+      {/* Itens do grupo */}
+      <div
+        className="sidebar__group-items"
+        style={{
+          maxHeight: effectiveOpen ? group.items.length * 40 + 'px' : '0px',
+        }}
+      >
+        {group.items.map(item => (
+          <NavItem key={item.to} {...item} collapsed={collapsed} />
+        ))}
+      </div>
+    </div>
   )
 }
 
