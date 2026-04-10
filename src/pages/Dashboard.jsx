@@ -13,8 +13,9 @@ import {
 import {
   Tag, BarChart2, Activity, AlertTriangle, CheckCircle, XCircle,
   ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus as MinusIcon,
-  Database,
+  Database, PlugZap,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function fmtNum(v) {
@@ -47,7 +48,7 @@ function DeltaBadge({ delta, suffix = '', inverse = false }) {
 export default function Dashboard() {
   const { selectedGTM, gtmContainers, selectedGA4 } = useTracking()
   const [lastUpdated, setLastUpdated] = useState(null)
-  const [days, setDays] = useState(7)
+  const [days, setDays] = useState(1)
 
   // Executive summary (Databricks)
   const [exec, setExec] = useState(null)
@@ -61,6 +62,18 @@ export default function Dashboard() {
   const [gtmData, setGtmData] = useState({}) // { [publicId]: detail }
   const [gtmLoading, setGtmLoading] = useState(true)
 
+  // Meta
+  const [metaData, setMetaData] = useState(null)
+  const [metaLoading, setMetaLoading] = useState(true)
+
+  // GTM Connection Health
+  const [gtmHealth, setGtmHealth] = useState(null)
+  const [gtmHealthLoading, setGtmHealthLoading] = useState(true)
+
+  // Anomaly Alerts
+  const [anomalies, setAnomalies] = useState(null)
+  const [anomaliesLoading, setAnomaliesLoading] = useState(true)
+
   const visibleContainers = selectedGTM === 'all'
     ? gtmContainers
     : gtmContainers.filter(c => c.id === selectedGTM)
@@ -70,11 +83,32 @@ export default function Dashboard() {
     setGa4Loading(true)
     setGtmLoading(true)
     setExecLoading(true)
+    setMetaLoading(true)
+    setGtmHealthLoading(true)
+    setAnomaliesLoading(true)
 
     // Executive summary (Databricks) — corre em paralelo com GA4
     api.databricksExecutiveSummary().then(d => {
       setExec(d)
       setExecLoading(false)
+    })
+
+    // Meta stats — paralelo
+    api.metaStats().then(d => {
+      setMetaData(d)
+      setMetaLoading(false)
+    })
+
+    // GTM Health — paralelo
+    api.gtmHealth().then(d => {
+      setGtmHealth(d)
+      setGtmHealthLoading(false)
+    })
+
+    // Anomaly Alerts — paralelo
+    api.databricksAnomalyAlerts().then(d => {
+      setAnomalies(d)
+      setAnomaliesLoading(false)
     })
 
     // GA4 report
@@ -128,6 +162,8 @@ export default function Dashboard() {
         onRefresh={() => loadData(true)}
         lastUpdated={lastUpdated}
         action={<PeriodSelect value={days} onChange={setDays} />}
+        showGTM
+        showGA4
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
@@ -232,14 +268,15 @@ export default function Dashboard() {
           <ConnectionDropdown
             icon={Activity}
             title="Meta Ads"
-            summary="Pixel + CAPI"
-            status="warn"
-            loading={false}
+            summary={metaLoading ? '…' : metaData?.mock ? 'mock' : `Pixel ${metaData?.pixelId ?? '—'}`}
+            status={metaLoading ? 'loading' : metaData?.mock ? 'warn' : 'ok'}
+            loading={metaLoading}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Row label="Match rate" value="—" />
-              <Row label="Eventos 24h" value="—" />
-              <WarnNote>Conexão com Meta Ads API pendente.</WarnNote>
+              <Row label="Pixel ID"    value={metaLoading ? '…' : metaData?.pixelId ?? '—'} mono />
+              <Row label="Eventos 24h" value={metaLoading ? '…' : fmtNum(metaData?.totalEvents ?? 0)} />
+              <Row label="Leads 24h"   value={metaLoading ? '…' : fmtNum(metaData?.funnel?.find(f => f.stage === 'Lead')?.count ?? 0)} />
+              {metaData?.mock && <WarnNote>Dados simulados — configure o Access Token em Meta Ads.</WarnNote>}
             </div>
           </ConnectionDropdown>
 
@@ -266,7 +303,14 @@ export default function Dashboard() {
         {/* ── Gráfico + Status ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16, marginBottom: 20 }}>
           <EventsChartCard chartData={chartData} loading={ga4Loading} days={days} />
-          <AlertsCard ga4Mock={!!ga4Data?.mock} gtmMock={!gtmHasReal && Object.keys(gtmData).length > 0} />
+          <AlertsCard
+            ga4Mock={!!ga4Data?.mock}
+            gtmMock={!gtmHasReal && Object.keys(gtmData).length > 0}
+            metaMock={!!metaData?.mock}
+            databricksMock={!!exec?.mock}
+          />
+          <GTMHealthCard data={gtmHealth} loading={gtmHealthLoading} />
+          <AnomalyAlertsCard data={anomalies} loading={anomaliesLoading} />
         </div>
 
         {/* ── Checklist ── */}
@@ -494,36 +538,197 @@ function EventsChartCard({ chartData, loading, days = 7 }) {
 }
 
 // ── Alertas / Status ───────────────────────────────────────────────────────
-function AlertsCard({ ga4Mock, gtmMock }) {
-  const alerts = []
-  if (ga4Mock) alerts.push({ level: 'warn', title: 'GA4 em modo mock', description: 'Adicione o service account à conta GA4 para dados reais.' })
-  if (gtmMock) alerts.push({ level: 'warn', title: 'GTM em modo mock', description: 'Adicione o service account aos containers GTM.' })
-  if (!ga4Mock && !gtmMock && (alerts.length === 0)) {
-    alerts.push({ level: 'ok', title: 'Tudo operacional', description: 'GA4 e GTM conectados com dados reais.' })
-  }
+function AlertsCard({ ga4Mock, gtmMock, metaMock, databricksMock }) {
+  const connections = [
+    {
+      label: 'GTM',
+      ok: !gtmMock,
+      warnMsg: 'Adicione o service account aos containers GTM.',
+    },
+    {
+      label: 'GA4',
+      ok: !ga4Mock,
+      warnMsg: 'Adicione o service account à conta GA4.',
+    },
+    {
+      label: 'Meta Ads',
+      ok: !metaMock,
+      warnMsg: 'Configure o Access Token em Meta Ads → Configurar.',
+    },
+    {
+      label: 'Databricks',
+      ok: !databricksMock,
+      warnMsg: 'Verifique as credenciais em Configurações.',
+    },
+  ]
 
-  const alertColor = { error: '#EF4444', warn: '#F59E0B', ok: '#22C55E' }
-  const AlertIcon = { error: XCircle, warn: AlertTriangle, ok: CheckCircle }
+  const allOk = connections.every(c => c.ok)
 
   return (
     <Card>
-      <CardHeader title="Status das conexões" />
-      <CardBody style={{ padding: '12px 20px' }}>
+      <CardHeader
+        title="Status das conexões"
+        subtitle={allOk ? 'Todas operacionais' : `${connections.filter(c => !c.ok).length} com atenção`}
+      />
+      <CardBody style={{ padding: '10px 16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {connections.map((c) => {
+            const color  = c.ok ? '#22C55E' : '#F59E0B'
+            const Icon   = c.ok ? CheckCircle : AlertTriangle
+            return (
+              <div key={c.label} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px',
+                background: `${color}08`,
+                border: `1px solid ${color}28`,
+                borderRadius: 7,
+              }}>
+                <Icon size={13} color={color} style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3', flex: 1 }}>{c.label}</span>
+                {c.ok
+                  ? <span style={{ fontSize: 11, color: '#22C55E', fontWeight: 600 }}>Conectado</span>
+                  : <span style={{ fontSize: 11, color: '#F59E0B' }}>{c.warnMsg}</span>
+                }
+              </div>
+            )
+          })}
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── GTM Health Card ────────────────────────────────────────────────────────
+function GTMHealthCard({ data, loading }) {
+  const navigate = useNavigate()
+  const connections = data?.connections ?? []
+  const allOk = connections.length > 0 && connections.every(c => c.ok)
+  const isMock = data?.mock ?? true
+  const paused = data?.summary?.totalPaused ?? 0
+
+  // Não mostra nada enquanto carrega E é mock (evita flash)
+  if (!loading && isMock) return null
+
+  return (
+    <Card>
+      <CardHeader
+        title="Saúde das integrações GTM"
+        subtitle={
+          loading ? 'Verificando…'
+          : allOk ? `${data.summary.containersChecked} containers OK`
+          : `${connections.filter(c => !c.ok).length} item(s) com atenção`
+        }
+      />
+      <CardBody style={{ padding: '10px 16px' }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}><Spinner /></div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {connections.map((conn) => {
+              const color = conn.ok ? '#22C55E' : '#F59E0B'
+              const Icon  = conn.ok ? CheckCircle : AlertTriangle
+              return (
+                <div key={conn.key} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px',
+                  background: `${color}08`,
+                  border: `1px solid ${color}28`,
+                  borderRadius: 7,
+                }}>
+                  <Icon size={13} color={color} style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3', flex: 1 }}>{conn.label}</span>
+                  <span style={{ fontSize: 11, color: conn.ok ? '#22C55E' : '#F59E0B', fontWeight: conn.ok ? 600 : 400 }}>
+                    {conn.detail}
+                  </span>
+                </div>
+              )
+            })}
+            {paused > 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, marginTop: 4,
+                padding: '6px 12px', background: 'rgba(245,158,11,0.05)',
+                border: '1px solid rgba(245,158,11,0.15)', borderRadius: 6,
+              }}>
+                <AlertTriangle size={11} color="#F59E0B" />
+                <span style={{ fontSize: 11, color: '#8A9BAA' }}>
+                  <span style={{ color: '#F59E0B', fontWeight: 700 }}>{paused}</span> tag{paused !== 1 ? 's' : ''} pausada{paused !== 1 ? 's' : ''} nos containers
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+// ── Anomaly Alerts ─────────────────────────────────────────────────────────
+function AnomalyAlertsCard({ data, loading }) {
+  if (loading) return (
+    <Card>
+      <CardHeader title="Anomalias detectadas" subtitle="Variação semana a semana" />
+      <CardBody><div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}><Spinner /></div></CardBody>
+    </Card>
+  )
+
+  const alerts = data?.alerts ?? []
+  const isMock = data?.mock ?? true
+
+  function fmtVal(m) {
+    if (m.unit === 'R$') return fmtMoney(m.curr)
+    return fmtNum(m.curr)
+  }
+  function fmtPrev(m) {
+    if (m.unit === 'R$') return fmtMoney(m.prev)
+    return fmtNum(m.prev)
+  }
+
+  if (alerts.length === 0 && !isMock) return (
+    <Card>
+      <CardHeader title="Anomalias detectadas" subtitle="Variação semana a semana" />
+      <CardBody>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 0' }}>
+          <CheckCircle size={18} color="#22C55E" />
+          <span style={{ fontSize: 13, color: '#22C55E', fontWeight: 600 }}>Nenhuma anomalia — todas as métricas estáveis esta semana.</span>
+        </div>
+      </CardBody>
+    </Card>
+  )
+
+  return (
+    <Card>
+      <CardHeader
+        title="Anomalias detectadas"
+        subtitle={isMock ? 'Exemplo — conecte Databricks para dados reais' : `${alerts.length} métrica${alerts.length !== 1 ? 's' : ''} com variação ≥ 20% vs semana anterior`}
+        action={isMock ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(245,158,11,0.1)', color: '#F59E0B', fontWeight: 700 }}>MOCK</span> : null}
+      />
+      <CardBody style={{ padding: '8px 16px 14px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {alerts.map((a, i) => {
-            const Icon = AlertIcon[a.level]
+            const isUp    = a.delta > 0
+            // Para MQLs e Ganhos: subida é boa, queda é ruim.
+            // Para Receita: subida é boa.
+            const isGood  = isUp
+            const color   = isGood ? '#22C55E' : '#EF4444'
+            const bgColor = isGood ? 'rgba(34,197,94,0.06)' : 'rgba(239,68,68,0.06)'
+            const border  = isGood ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'
+            const Icon    = isUp ? TrendingUp : TrendingDown
             return (
               <div key={i} style={{
-                display: 'flex', alignItems: 'flex-start', gap: 10,
-                padding: '10px 12px',
-                background: `${alertColor[a.level]}0D`,
-                border: `1px solid ${alertColor[a.level]}33`,
-                borderRadius: 6,
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 14px',
+                background: bgColor, border: `1px solid ${border}`, borderRadius: 8,
               }}>
-                <Icon size={14} color={alertColor[a.level]} style={{ marginTop: 1, flexShrink: 0 }} />
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F4F3' }}>{a.title}</div>
-                  <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>{a.description}</div>
+                <Icon size={16} color={color} style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3', marginBottom: 2 }}>{a.label}</div>
+                  <div style={{ fontSize: 11, color: '#8A9BAA' }}>
+                    {fmtPrev(a)} → <strong style={{ color: '#F5F4F3' }}>{fmtVal(a)}</strong>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color }}>{a.delta > 0 ? '+' : ''}{a.delta}%</div>
+                  <div style={{ fontSize: 9, color: '#6B7280' }}>vs sem. ant.</div>
                 </div>
               </div>
             )

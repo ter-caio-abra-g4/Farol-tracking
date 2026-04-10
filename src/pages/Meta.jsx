@@ -7,9 +7,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell,
 } from 'recharts'
-import { Settings, X, Eye, EyeOff, Save, TrendingUp, TrendingDown, Minus, Users, Monitor, Layers } from 'lucide-react'
+import { Settings, X, Eye, EyeOff, Save, TrendingUp, TrendingDown, Minus, Users, Monitor, Layers, ShieldCheck, PlugZap } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
-const TT = { contentStyle: { background: '#001A2E', border: '1px solid rgba(185,145,91,0.3)', borderRadius: 8, fontSize: 12, color: '#F5F4F3' } }
+const TT = {
+  contentStyle: { background: '#001A2E', border: '1px solid rgba(185,145,91,0.3)', borderRadius: 8, fontSize: 12, color: '#F5F4F3' },
+  cursorBar:  { fill: 'rgba(255,255,255,0.04)' },
+  cursorLine: { stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 },
+}
 const FUNNEL_COLORS = ['#B9915B', '#A07848', '#885F36', '#6F4724', '#572F13']
 
 function fmtMoney(v) {
@@ -32,9 +37,11 @@ const TABS = [
 ]
 
 const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7  },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
+  { label: 'Hoje', days: 1  },
+  { label: '7d',   days: 7  },
+  { label: '15d',  days: 15 },
+  { label: '30d',  days: 30 },
+  { label: '90d',  days: 90 },
 ]
 
 // ── Paleta de gênero / plataforma ─────────────────────────────────────────────
@@ -228,6 +235,7 @@ function TabAudience({ data, days }) {
                 <XAxis dataKey="age" tick={{ fill: '#8A9BAA', fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: '#8A9BAA', fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip
+                  cursor={TT.cursorBar}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     const d = payload[0]?.payload
@@ -360,6 +368,7 @@ function TabCreative({ data, days }) {
               <XAxis type="number" tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => fmtMoney(v)} />
               <YAxis type="category" dataKey="shortName" width={180} tick={{ fill: '#D1D5DB', fontSize: 10 }} axisLine={false} tickLine={false} />
               <Tooltip
+                cursor={TT.cursorBar}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null
                   const d = payload[0]?.payload
@@ -384,6 +393,95 @@ function TabCreative({ data, days }) {
           </ResponsiveContainer>
         </CardBody>
       </Card>
+
+      {/* ── Frequência vs. Cansaço Criativo ── */}
+      {ads.filter(a => a.frequency > 0 && a.reach > 0).length > 0 && (() => {
+        // Classifica anúncios: saturado (freq > 4 + CTR caindo), em alerta (freq > 3), saudável
+        const adsWithFreq = ads.filter(a => a.frequency > 0 && a.reach > 0)
+        const avgCtr = adsWithFreq.reduce((s, a) => s + (a.ctr || 0), 0) / adsWithFreq.length
+
+        function fatigueLevel(ad) {
+          if (ad.frequency >= 4 && ad.ctr < avgCtr * 0.7) return 'saturado'
+          if (ad.frequency >= 3)                           return 'alerta'
+          return 'saudavel'
+        }
+
+        const saturados = adsWithFreq.filter(a => fatigueLevel(a) === 'saturado').sort((a, b) => b.frequency - a.frequency)
+        const alertas   = adsWithFreq.filter(a => fatigueLevel(a) === 'alerta').sort((a, b) => b.frequency - a.frequency)
+        const saudaveis = adsWithFreq.filter(a => fatigueLevel(a) === 'saudavel').sort((a, b) => b.ctr - a.ctr)
+
+        const hasFatigue = saturados.length > 0 || alertas.length > 0
+
+        return (
+          <Card>
+            <CardHeader
+              title="Frequência vs. Cansaço Criativo"
+              subtitle="Anúncios com alta frequência e CTR em queda indicam saturação de audiência"
+              action={hasFatigue
+                ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', color: '#EF4444', fontWeight: 700 }}>{saturados.length} saturado{saturados.length !== 1 ? 's' : ''}</span>
+                : <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(34,197,94,0.1)', color: '#22C55E', fontWeight: 700 }}>Saudável</span>
+              }
+            />
+            <CardBody style={{ padding: 0 }}>
+              {hasFatigue && (
+                <div style={{ margin: '12px 16px 0', padding: '10px 14px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 12, color: '#FCA5A5', lineHeight: 1.5 }}>
+                  ⚠ <strong>{saturados.length} anúncio{saturados.length !== 1 ? 's' : ''} saturado{saturados.length !== 1 ? 's' : ''}</strong> — frequência ≥ 4 com CTR abaixo de {(avgCtr * 0.7).toFixed(2)}% (70% da média). Considere pausar ou renovar o criativo.
+                </div>
+              )}
+              <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[
+                  { list: saturados, label: 'Saturado', color: '#EF4444', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.2)' },
+                  { list: alertas,   label: 'Em alerta', color: '#F59E0B', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.2)' },
+                  { list: saudaveis.slice(0, 5), label: 'Saudável', color: '#22C55E', bg: 'rgba(34,197,94,0.04)', border: 'rgba(34,197,94,0.1)' },
+                ].map(({ list, label, color, bg, border }) =>
+                  list.map((ad, i) => {
+                    const freqBarW = Math.min((ad.frequency / 8) * 100, 100)
+                    const ctrRatio = avgCtr > 0 ? ad.ctr / avgCtr : 1
+                    return (
+                      <div key={ad.id || i} style={{
+                        display: 'grid', gridTemplateColumns: '1fr 90px 90px 90px',
+                        alignItems: 'center', gap: 12,
+                        padding: '10px 14px',
+                        background: bg, border: `1px solid ${border}`, borderRadius: 8,
+                      }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 8, background: color + '22', color }}>{label}</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: '#F5F4F3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ad.name}>
+                              {ad.name?.slice(0, 45)}{ad.name?.length > 45 ? '…' : ''}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                              <div style={{ width: `${freqBarW}%`, height: '100%', background: color, borderRadius: 2 }} />
+                            </div>
+                            <span style={{ fontSize: 9, color: '#6B7280', whiteSpace: 'nowrap' }}>{fmtNum(ad.reach)} alcance</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color }}>{ad.frequency?.toFixed(1)}×</div>
+                          <div style={{ fontSize: 9, color: '#6B7280' }}>frequência</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: ctrRatio < 0.7 ? '#EF4444' : ctrRatio < 1 ? '#F59E0B' : '#22C55E' }}>{ad.ctr?.toFixed(2)}%</div>
+                          <div style={{ fontSize: 9, color: '#6B7280' }}>CTR</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F4F3' }}>{fmtMoney(ad.spend)}</div>
+                          <div style={{ fontSize: 9, color: '#6B7280' }}>gasto {days}d</div>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+              <div style={{ padding: '6px 16px 12px', borderTop: '1px solid rgba(185,145,91,0.06)', fontSize: 10, color: '#6B7280' }}>
+                Saturado = frequência ≥ 4 + CTR &lt; 70% da média · Em alerta = frequência ≥ 3 · Saudável = abaixo de 3.
+              </div>
+            </CardBody>
+          </Card>
+        )
+      })()}
 
       {/* Tabela completa */}
       <Card>
@@ -476,13 +574,143 @@ function TabCreative({ data, days }) {
   }
 }
 
+// ── Event Match Quality ────────────────────────────────────────────────────────
+function EventMatchQuality({ emq }) {
+  const navigate = useNavigate()
+
+  // Token não configurado → banner de configuração
+  if (!emq || emq.mock) {
+    return (
+      <div style={{ border: '1px dashed rgba(185,145,91,0.2)', borderRadius: 10, padding: '28px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center' }}>
+        <PlugZap size={26} color="rgba(185,145,91,0.4)" />
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#8A9BAA' }}>Qualidade de correspondência de eventos indisponível</div>
+        <div style={{ fontSize: 12, color: '#6B7280', maxWidth: 380 }}>Configure o token Meta Ads para ver o Event Match Quality por evento (EMQ).</div>
+        <button onClick={() => navigate('/settings')} style={{ marginTop: 4, padding: '6px 16px', borderRadius: 6, border: '1px solid rgba(185,145,91,0.35)', background: 'rgba(185,145,91,0.08)', color: '#B9915B', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Manrope, sans-serif' }}>
+          Configurar em Conexões →
+        </button>
+      </div>
+    )
+  }
+
+  // API não suporta EMQ para esse pixel → oculta silenciosamente
+  if (emq.unavailable) return null
+
+  const events = emq.events || []
+  if (events.length === 0) return null
+
+  const qualityColor = (q) => {
+    if (q === 'Excelente') return '#22C55E'
+    if (q === 'Alto')      return '#84CC16'
+    if (q === 'Médio')     return '#F59E0B'
+    return '#EF4444'
+  }
+  const qualityBg = (q) => {
+    if (q === 'Excelente') return 'rgba(34,197,94,0.10)'
+    if (q === 'Alto')      return 'rgba(132,204,22,0.10)'
+    if (q === 'Médio')     return 'rgba(245,158,11,0.10)'
+    return 'rgba(239,68,68,0.10)'
+  }
+
+  // Média geral ponderada por volume
+  const totalReceived = events.reduce((s, e) => s + e.received, 0)
+  const avgRate = totalReceived > 0
+    ? Math.round(events.reduce((s, e) => s + e.matchRate * e.received, 0) / totalReceived)
+    : 0
+  const avgQuality = avgRate >= 90 ? 'Excelente' : avgRate >= 80 ? 'Alto' : avgRate >= 70 ? 'Médio' : 'Baixo'
+
+  return (
+    <Card>
+      <CardHeader
+        title="Qualidade de correspondência de eventos (EMQ)"
+        subtitle="Eficácia das informações do cliente nas instâncias de correspondência com contas Meta"
+        action={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShieldCheck size={14} color={qualityColor(avgQuality)} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: qualityColor(avgQuality) }}>{avgRate}% média</span>
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 700, background: qualityBg(avgQuality), color: qualityColor(avgQuality) }}>{avgQuality}</span>
+          </div>
+        }
+      />
+      <CardBody style={{ padding: 0 }}>
+        <div style={{ padding: '0 16px 4px' }}>
+          {/* Legenda */}
+          <div style={{ display: 'flex', gap: 16, padding: '10px 0 12px', fontSize: 11, color: '#6B7280', borderBottom: '1px solid rgba(185,145,91,0.08)', marginBottom: 4 }}>
+            <span><span style={{ color: '#22C55E', fontWeight: 700 }}>● Excelente</span> ≥ 90%</span>
+            <span><span style={{ color: '#84CC16', fontWeight: 700 }}>● Alto</span> ≥ 80%</span>
+            <span><span style={{ color: '#F59E0B', fontWeight: 700 }}>● Médio</span> ≥ 70%</span>
+            <span><span style={{ color: '#EF4444', fontWeight: 700 }}>● Baixo</span> &lt; 70%</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {events.map((ev, i) => {
+            const color  = qualityColor(ev.quality)
+            const bg     = qualityBg(ev.quality)
+            return (
+              <div key={i} style={{
+                display: 'grid', gridTemplateColumns: '160px 1fr 120px 90px',
+                alignItems: 'center', gap: 16,
+                padding: '12px 16px',
+                borderBottom: i < events.length - 1 ? '1px solid rgba(185,145,91,0.06)' : 'none',
+                background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+              }}>
+                {/* Nome do evento */}
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ev.name}>
+                  {ev.name}
+                </div>
+
+                {/* Barra de progresso */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: '#8A9BAA' }}>
+                      {ev.received !== null
+                        ? `${ev.matched.toLocaleString('pt-BR')} correspondidos de ${ev.received.toLocaleString('pt-BR')}`
+                        : 'Taxa agregada do pixel'}
+                    </span>
+                  </div>
+                  <div style={{ height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ width: `${ev.matchRate}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 0.6s ease' }} />
+                  </div>
+                </div>
+
+                {/* Score */}
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 18, fontWeight: 800, color }}>
+                    {ev.matchRate}%
+                  </span>
+                </div>
+
+                {/* Badge qualidade */}
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 10, background: bg, color }}>
+                    {ev.quality}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ padding: '10px 16px 14px', borderTop: '1px solid rgba(185,145,91,0.06)', marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: '#6B7280', lineHeight: 1.5 }}>
+            {emq.overallOnly
+              ? 'Taxa agregada do pixel — detalhamento por evento requer acesso avançado ao Business Manager. Valores acima de 80% são considerados bons.'
+              : 'O EMQ mede o percentual de eventos do servidor que conseguem ser correspondidos a uma conta Meta. Valores acima de 80% são considerados bons. Envie e-mail, telefone e outros identificadores para melhorar a taxa.'}
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
 // ── Página principal ───────────────────────────────────────────────────────────
 export default function MetaPage() {
   const [tab, setTab]         = useState('pixel')
-  const [days, setDays]       = useState(30)
+  const [days, setDays]       = useState(1)
   const [stats, setStats]     = useState(null)
   const [audience, setAudience] = useState(null)
   const [creatives, setCreatives] = useState(null)
+  const [emq, setEmq]         = useState(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [showModal, setShowModal] = useState(false)
@@ -491,16 +719,18 @@ export default function MetaPage() {
 
   async function loadData() {
     setLoading(true)
-    const [s, cfg, aud, cre] = await Promise.all([
+    const [s, cfg, aud, cre, eq] = await Promise.all([
       api.metaStats(),
       api.getConfig(),
       api.metaAudience(days),
       api.metaCreatives(days),
+      api.metaEvents(),
     ])
     setStats(s)
     setConfig(cfg)
     setAudience(aud)
     setCreatives(cre)
+    setEmq(eq)
     setLoading(false)
     setLastUpdated(Date.now())
   }
@@ -652,7 +882,7 @@ export default function MetaPage() {
                           <CartesianGrid strokeDasharray="3 3" stroke="#B9915B11" />
                           <XAxis dataKey="hour" tick={{ fontSize: 9, fill: '#8A9BAA' }} axisLine={false} tickLine={false} interval={3} />
                           <YAxis tick={{ fontSize: 9, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
-                          <Tooltip {...TT} />
+                          <Tooltip contentStyle={TT.contentStyle} cursor={TT.cursorLine} />
                           <Area type="monotone" dataKey={activeHourEvent} name={activeHourEvent} stroke="#B9915B" fill="url(#hg)" strokeWidth={2} dot={false} />
                         </AreaChart>
                       </ResponsiveContainer>
@@ -702,6 +932,11 @@ export default function MetaPage() {
                     </table>
                   )}
                 </Card>
+
+                {/* ── Event Match Quality ──────────────────────────── */}
+                <div style={{ marginTop: 16 }}>
+                  <EventMatchQuality emq={emq} />
+                </div>
               </>
             )}
 

@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
-import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server } from 'lucide-react'
+import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server, Search } from 'lucide-react'
 import { api } from '../services/api'
 
 const SOURCES = [
-  { id: 'gtm',        name: 'Google Tag Manager',        desc: 'Containers, tags e triggers via API',  route: '/gtm' },
-  { id: 'ga4',        name: 'Google Analytics 4',         desc: 'Dados de eventos e propriedades GA4', route: '/ga4' },
-  { id: 'meta',       name: 'Meta Ads — Conversions API', desc: 'Pixel e eventos via CAPI',             route: '/meta' },
-  { id: 'databricks', name: 'Databricks SQL',             desc: 'Tabelas e queries via SQL Warehouse',  route: '/databricks' },
+  { id: 'gtm',           name: 'Google Tag Manager',        desc: 'Containers, tags e triggers via API',         route: '/gtm' },
+  { id: 'ga4',           name: 'Google Analytics 4',         desc: 'Dados de eventos e propriedades GA4',        route: '/ga4' },
+  { id: 'searchconsole', name: 'Google Search Console',      desc: 'Cliques, impressões, CTR e posição orgânica', route: '/seo' },
+  { id: 'meta',          name: 'Meta Ads — Conversions API', desc: 'Pixel e eventos via CAPI',                   route: '/meta' },
+  { id: 'databricks',    name: 'Databricks SQL',             desc: 'Tabelas e queries via SQL Warehouse',        route: '/databricks' },
 ]
 
 const TEST_FNS = {
@@ -71,6 +72,18 @@ const TEST_FNS = {
       items: null,
     }
   },
+  searchconsole: async () => {
+    const res = await api.scSites()
+    return {
+      live: !res?.mock,
+      detail: !res?.mock
+        ? `${res.sites?.length ?? 0} propriedade${(res.sites?.length ?? 0) !== 1 ? 's' : ''} acessível${(res.sites?.length ?? 0) !== 1 ? 'is' : ''}`
+        : 'Sem acesso — adicione o service account como usuário no Search Console',
+      items: !res?.mock
+        ? (res.sites || []).map(s => ({ label: s.url, sub: s.permissionLevel }))
+        : null,
+    }
+  },
 }
 
 // Propriedades GA4 conhecidas (base estática + o que a API retornar)
@@ -82,7 +95,7 @@ export default function SettingsPage() {
   const navigate = useNavigate()
   const [refreshInterval, setRefreshInterval] = useState(5)
   // testState: { [id]: 'idle' | 'testing' | { live, detail } }
-  const [testState, setTestState] = useState({ gtm: 'idle', ga4: 'idle', meta: 'idle', databricks: 'idle' })
+  const [testState, setTestState] = useState({ gtm: 'idle', ga4: 'idle', meta: 'idle', databricks: 'idle', searchconsole: 'idle' })
   const [testingAll, setTestingAll] = useState(false)
 
   // GA4 property selector
@@ -100,6 +113,11 @@ export default function SettingsPage() {
   const [dbSchema, setDbSchema] = useState('silver')
   const [savingDb, setSavingDb] = useState(false)
   const [dbSaved, setDbSaved] = useState(false)
+
+  // Search Console config
+  const [scSiteUrl, setScSiteUrl] = useState('')
+  const [savingSc, setSavingSc] = useState(false)
+  const [scSaved, setScSaved] = useState(false)
 
   // Meta config
   const [metaToken, setMetaToken] = useState('')
@@ -136,6 +154,7 @@ export default function SettingsPage() {
       if (cfg?.databricks?.http_path) setDbHttpPath(cfg.databricks.http_path)
       if (cfg?.databricks?.catalog) setDbCatalog(cfg.databricks.catalog)
       if (cfg?.databricks?.schema) setDbSchema(cfg.databricks.schema)
+      if (cfg?.searchconsole?.site_url) setScSiteUrl(cfg.searchconsole.site_url)
     })
   }, [])
 
@@ -212,19 +231,30 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSaveScSite() {
+    if (!scSiteUrl.trim()) return
+    setSavingSc(true)
+    setScSaved(false)
+    await api.scSetSite(scSiteUrl.trim())
+    setSavingSc(false)
+    setScSaved(true)
+    setTimeout(() => setScSaved(false), 3000)
+  }
+
   async function testAll() {
     setTestingAll(true)
-    setTestState({ gtm: 'testing', ga4: 'testing', meta: 'testing', databricks: 'testing' })
+    setTestState({ gtm: 'testing', ga4: 'testing', meta: 'testing', databricks: 'testing', searchconsole: 'testing' })
     try {
-      const [gtm, ga4, meta, databricks] = await Promise.all([
+      const [gtm, ga4, meta, databricks, searchconsole] = await Promise.all([
         TEST_FNS.gtm(),
         TEST_FNS.ga4(),
         TEST_FNS.meta(),
         TEST_FNS.databricks(),
+        TEST_FNS.searchconsole(),
       ])
-      setTestState({ gtm, ga4, meta, databricks })
+      setTestState({ gtm, ga4, meta, databricks, searchconsole })
     } catch (err) {
-      setTestState({ gtm: 'idle', ga4: 'idle', meta: 'idle', databricks: 'idle' })
+      setTestState({ gtm: 'idle', ga4: 'idle', meta: 'idle', databricks: 'idle', searchconsole: 'idle' })
     } finally {
       setTestingAll(false)
     }
@@ -512,6 +542,63 @@ export default function SettingsPage() {
             <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 8 }}>
               ID ativo: <span style={{ color: '#B9915B', fontFamily: 'monospace' }}>{activePropertyId || '—'}</span>
             </div>
+          </CardBody>
+        </Card>
+
+        {/* Search Console — URL da propriedade */}
+        <Card style={{ marginBottom: 20 }}>
+          <CardHeader title="Google Search Console — Propriedade" />
+          <CardBody>
+            <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 12 }}>
+              Informe a URL exata da propriedade no Search Console. Use o formato <code style={{ color: '#B9915B', fontSize: 11 }}>https://g4educacao.com/</code> (URL prefix) ou <code style={{ color: '#B9915B', fontSize: 11 }}>sc-domain:g4educacao.com</code> (domain property).
+              Depois adicione o service account <code style={{ color: '#22C55E', fontSize: 11 }}>g4analyticsca@security-logs-438613.iam.gserviceaccount.com</code> como usuário com permissão Restrita no GSC.
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={13} color="#B9915B" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  placeholder="https://g4educacao.com/ ou sc-domain:g4educacao.com"
+                  value={scSiteUrl}
+                  onChange={e => setScSiteUrl(e.target.value)}
+                  style={{
+                    width: '100%', padding: '9px 12px 9px 30px',
+                    background: '#031A26', border: '1px solid rgba(185,145,91,0.35)',
+                    borderRadius: 6, color: '#F5F4F3', fontSize: 13,
+                    outline: 'none', fontFamily: 'Manrope, sans-serif', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleSaveScSite}
+                disabled={savingSc || !scSiteUrl.trim()}
+                style={{
+                  padding: '9px 16px',
+                  background: scSaved ? 'rgba(34,197,94,0.15)' : 'rgba(185,145,91,0.12)',
+                  border: `1px solid ${scSaved ? 'rgba(34,197,94,0.4)' : 'rgba(185,145,91,0.35)'}`,
+                  borderRadius: 6,
+                  color: scSaved ? '#22C55E' : '#B9915B',
+                  cursor: (savingSc || !scSiteUrl.trim()) ? 'not-allowed' : 'pointer',
+                  fontSize: 12, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  fontFamily: 'Manrope, sans-serif',
+                  whiteSpace: 'nowrap', transition: 'all 0.2s',
+                  opacity: !scSiteUrl.trim() ? 0.5 : 1,
+                }}
+              >
+                {savingSc
+                  ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Salvando</>
+                  : scSaved
+                    ? <><CheckCircle size={12} /> Salvo</>
+                    : <><Save size={12} /> Salvar</>
+                }
+              </button>
+            </div>
+            {scSiteUrl && (
+              <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 8 }}>
+                Propriedade ativa: <span style={{ color: '#B9915B', fontFamily: 'monospace' }}>{scSiteUrl}</span>
+              </div>
+            )}
           </CardBody>
         </Card>
 
@@ -932,7 +1019,7 @@ export default function SettingsPage() {
               <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 10 }}>Sobre</div>
               <div style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.8 }}>
                 <div><span style={{ color: '#F5F4F3' }}>Farol Tracking</span> — Tracking Intelligence</div>
-                <div>Versão 1.0.0 · G4 Education MarTech</div>
+                <div>Versão 0.6.0 · G4 Education MarTech</div>
                 <div>Caio Matheus dos Santos Abra</div>
               </div>
             </div>

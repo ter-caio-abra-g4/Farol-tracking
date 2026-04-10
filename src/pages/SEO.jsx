@@ -7,7 +7,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, AreaChart, Area, Cell,
 } from 'recharts'
-import { TrendingUp, TrendingDown, Minus, Zap } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Zap, Search, MousePointerClick, Eye, Target, PlugZap } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const TT = {
@@ -15,6 +16,8 @@ const TT = {
     background: '#001A2E', border: '1px solid rgba(185,145,91,0.3)',
     borderRadius: 8, fontSize: 12, color: '#F5F4F3',
   },
+  cursorBar:  { fill: 'rgba(255,255,255,0.04)' },
+  cursorLine: { stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 },
 }
 
 function fmtMoney(v) {
@@ -45,8 +48,10 @@ const CANAL_COLOR = {
 }
 
 const PERIOD_OPTIONS = [
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
+  { label: '7d',   days: 7   },
+  { label: '15d',  days: 15  },
+  { label: '30d',  days: 30  },
+  { label: '90d',  days: 90  },
   { label: '180d', days: 180 },
 ]
 
@@ -97,18 +102,68 @@ function CompareBar({ labelA, valA, labelB, valB, colorA, colorB, format = 'mone
   )
 }
 
+// ─── Banner de fonte não conectada ────────────────────────────────────────────
+function NotConnectedBanner({ source, description, settingsHash }) {
+  const navigate = useNavigate()
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      gap: 12, padding: '32px 24px',
+      background: 'rgba(185,145,91,0.03)',
+      border: '1px dashed rgba(185,145,91,0.2)',
+      borderRadius: 10,
+    }}>
+      <PlugZap size={28} color="rgba(185,145,91,0.4)" strokeWidth={1.5} />
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#8A9BAA', marginBottom: 4 }}>{source} não conectado</div>
+        <div style={{ fontSize: 11, color: '#6B7280', maxWidth: 320 }}>{description}</div>
+      </div>
+      <button
+        onClick={() => navigate('/settings')}
+        style={{
+          padding: '6px 16px',
+          background: 'rgba(185,145,91,0.1)',
+          border: '1px solid rgba(185,145,91,0.35)',
+          borderRadius: 6,
+          color: '#B9915B',
+          fontSize: 11, fontWeight: 600,
+          cursor: 'pointer',
+          fontFamily: 'Manrope, sans-serif',
+        }}
+      >
+        Configurar em Conexões →
+      </button>
+    </div>
+  )
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function SEOPage() {
-  const [days, setDays] = useState(90)
+  const [days, setDays] = useState(30)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [firstClick, setFirstClick] = useState(null)
+
+  // Search Console
+  const [scData, setScData] = useState(null)
+  const [scLoading, setScLoading] = useState(true)
 
   async function loadData() {
     setLoading(true)
-    const result = await api.analyticsGetOrganic(days)
+    setScLoading(true)
+
+    const [result, sc, fc] = await Promise.all([
+      api.analyticsGetOrganic(days),
+      api.scPerformance(Math.min(days, 90)),
+      api.databricksFunnelFirstClick(days),
+    ])
+
     setData(result)
     setLoading(false)
+    setFirstClick(fc)
+    setScData(sc)
+    setScLoading(false)
     setLastUpdated(Date.now())
   }
 
@@ -169,8 +224,8 @@ export default function SEOPage() {
                 </button>
               ))}
             </div>
-            {data?.mock && <span style={{ fontSize: 10, color: '#F59E0B', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>MOCK</span>}
-            {!data?.mock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>LIVE</span>}
+            {!data?.mock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>CRM LIVE</span>}
+            {scData && !scData?.mock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>GSC LIVE</span>}
           </div>
         }
       />
@@ -180,6 +235,14 @@ export default function SEOPage() {
           <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner /></div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* ── Seções CRM (Databricks) — só quando conectado ── */}
+            {data?.mock ? (
+              <NotConnectedBanner
+                source="Databricks"
+                description="Conecte o Databricks para ver receita orgânica, CAC, deflexão de verba e análise de funil por canal."
+              />
+            ) : <>
 
             {/* ── Seção 1: Receita assistida e contribuição ── */}
             <div>
@@ -245,6 +308,92 @@ export default function SEOPage() {
               </div>
             </div>
 
+            {/* ── Seção First Click: MQL→SAL→WON por canal ── */}
+            {firstClick && !firstClick.mock && (firstClick.canais || []).length > 0 && (() => {
+              const canais = firstClick.canais
+              const CANAL_COLOR_MAP = { Organico: '#22C55E', Pago: '#6366F1', Direto: '#B9915B' }
+              const CANAL_LABEL = { Organico: 'Orgânico', Pago: 'Pago', Direto: 'Direto' }
+
+              // Destaca alerta quando SAL→WON do orgânico é < 50% do SAL→WON do pago
+              const org  = canais.find(c => c.canal === 'Organico')
+              const pago = canais.find(c => c.canal === 'Pago')
+              const hasAlert = org && pago && org.sal_won_pct < pago.sal_won_pct * 0.7
+
+              return (
+                <div>
+                  <SectionLabel>Atribuição por Primeiro Clique — Funil MQL → SAL → WON</SectionLabel>
+
+                  {hasAlert && (
+                    <div style={{ marginBottom: 12, padding: '10px 16px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 18 }}>⚠</span>
+                      <div style={{ fontSize: 12, color: '#FCA5A5', lineHeight: 1.5 }}>
+                        <strong>Possível baixa priorização comercial do orgânico:</strong> leads orgânicos têm SAL→WON de <strong>{org.sal_won_pct}%</strong> vs <strong>{pago.sal_won_pct}%</strong> do pago — {Math.round(pago.sal_won_pct / org.sal_won_pct * 10) / 10}× menor. O volume orgânico chega ao SAL mas não converte para WON.
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                    {canais.map(c => {
+                      const color = CANAL_COLOR_MAP[c.canal] || '#8A9BAA'
+                      const label = CANAL_LABEL[c.canal] || c.canal
+                      const salWonAlert = pago && c.canal !== 'Pago' && c.sal_won_pct < pago.sal_won_pct * 0.7
+
+                      return (
+                        <Card key={c.canal}>
+                          <CardBody style={{ padding: '16px 18px' }}>
+                            {/* Header do canal */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                              <span style={{ fontSize: 13, fontWeight: 800, color }}>{label}</span>
+                              <span style={{ fontSize: 11, color: '#6B7280' }}>{days}d · first click</span>
+                            </div>
+
+                            {/* Funil visual MQL → SAL → WON */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                              {[
+                                { label: 'MQL', value: c.total_mql, pct: 100, color: color + 'CC' },
+                                { label: 'SAL', value: c.total_sal, pct: c.mql_sal_pct, color: color + '99' },
+                                { label: 'WON', value: c.total_won, pct: c.mql_won_pct, color: color + '66' },
+                              ].map((step, i) => (
+                                <div key={step.label}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                                    <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600 }}>{step.label}</span>
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                      <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3' }}>{step.value.toLocaleString('pt-BR')}</span>
+                                      {i > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>{step.pct}%</span>}
+                                    </div>
+                                  </div>
+                                  <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                                    <div style={{ width: `${step.pct}%`, height: '100%', background: step.color, borderRadius: 3, transition: 'width 0.6s ease' }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Taxas de conversão */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 12 }}>
+                              <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 16, fontWeight: 800, color }}>{c.mql_sal_pct}%</div>
+                                <div style={{ fontSize: 9, color: '#6B7280', marginTop: 2 }}>MQL → SAL</div>
+                              </div>
+                              <div style={{ textAlign: 'center', position: 'relative' }}>
+                                <div style={{ fontSize: 16, fontWeight: 800, color: salWonAlert ? '#EF4444' : color }}>
+                                  {c.sal_won_pct}%
+                                </div>
+                                <div style={{ fontSize: 9, color: '#6B7280', marginTop: 2 }}>SAL → WON</div>
+                                {salWonAlert && (
+                                  <div style={{ fontSize: 9, color: '#EF4444', marginTop: 1, fontWeight: 700 }}>⚠ baixo</div>
+                                )}
+                              </div>
+                            </div>
+                          </CardBody>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* ── Seção 3: Gráficos — tendência + velocidade ── */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
 
@@ -262,6 +411,7 @@ export default function SEOPage() {
                         tickFormatter={v => v?.slice(5)} interval="preserveStartEnd" />
                       <YAxis tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} />
                       <Tooltip
+                        cursor={TT.cursorLine}
                         content={({ active, payload, label }) => {
                           if (!active || !payload?.length) return null
                           return (
@@ -295,6 +445,7 @@ export default function SEOPage() {
                       <XAxis dataKey="canal" tick={{ fill: '#8A9BAA', fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} />
                       <Tooltip
+                        cursor={TT.cursorBar}
                         content={({ active, payload, label }) => {
                           if (!active || !payload?.length) return null
                           return (
@@ -342,7 +493,7 @@ export default function SEOPage() {
               />
               <CardBody style={{ paddingTop: 4 }}>
                 <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={trendSeries} margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
+                  <AreaChart data={trendSeries} margin={{ top: 4, right: 12, left: 8, bottom: 0 }} style={{ cursor: 'crosshair' }}>
                     <defs>
                       <linearGradient id="gOrg" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#22C55E" stopOpacity={0.25} />
@@ -359,6 +510,7 @@ export default function SEOPage() {
                     <YAxis tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false}
                       tickFormatter={v => fmtMoney(v)} />
                     <Tooltip
+                      cursor={TT.cursorLine}
                       content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null
                         return (
@@ -427,6 +579,7 @@ export default function SEOPage() {
                       <XAxis dataKey="canal" tick={{ fill: '#8A9BAA', fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => fmtMoney(v)} />
                       <Tooltip
+                        cursor={TT.cursorBar}
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null
                           const d = payload[0]?.payload
@@ -452,65 +605,589 @@ export default function SEOPage() {
               </Card>
             </div>
 
-            {/* ── Seção 6: Fontes orgânicas detalhadas ── */}
-            <Card>
-              <CardHeader
-                title="Fontes orgânicas — detalhamento"
-                subtitle={`${sources.length} fontes · ${days}d · ordenado por receita`}
+            </> /* fim bloco CRM */}
+
+            {/* ── Seções GSC — só quando conectado ── */}
+            {(!scLoading && scData?.mock) && (
+              <NotConnectedBanner
+                source="Search Console"
+                description="Conecte o Google Search Console para ver cliques orgânicos, impressões, CTR, posição média e top queries."
               />
-              <CardBody style={{ padding: 0 }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.15)' }}>
-                        {['Fonte','Medium','MQLs','% MQLs','Ganhos','Conv.','Receita','% Receita','Rec./Lead'].map(h => (
-                          <th key={h} style={{
-                            padding: '10px 14px',
-                            textAlign: h === 'Fonte' || h === 'Medium' ? 'left' : 'right',
-                            fontSize: 11, color: '#8A9BAA', fontWeight: 600, whiteSpace: 'nowrap',
-                          }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sources.map((s, i) => {
-                        const pctMqls = totalMqls > 0 ? ((s.mqls / totalMqls) * 100).toFixed(1) : 0
-                        const pctRec  = totalReceita > 0 ? ((s.receita / totalReceita) * 100).toFixed(1) : 0
-                        const recLead = s.mqls > 0 ? Math.round(s.receita / s.mqls) : 0
-                        return (
-                          <tr key={i} style={{
-                            borderBottom: '1px solid rgba(185,145,91,0.06)',
-                            background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
-                          }}>
-                            <td style={{ padding: '9px 14px', fontWeight: 700, color: '#F5F4F3' }}>{s.fonte}</td>
-                            <td style={{ padding: '9px 14px', color: '#9CA3AF', fontSize: 11 }}>{s.medium || '—'}</td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right', color: '#6366F1', fontWeight: 700 }}>{fmtNum(s.mqls)}</td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right', color: '#9CA3AF' }}>{pctMqls}%</td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right', color: '#F5F4F3', fontWeight: 700 }}>{fmtNum(s.ganhos)}</td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right' }}>
-                              <span style={{
-                                color: s.conv_pct >= 10 ? '#22C55E' : s.conv_pct >= 6 ? '#F59E0B' : '#EF4444',
-                                fontWeight: 700,
-                              }}>{pct(s.conv_pct)}</span>
-                            </td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right', color: '#F5F4F3', fontWeight: 700 }}>{fmtMoney(s.receita)}</td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-                                <span style={{ color: '#B9915B' }}>{pctRec}%</span>
-                                <div style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
-                                  <div style={{ width: `${pctRec}%`, height: '100%', background: '#B9915B', borderRadius: 2 }} />
+            )}
+
+            {/* ── Seção GSC 1: KPIs Search Console ── */}
+            {!scData?.mock && <div>
+              <SectionLabel>Search Console — Visibilidade Orgânica</SectionLabel>
+              {scLoading ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner /></div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                  <KpiCard
+                    label="Cliques orgânicos"
+                    value={fmtNum(scData?.totals?.clicks)}
+                    sub={`${days}d · Google Search`}
+                    color="#4285F4"
+                    icon={MousePointerClick}
+                  />
+                  <KpiCard
+                    label="Impressões"
+                    value={fmtNum(scData?.totals?.impressions)}
+                    sub="aparições nos resultados"
+                    color="#8A9BAA"
+                    icon={Eye}
+                  />
+                  <KpiCard
+                    label="CTR médio"
+                    value={scData?.totals?.ctr != null ? `${scData.totals.ctr}%` : '—'}
+                    sub="cliques ÷ impressões"
+                    color={scData?.totals?.ctr >= 5 ? '#22C55E' : scData?.totals?.ctr >= 2 ? '#F59E0B' : '#EF4444'}
+                    icon={Target}
+                  />
+                  <KpiCard
+                    label="Posição média"
+                    value={scData?.totals?.position != null ? `#${scData.totals.position}` : '—'}
+                    sub="ranking médio no Google"
+                    color={scData?.totals?.position <= 5 ? '#22C55E' : scData?.totals?.position <= 15 ? '#F59E0B' : '#EF4444'}
+                    icon={Search}
+                  />
+                </div>
+              )}
+            </div>}
+
+            {/* ── Seção GSC 2: Tendência cliques + Top Queries ── */}
+            {!scLoading && !scData?.mock && (
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'stretch' }}>
+
+                {/* Tendência diária de cliques */}
+                <Card style={{ display: 'flex', flexDirection: 'column' }}>
+                  <CardHeader
+                    title="Cliques e Impressões — Tendência diária"
+                    subtitle={`${days}d · Google Search Console`}
+                  />
+                  <CardBody style={{ paddingTop: 4, flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <AreaChart data={scData?.trend ?? []} margin={{ top: 4, right: 12, left: -8, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="gClicks" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%"  stopColor="#4285F4" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#4285F4" stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="gImpr" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%"  stopColor="#8A9BAA" stopOpacity={0.15} />
+                            <stop offset="95%" stopColor="#8A9BAA" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                        <XAxis
+                          dataKey="date"
+                          tick={{ fill: '#8A9BAA', fontSize: 10 }}
+                          axisLine={false} tickLine={false}
+                          tickFormatter={v => v?.slice(5)}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis yAxisId="left"  tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false}
+                          tickFormatter={v => fmtNum(v)} />
+                        <Tooltip
+                          cursor={TT.cursorLine}
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null
+                            return (
+                              <div style={TT.contentStyle}>
+                                <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
+                                {payload.map(p => (
+                                  <div key={p.dataKey} style={{ color: p.color }}>
+                                    {p.name}: {p.name === 'CTR' ? `${p.value}%` : fmtNum(p.value)}
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          }}
+                        />
+                        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                        <Area yAxisId="left"  type="monotone" dataKey="clicks"      name="Cliques"    stroke="#4285F4" fill="url(#gClicks)" strokeWidth={2} dot={false} />
+                        <Area yAxisId="right" type="monotone" dataKey="impressions" name="Impressões" stroke="#8A9BAA" fill="url(#gImpr)"   strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </CardBody>
+                </Card>
+
+                {/* Top Queries */}
+                <Card style={{ display: 'flex', flexDirection: 'column' }}>
+                  <CardHeader title="Top Queries" subtitle="por cliques · últimos 90d" />
+                  <CardBody style={{ padding: 0, flex: 1, overflow: 'auto' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.12)' }}>
+                            {['Query', 'Cliques', 'CTR', 'Pos.'].map(h => (
+                              <th key={h} style={{
+                                padding: '8px 12px',
+                                textAlign: h === 'Query' ? 'left' : 'right',
+                                fontSize: 10, color: '#8A9BAA', fontWeight: 600,
+                              }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(scData?.queries ?? []).map((q, i) => (
+                            <tr key={i} style={{
+                              borderBottom: '1px solid rgba(185,145,91,0.05)',
+                              background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                            }}>
+                              <td style={{ padding: '7px 12px', color: '#F5F4F3', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {q.query}
+                              </td>
+                              <td style={{ padding: '7px 12px', textAlign: 'right', color: '#4285F4', fontWeight: 700 }}>{fmtNum(q.clicks)}</td>
+                              <td style={{ padding: '7px 12px', textAlign: 'right', color: q.ctr >= 5 ? '#22C55E' : q.ctr >= 2 ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{q.ctr}%</td>
+                              <td style={{ padding: '7px 12px', textAlign: 'right', color: '#9CA3AF' }}>#{q.position}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardBody>
+                </Card>
+              </div>
+            )}
+
+            {/* ── Seção GSC 3: Top Páginas ── */}
+            {!scLoading && !scData?.mock && (scData?.pages?.length ?? 0) > 0 && (
+              <Card>
+                <CardHeader
+                  title="Top Páginas — Search Console"
+                  subtitle="Páginas com mais cliques orgânicos · ordenado por cliques"
+                />
+                <CardBody style={{ padding: 0 }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.15)' }}>
+                          {['Página', 'Cliques', 'Impressões', 'CTR', 'Posição'].map(h => (
+                            <th key={h} style={{
+                              padding: '10px 14px',
+                              textAlign: h === 'Página' ? 'left' : 'right',
+                              fontSize: 11, color: '#8A9BAA', fontWeight: 600,
+                            }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(scData?.pages ?? []).map((p, i) => {
+                          const pagePath = p.page.replace(/^https?:\/\/[^/]+/, '') || '/'
+                          return (
+                            <tr key={i} style={{
+                              borderBottom: '1px solid rgba(185,145,91,0.06)',
+                              background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                            }}>
+                              <td style={{ padding: '9px 14px', color: '#F5F4F3', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <span style={{ color: '#8A9BAA', fontSize: 10 }}>{pagePath}</span>
+                              </td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right', color: '#4285F4', fontWeight: 700 }}>{fmtNum(p.clicks)}</td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right', color: '#9CA3AF' }}>{fmtNum(p.impressions)}</td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right', color: p.ctr >= 5 ? '#22C55E' : p.ctr >= 2 ? '#F59E0B' : '#EF4444', fontWeight: 600 }}>{p.ctr}%</td>
+                              <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                                <span style={{
+                                  color: p.position <= 3 ? '#22C55E' : p.position <= 10 ? '#F59E0B' : '#9CA3AF',
+                                  fontWeight: 700,
+                                }}>#{p.position}</span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardBody>
+              </Card>
+            )}
+
+            {/* ── Seção GSC 4: Rankings de palavras-chave ── */}
+            {!scLoading && !scData?.mock && (scData?.queries?.length ?? 0) > 0 && (() => {
+              const queries = scData.queries || []
+
+              // Melhores: posição ≤ 10, CTR alto, pelo menos 10 cliques
+              const melhores = queries
+                .filter(q => q.position <= 10 && q.clicks >= 10)
+                .sort((a, b) => b.ctr - a.ctr)
+                .slice(0, 10)
+
+              // Oportunidades: posição 11-40, impressões altas, CTR baixo (< 5%)
+              const oportunidades = queries
+                .filter(q => q.position > 10 && q.position <= 40 && q.impressions >= 100 && q.ctr < 5)
+                .sort((a, b) => b.impressions - a.impressions)
+                .slice(0, 10)
+
+              // Piores: score de pior desempenho = posição alta (ruim) + CTR baixíssimo + pelo menos 50 impressões
+              // score = posição × (1 / (ctr + 0.1)) — quanto maior, pior
+              const piores = queries
+                .filter(q => q.impressions >= 50)
+                .map(q => ({ ...q, score: q.position * (1 / (q.ctr + 0.1)) }))
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 15)
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+
+                  {/* Ranking: Melhores */}
+                  <Card>
+                    <CardHeader
+                      title="Melhores palavras-chave"
+                      subtitle="Posição ≤ 10 · ordenado por CTR"
+                      action={
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(34,197,94,0.1)', color: '#22C55E', fontWeight: 700 }}>
+                          {melhores.length} queries
+                        </span>
+                      }
+                    />
+                    <CardBody style={{ padding: 0 }}>
+                      {melhores.length === 0 ? (
+                        <div style={{ padding: '16px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>Sem dados suficientes</div>
+                      ) : (
+                        <div>
+                          {melhores.map((q, i) => {
+                            const barW = Math.round((q.ctr / Math.max(...melhores.map(x => x.ctr), 1)) * 100)
+                            const posColor = q.position <= 3 ? '#22C55E' : q.position <= 5 ? '#84CC16' : '#F59E0B'
+                            return (
+                              <div key={i} style={{
+                                display: 'grid', gridTemplateColumns: '20px 1fr 52px 44px',
+                                gap: 10, alignItems: 'center',
+                                padding: '9px 14px',
+                                borderBottom: i < melhores.length - 1 ? '1px solid rgba(185,145,91,0.06)' : 'none',
+                                background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                              }}>
+                                {/* Rank */}
+                                <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 700, textAlign: 'center' }}>{i + 1}</div>
+
+                                {/* Query + barra */}
+                                <div>
+                                  <div style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
+                                    {q.query}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                                      <div style={{ width: `${barW}%`, height: '100%', background: '#22C55E', borderRadius: 2 }} />
+                                    </div>
+                                    <span style={{ fontSize: 10, color: '#6B7280', whiteSpace: 'nowrap' }}>{fmtNum(q.impressions)} imp</span>
+                                  </div>
+                                </div>
+
+                                {/* CTR */}
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: '#22C55E' }}>{q.ctr}%</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>CTR</div>
+                                </div>
+
+                                {/* Posição */}
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: posColor }}>#{q.position}</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>{fmtNum(q.clicks)} cli</div>
                                 </div>
                               </div>
-                            </td>
-                            <td style={{ padding: '9px 14px', textAlign: 'right', color: '#22C55E', fontWeight: 700 }}>{fmtMoney(recLead)}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </CardBody>
+                  </Card>
+
+                  {/* Ranking: Oportunidades */}
+                  <Card>
+                    <CardHeader
+                      title="Oportunidades de melhoria"
+                      subtitle="Pos. 11–40 · alto volume · CTR baixo"
+                      action={
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(245,158,11,0.1)', color: '#F59E0B', fontWeight: 700 }}>
+                          {oportunidades.length} queries
+                        </span>
+                      }
+                    />
+                    <CardBody style={{ padding: 0 }}>
+                      {oportunidades.length === 0 ? (
+                        <div style={{ padding: '16px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>Sem oportunidades identificadas</div>
+                      ) : (
+                        <div>
+                          {oportunidades.map((q, i) => {
+                            const barW = Math.round((q.impressions / Math.max(...oportunidades.map(x => x.impressions), 1)) * 100)
+                            const posColor = q.position <= 20 ? '#F59E0B' : '#EF4444'
+                            // Potencial: se subir p/ posição 3, CTR esperado ~15%
+                            const potClicks = Math.round(q.impressions * 0.15)
+                            const gapClicks = potClicks - q.clicks
+                            return (
+                              <div key={i} style={{
+                                display: 'grid', gridTemplateColumns: '20px 1fr 52px 44px',
+                                gap: 10, alignItems: 'center',
+                                padding: '9px 14px',
+                                borderBottom: i < oportunidades.length - 1 ? '1px solid rgba(185,145,91,0.06)' : 'none',
+                                background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                              }}>
+                                {/* Rank */}
+                                <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 700, textAlign: 'center' }}>{i + 1}</div>
+
+                                {/* Query + barra */}
+                                <div>
+                                  <div style={{ fontSize: 12, color: '#F5F4F3', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
+                                    {q.query}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                                      <div style={{ width: `${barW}%`, height: '100%', background: '#F59E0B', borderRadius: 2 }} />
+                                    </div>
+                                    <span style={{ fontSize: 10, color: '#6B7280', whiteSpace: 'nowrap' }}>+{fmtNum(gapClicks)} pot.</span>
+                                  </div>
+                                </div>
+
+                                {/* CTR */}
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 13, fontWeight: 800, color: '#EF4444' }}>{q.ctr}%</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>CTR</div>
+                                </div>
+
+                                {/* Posição */}
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: posColor }}>#{q.position}</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>{fmtNum(q.impressions)} imp</div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </CardBody>
+                  </Card>
+
                 </div>
-              </CardBody>
-            </Card>
+
+                  {/* Ranking: Piores */}
+                  <Card>
+                    <CardHeader
+                      title="Piores palavras-chave"
+                      subtitle="Score de pior desempenho: posição ruim × CTR baixo · do pior ao menos pior"
+                      action={
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(239,68,68,0.1)', color: '#EF4444', fontWeight: 700 }}>
+                          {piores.length} queries
+                        </span>
+                      }
+                    />
+                    <CardBody style={{ padding: 0 }}>
+                      {piores.length === 0 ? (
+                        <div style={{ padding: '16px', fontSize: 12, color: '#6B7280', textAlign: 'center' }}>Sem dados suficientes</div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                          {piores.map((q, i) => {
+                            const isWorst = i === 0
+                            const posColor = q.position > 50 ? '#EF4444' : q.position > 30 ? '#F97316' : '#F59E0B'
+                            const ctrColor = q.ctr < 0.5 ? '#EF4444' : q.ctr < 2 ? '#F97316' : '#F59E0B'
+                            const isLastRow = i >= piores.length - (piores.length % 2 === 0 ? 2 : 1)
+                            const isRightCol = i % 2 === 1
+                            return (
+                              <div key={i} style={{
+                                display: 'grid', gridTemplateColumns: '20px 1fr 48px 44px',
+                                gap: 8, alignItems: 'center',
+                                padding: '9px 14px',
+                                borderBottom: !isLastRow || !isRightCol ? '1px solid rgba(185,145,91,0.06)' : 'none',
+                                borderRight: !isRightCol ? '1px solid rgba(185,145,91,0.06)' : 'none',
+                                background: isWorst ? 'rgba(239,68,68,0.04)' : 'transparent',
+                              }}>
+                                {/* Rank */}
+                                <div style={{ fontSize: 10, color: isWorst ? '#EF4444' : '#6B7280', fontWeight: 700, textAlign: 'center' }}>
+                                  {isWorst ? '⚠' : i + 1}
+                                </div>
+
+                                {/* Query */}
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontSize: 11, color: '#F5F4F3', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>
+                                    {q.query}
+                                  </div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>{fmtNum(q.impressions)} imp</div>
+                                </div>
+
+                                {/* CTR */}
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 12, fontWeight: 800, color: ctrColor }}>{q.ctr}%</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>CTR</div>
+                                </div>
+
+                                {/* Posição */}
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: posColor }}>#{q.position}</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>{fmtNum(q.clicks)} cli</div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      <div style={{ padding: '8px 14px 12px', borderTop: '1px solid rgba(185,145,91,0.06)', fontSize: 10, color: '#6B7280' }}>
+                        Score = posição × (1 ÷ CTR) — quanto maior, pior. Priorize conteúdo ou meta tags para as primeiras da lista.
+                      </div>
+                    </CardBody>
+                  </Card>
+
+                </div>
+              )
+            })()}
+
+            {/* ── Seção 6: Fontes orgânicas — por grupo ── */}
+            {sources.length > 0 && (() => {
+              // Classificação por grupo
+              const GRUPO_CONFIG = {
+                'Social':        { fontes: ['instagram','facebook','youtube','tiktok','linkedin','twitter','kwai'], color: '#A78BFA', icon: '📱' },
+                'CRM/Outbound':  { fontes: ['hubspot','prospeccao','whatsapp','rdstation','rd_station','email','crm'], color: '#38BDF8', icon: '💬' },
+                'Produto/Evento':{ fontes: ['produto','presencial','evento','qrcode','sprints','imersoes','imersão','imersao'], color: '#FB923C', icon: '🎯' },
+                'Direto':        { fontes: ['(direto)','direct','direto','desconhecido'], color: '#8A9BAA', icon: '—' },
+              }
+
+              function getGrupo(fonte, medium) {
+                const f = (fonte || '').toLowerCase()
+                const m = (medium || '').toLowerCase()
+                // Presencial tem medium como número ou 'presencial'
+                if (f === 'presencial' || f === 'evento' || m === 'qrcode') return 'Produto/Evento'
+                if (f === 'produto' || m === 'imersoes' || m === 'sprints' || m === 'imersões' || m === 'imersao') return 'Produto/Evento'
+                for (const [grupo, cfg] of Object.entries(GRUPO_CONFIG)) {
+                  if (cfg.fontes.some(kw => f.includes(kw) || m.includes(kw))) return grupo
+                }
+                return 'Outros'
+              }
+
+              // Agrupa fontes
+              const grupos = {}
+              sources.forEach(s => {
+                const g = getGrupo(s.fonte, s.medium)
+                if (!grupos[g]) grupos[g] = { mqls: 0, ganhos: 0, receita: 0, fontes: [] }
+                grupos[g].mqls    += s.mqls
+                grupos[g].ganhos  += s.ganhos
+                grupos[g].receita += s.receita
+                grupos[g].fontes.push(s)
+              })
+              Object.values(grupos).forEach(g => {
+                g.conv_pct = g.mqls > 0 ? parseFloat(((g.ganhos / g.mqls) * 100).toFixed(1)) : 0
+                g.fontes.sort((a, b) => b.receita - a.receita)
+              })
+
+              const gruposSorted = Object.entries(grupos).sort((a, b) => b[1].receita - a[1].receita)
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <SectionLabel>Fontes Orgânicas — Visão por Grupo</SectionLabel>
+
+                  {/* Cards resumo por grupo */}
+                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(gruposSorted.length, 4)}, 1fr)`, gap: 12 }}>
+                    {gruposSorted.map(([nome, g]) => {
+                      const cfg = GRUPO_CONFIG[nome] || { color: '#8A9BAA', icon: '•' }
+                      const pctRec = totalReceita > 0 ? ((g.receita / totalReceita) * 100).toFixed(1) : 0
+                      return (
+                        <Card key={nome}>
+                          <CardBody style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                              <span style={{ fontSize: 16 }}>{cfg.icon}</span>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: cfg.color }}>{nome}</span>
+                              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#6B7280' }}>{g.fontes.length} fonte{g.fontes.length !== 1 ? 's' : ''}</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: '#6366F1' }}>{fmtNum(g.mqls)}</div>
+                                <div style={{ fontSize: 9, color: '#6B7280', marginTop: 1 }}>MQLs</div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: '#F5F4F3' }}>{fmtMoney(g.receita)}</div>
+                                <div style={{ fontSize: 9, color: '#6B7280', marginTop: 1 }}>{pctRec}% da receita</div>
+                              </div>
+                            </div>
+                            <div style={{ marginTop: 8 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                                <span style={{ fontSize: 9, color: '#6B7280' }}>participação na receita</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: g.conv_pct >= 10 ? '#22C55E' : g.conv_pct >= 6 ? '#F59E0B' : '#EF4444' }}>{g.conv_pct}% conv.</span>
+                              </div>
+                              <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                                <div style={{ width: `${Math.min(parseFloat(pctRec), 100)}%`, height: '100%', background: cfg.color, borderRadius: 2, transition: 'width 0.5s' }} />
+                              </div>
+                            </div>
+                          </CardBody>
+                        </Card>
+                      )
+                    })}
+                  </div>
+
+                  {/* Tabela com separadores por grupo */}
+                  <Card>
+                    <CardHeader
+                      title="Detalhamento por grupo"
+                      subtitle={`${sources.length} fontes · ${days}d · ordenado por receita dentro de cada grupo`}
+                    />
+                    <CardBody style={{ padding: 0 }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.15)' }}>
+                              {['Grupo','Fonte','Medium','MQLs','% MQLs','Ganhos','Conv.','Receita','% Receita','Rec./Lead'].map(h => (
+                                <th key={h} style={{
+                                  padding: '10px 14px',
+                                  textAlign: ['Grupo','Fonte','Medium'].includes(h) ? 'left' : 'right',
+                                  fontSize: 11, color: '#8A9BAA', fontWeight: 600, whiteSpace: 'nowrap',
+                                }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {gruposSorted.map(([nome, g]) => {
+                              const cfg = GRUPO_CONFIG[nome] || { color: '#8A9BAA', icon: '•' }
+                              return g.fontes.map((s, si) => {
+                                const pctMqls = totalMqls > 0 ? ((s.mqls / totalMqls) * 100).toFixed(1) : 0
+                                const pctRec  = totalReceita > 0 ? ((s.receita / totalReceita) * 100).toFixed(1) : 0
+                                const recLead = s.mqls > 0 ? Math.round(s.receita / s.mqls) : 0
+                                const isFirstInGroup = si === 0
+                                return (
+                                  <tr key={`${nome}-${si}`} style={{
+                                    borderBottom: '1px solid rgba(185,145,91,0.06)',
+                                    background: si % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                                  }}>
+                                    {/* Grupo — só mostra na primeira linha do grupo */}
+                                    <td style={{ padding: '9px 14px', whiteSpace: 'nowrap' }}>
+                                      {isFirstInGroup ? (
+                                        <span style={{
+                                          fontSize: 10, fontWeight: 700, color: cfg.color,
+                                          background: `${cfg.color}18`,
+                                          padding: '2px 8px', borderRadius: 10,
+                                        }}>{cfg.icon} {nome}</span>
+                                      ) : (
+                                        <span style={{ display: 'inline-block', width: 4, height: 4, borderRadius: '50%', background: 'rgba(185,145,91,0.2)', marginLeft: 14 }} />
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '9px 14px', fontWeight: 700, color: '#F5F4F3' }}>{s.fonte}</td>
+                                    <td style={{ padding: '9px 14px', color: '#9CA3AF', fontSize: 11 }}>{s.medium || '—'}</td>
+                                    <td style={{ padding: '9px 14px', textAlign: 'right', color: '#6366F1', fontWeight: 700 }}>{fmtNum(s.mqls)}</td>
+                                    <td style={{ padding: '9px 14px', textAlign: 'right', color: '#9CA3AF' }}>{pctMqls}%</td>
+                                    <td style={{ padding: '9px 14px', textAlign: 'right', color: '#F5F4F3', fontWeight: 700 }}>{fmtNum(s.ganhos)}</td>
+                                    <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                                      <span style={{
+                                        color: s.conv_pct >= 10 ? '#22C55E' : s.conv_pct >= 6 ? '#F59E0B' : '#EF4444',
+                                        fontWeight: 700,
+                                      }}>{pct(s.conv_pct)}</span>
+                                    </td>
+                                    <td style={{ padding: '9px 14px', textAlign: 'right', color: '#F5F4F3', fontWeight: 700 }}>{fmtMoney(s.receita)}</td>
+                                    <td style={{ padding: '9px 14px', textAlign: 'right' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                                        <span style={{ color: '#B9915B' }}>{pctRec}%</span>
+                                        <div style={{ width: 36, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                                          <div style={{ width: `${Math.min(parseFloat(pctRec) * 5, 100)}%`, height: '100%', background: '#B9915B', borderRadius: 2 }} />
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '9px 14px', textAlign: 'right', color: '#22C55E', fontWeight: 700 }}>{fmtMoney(recLead)}</td>
+                                  </tr>
+                                )
+                              })
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardBody>
+                  </Card>
+                </div>
+              )
+            })()}
 
             {/* ── Seção 7: Nota metodológica ── */}
             <div style={{ fontSize: 11, color: '#6B7280', lineHeight: 1.6, padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>

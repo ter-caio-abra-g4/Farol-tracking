@@ -59,11 +59,10 @@ function perfilBadge(label) {
 }
 
 const PERIOD_OPTIONS = [
-  { label: 'Hoje', days: 1  },
-  { label: '7d',   days: 7  },
-  { label: '15d',  days: 15 },
-  { label: '30d',  days: 30 },
-  { label: '90d',  days: 90 },
+  { label: '7d',  days: 7  },
+  { label: '15d', days: 15 },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
 ]
 
 function CustomTooltip({ active, payload, label }) {
@@ -215,6 +214,7 @@ export default function ComparacaoPage() {
   const [profiles, setProfiles]         = useState(null)
   const [campaigns, setCampaigns]       = useState(null)
   const [formAttrib, setFormAttrib]     = useState(null)
+  const [cohort, setCohort]             = useState(null)
   const [loading, setLoading]           = useState(true)
   const [lastUpdated, setLastUpdated]   = useState(null)
   const [isMock, setIsMock]             = useState(false)
@@ -222,13 +222,14 @@ export default function ComparacaoPage() {
   async function loadAll(d, forceRefresh = false) {
     if (forceRefresh) await api.databricksCacheClear()
     setLoading(true)
-    const [ch, mr, rv, pr, ca, fa] = await Promise.all([
+    const [ch, mr, rv, pr, ca, fa, co] = await Promise.all([
       api.databricksCompareChannels(d),
       api.databricksCompareMediaROI(d),
       api.databricksCompareRevenue(d),
       api.databricksCompareProfiles(d),
       api.databricksCompareCampaigns(d),
       api.databricksFormAttribution(d),
+      api.databricksClosingCohort(Math.max(d, 90)),
     ])
     setChannels(ch)
     setMediaROI(mr)
@@ -236,6 +237,7 @@ export default function ComparacaoPage() {
     setProfiles(pr)
     setCampaigns(ca)
     setFormAttrib(fa)
+    setCohort(co)
     setIsMock(!!(ch?.mock || mr?.mock))
     setLastUpdated(new Date())
     setLoading(false)
@@ -395,7 +397,7 @@ export default function ComparacaoPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                       <XAxis dataKey="canal" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <Tooltip content={<CustomTooltip />} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       <Bar dataKey="MQLs"   stackId="a" fill="#6366F1" radius={[0,0,0,0]} />
                       <Bar dataKey="SALs"   stackId="b" fill="#8B5CF6" />
@@ -420,6 +422,7 @@ export default function ComparacaoPage() {
                       <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => fmtMoney(v)} />
                       <YAxis type="category" dataKey="fonte" tick={{ fill: '#D1D5DB', fontSize: 11 }} width={90} axisLine={false} tickLine={false} />
                       <Tooltip
+                        cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                         content={({ active, payload, label }) => {
                           if (!active || !payload?.length) return null
                           const d = payload[0]?.payload
@@ -463,6 +466,7 @@ export default function ComparacaoPage() {
                       />
                       <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} unit="%" />
                       <Tooltip
+                        cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                         content={({ active, payload, label }) => {
                           if (!active || !payload?.length) return null
                           const d = payload[0]?.payload
@@ -610,6 +614,123 @@ export default function ComparacaoPage() {
                 )}
               </CardBody>
             </Card>
+
+            {/* ── Cohort: Tempo até fechamento ────────────────────────── */}
+            {cohort && (cohort.cohort || []).length > 0 && (() => {
+              const rows = cohort.cohort || []
+              const meses = [...new Set(rows.map(r => r.mes))].sort()
+              const canais = ['Organico', 'Pago']
+              const CANAL_COLOR = { Organico: '#22C55E', Pago: '#6366F1' }
+              const CANAL_LABEL = { Organico: 'Orgânico', Pago: 'Pago' }
+
+              // Pior vs melhor tempo por canal
+              const summary = canais.map(canal => {
+                const cRows = rows.filter(r => r.canal === canal && r.dias_medio > 0)
+                if (!cRows.length) return null
+                const avg = cRows.reduce((s, r) => s + r.dias_medio, 0) / cRows.length
+                const min = Math.min(...cRows.map(r => r.dias_medio))
+                const max = Math.max(...cRows.map(r => r.dias_medio))
+                return { canal, avg, min, max }
+              }).filter(Boolean)
+
+              const chartData = meses.map(mes => {
+                const row = { mes }
+                canais.forEach(c => {
+                  const r = rows.find(x => x.mes === mes && x.canal === c)
+                  row[c + '_dias']  = r?.dias_medio  || null
+                  row[c + '_conv']  = r?.conv_pct    || null
+                  row[c + '_mql']   = r?.total_mql   || 0
+                })
+                return row
+              })
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.08em', paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    Cohort de Fechamento — Tempo Médio MQL → WON por Mês de Entrada
+                    {cohort.mock && <span style={{ marginLeft: 8, color: '#F59E0B', fontSize: 10 }}>MOCK</span>}
+                  </div>
+
+                  {/* Cards de resumo */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                    {summary.map(s => (
+                      <div key={s.canal} style={{
+                        background: '#1A1B23', border: `1px solid ${CANAL_COLOR[s.canal]}33`,
+                        borderRadius: 10, padding: '14px 18px',
+                      }}>
+                        <div style={{ fontSize: 11, color: CANAL_COLOR[s.canal], fontWeight: 700, marginBottom: 8 }}>{CANAL_LABEL[s.canal]}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#F9FAFB' }}>{s.avg.toFixed(0)}d</div>
+                        <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>tempo médio MQL→WON</div>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <span style={{ fontSize: 10, color: '#22C55E' }}>mín {s.min.toFixed(0)}d</span>
+                          <span style={{ color: '#374151' }}>·</span>
+                          <span style={{ fontSize: 10, color: '#EF4444' }}>máx {s.max.toFixed(0)}d</span>
+                        </div>
+                      </div>
+                    ))}
+                    {summary.length >= 2 && (
+                      <div style={{ background: '#1A1B23', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, padding: '14px 18px' }}>
+                        <div style={{ fontSize: 11, color: '#F59E0B', fontWeight: 700, marginBottom: 8 }}>Diferença</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#F9FAFB' }}>
+                          {Math.abs(summary[0].avg - summary[1].avg).toFixed(0)}d
+                        </div>
+                        <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>
+                          {summary[0].avg > summary[1].avg ? `${CANAL_LABEL[summary[0].canal]} fecha mais lento` : `${CANAL_LABEL[summary[1].canal]} fecha mais lento`}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tabela por mês */}
+                  <Card>
+                    <CardHeader title="Detalhamento mensal" subtitle="Dias médios MQL→WON e taxa de conversão por cohort de entrada" />
+                    <CardBody style={{ padding: 0 }}>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                              <th style={{ padding: '10px 14px', textAlign: 'left', color: '#9CA3AF', fontWeight: 600, fontSize: 11 }}>Mês de entrada</th>
+                              {canais.map(c => (
+                                <>
+                                  <th key={c + '_d'} style={{ padding: '10px 14px', textAlign: 'right', color: CANAL_COLOR[c], fontWeight: 600, fontSize: 11 }}>{CANAL_LABEL[c]} — Dias</th>
+                                  <th key={c + '_c'} style={{ padding: '10px 14px', textAlign: 'right', color: CANAL_COLOR[c] + 'AA', fontWeight: 600, fontSize: 11 }}>Conv%</th>
+                                </>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {chartData.map((row, i) => (
+                              <tr key={row.mes} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                <td style={{ padding: '9px 14px', color: '#F9FAFB', fontWeight: 600 }}>{row.mes}</td>
+                                {canais.map(c => {
+                                  const dias = row[c + '_dias']
+                                  const conv = row[c + '_conv']
+                                  const avgDias = summary.find(s => s.canal === c)?.avg || 1
+                                  const color = dias === null ? '#6B7280' : dias < avgDias ? '#22C55E' : dias > avgDias * 1.2 ? '#EF4444' : '#F59E0B'
+                                  return (
+                                    <>
+                                      <td key={c + '_d'} style={{ padding: '9px 14px', textAlign: 'right', color, fontWeight: 700 }}>
+                                        {dias !== null ? `${dias.toFixed(0)}d` : '—'}
+                                      </td>
+                                      <td key={c + '_c'} style={{ padding: '9px 14px', textAlign: 'right', color: conv >= 30 ? '#22C55E' : conv >= 20 ? '#F59E0B' : '#9CA3AF' }}>
+                                        {conv !== null ? `${conv}%` : '—'}
+                                      </td>
+                                    </>
+                                  )
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{ padding: '8px 14px 10px', borderTop: '1px solid rgba(255,255,255,0.04)', fontSize: 10, color: '#6B7280' }}>
+                        Verde = abaixo da média (mais rápido) · Amarelo = até 20% acima · Vermelho = mais de 20% acima da média
+                      </div>
+                    </CardBody>
+                  </Card>
+                </div>
+              )
+            })()}
 
             {/* ── Nota de fontes ────────────────────────────────────────── */}
             <div style={{

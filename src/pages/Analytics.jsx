@@ -116,7 +116,7 @@ function TabBar({ active, onChange }) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function Analytics() {
   const [tab, setTab]             = useState('trend')
-  const [days, setDays]           = useState(90)
+  const [days, setDays]           = useState(30)
   const [trendData, setTrendData] = useState(null)
   const [journeyData, setJourneyData] = useState(null)
   const [mediaData, setMediaData] = useState(null)
@@ -237,7 +237,7 @@ function TabTrend({ data }) {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="dia" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.floor(trendChart.length / 10)} />
               <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={36} />
-              <Tooltip content={<DarkTooltip />} />
+              <Tooltip content={<DarkTooltip />} cursor={{ stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 }} />
               <Legend wrapperStyle={{ fontSize: 11, color: '#8A9BAA', paddingTop: 8 }} iconType="circle" iconSize={8} />
               {projStart && (
                 <ReferenceLine x={projStart} stroke="rgba(245,158,11,0.4)" strokeDasharray="4 4"
@@ -291,7 +291,7 @@ function TabJourney({ data }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
                 <XAxis type="number" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="canal" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} width={70} />
-                <Tooltip content={<DarkTooltip />} />
+                <Tooltip content={<DarkTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                 <Bar dataKey="leads"       name="Leads"       fill={C.mql}   radius={[0, 4, 4, 0]} opacity={0.8} />
                 <Bar dataKey="convertidos" name="Convertidos" fill={C.ganho} radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -451,7 +451,7 @@ function TabMedia({ data }) {
               <XAxis dataKey="semana" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={52}
                 tickFormatter={v => v >= 1_000_000 ? `${(v/1_000_000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-              <Tooltip content={<DarkTooltip money />} />
+              <Tooltip content={<DarkTooltip money />} cursor={{ stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 }} />
               <Legend wrapperStyle={{ fontSize: 11, color: '#8A9BAA', paddingTop: 8 }} iconType="circle" iconSize={8} />
               {projWeekStart && (
                 <ReferenceLine x={projWeekStart} stroke="rgba(245,158,11,0.4)" strokeDasharray="4 4"

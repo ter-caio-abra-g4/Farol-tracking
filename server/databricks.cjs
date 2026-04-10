@@ -1557,6 +1557,268 @@ function getMockOrganicAttribution() {
 }
 
 // ─── Wrappers cacheados ───────────────────────────────────────────────────────
+// ─── Anomaly Alerts: variação semana a semana em MQLs, Ganhos, Receita ───────
+async function getAnomalyAlerts() {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, alerts: getMockAnomalyAlerts() }
+
+  try {
+    const data = await executeStatement(`
+      WITH weekly AS (
+        SELECT
+          DATE_TRUNC('week', event_at) AS semana,
+          SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END)   AS mqls,
+          SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END)   AS ganhos,
+          SUM(CASE WHEN event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END) AS receita,
+          SUM(CASE WHEN event = 'mql' AND (utm_medium = 'cpc') THEN 1 ELSE 0 END) AS mqls_pago,
+          SUM(CASE WHEN event = 'mql' AND (utm_medium != 'cpc' OR utm_medium IS NULL) THEN 1 ELSE 0 END) AS mqls_org
+        FROM production.diamond.funil_marketing
+        WHERE event_at >= CURRENT_DATE - INTERVAL 28 DAYS
+        GROUP BY DATE_TRUNC('week', event_at)
+        ORDER BY semana DESC
+      )
+      SELECT * FROM weekly LIMIT 4
+    `, 20)
+
+    const { rows } = parseResult(data)
+    if (rows.length < 2) return { mock: false, alerts: [] }
+
+    const curr = rows[0]
+    const prev = rows[1]
+
+    function pctChange(a, b) {
+      const an = parseFloat(a) || 0, bn = parseFloat(b) || 0
+      if (bn === 0) return null
+      return Math.round(((an - bn) / bn) * 100)
+    }
+
+    const metrics = [
+      { key: 'mqls',     label: 'MQLs totais',       curr: parseInt(curr.mqls),     prev: parseInt(prev.mqls),     unit: '' },
+      { key: 'ganhos',   label: 'Ganhos (WON)',       curr: parseInt(curr.ganhos),   prev: parseInt(prev.ganhos),   unit: '' },
+      { key: 'receita',  label: 'Receita',            curr: parseFloat(curr.receita),prev: parseFloat(prev.receita),unit: 'R$' },
+      { key: 'mqls_org', label: 'MQLs Orgânico',      curr: parseInt(curr.mqls_org), prev: parseInt(prev.mqls_org), unit: '' },
+      { key: 'mqls_pago',label: 'MQLs Pago',          curr: parseInt(curr.mqls_pago),prev: parseInt(prev.mqls_pago),unit: '' },
+    ]
+
+    const THRESHOLD = 20 // % de variação para gerar alerta
+    const alerts = metrics
+      .map(m => ({ ...m, delta: pctChange(m.curr, m.prev) }))
+      .filter(m => m.delta !== null && Math.abs(m.delta) >= THRESHOLD)
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+
+    return { mock: false, alerts, semana_curr: curr.semana, semana_prev: prev.semana }
+  } catch (err) {
+    return { mock: true, alerts: getMockAnomalyAlerts(), error: err.message }
+  }
+}
+
+function getMockAnomalyAlerts() {
+  return [
+    { key: 'mqls_org', label: 'MQLs Orgânico', curr: 412, prev: 618, delta: -33, unit: '' },
+    { key: 'receita',  label: 'Receita',       curr: 1840000, prev: 1250000, delta: 47, unit: 'R$' },
+    { key: 'ganhos',   label: 'Ganhos (WON)',  curr: 58, prev: 42, delta: 38, unit: '' },
+    { key: 'mqls_pago',label: 'MQLs Pago',    curr: 980, prev: 1210, delta: -19, unit: '' },
+  ]
+}
+
+// ─── SAL→WON por semana: tendência de conversão ───────────────────────────────
+async function getSalWonTrend(days = 90) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, semanas: getMockSalWonTrend() }
+
+  try {
+    const data = await executeStatement(`
+      WITH sal_base AS (
+        SELECT deal_id,
+          DATE_TRUNC('week', event_at) AS semana,
+          CASE WHEN utm_medium = 'cpc' THEN 'Pago' ELSE 'Organico' END AS canal
+        FROM production.diamond.funil_marketing
+        WHERE event = 'sal'
+          AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+      ),
+      won_base AS (
+        SELECT DISTINCT deal_id FROM production.diamond.funil_marketing
+        WHERE event = 'won' AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+      )
+      SELECT
+        s.semana,
+        s.canal,
+        COUNT(DISTINCT s.deal_id)  AS total_sal,
+        COUNT(DISTINCT w.deal_id)  AS total_won,
+        ROUND(COUNT(DISTINCT w.deal_id) * 100.0 / NULLIF(COUNT(DISTINCT s.deal_id), 0), 1) AS sal_won_pct
+      FROM sal_base s
+      LEFT JOIN won_base w ON s.deal_id = w.deal_id
+      GROUP BY s.semana, s.canal
+      ORDER BY s.semana ASC
+    `, 200)
+
+    const { rows } = parseResult(data)
+
+    // Pivotar: { semana, Organico_pct, Pago_pct, Organico_sal, Pago_sal }
+    const map = {}
+    rows.forEach(r => {
+      const sem = r.semana?.slice(0, 10) || r.semana
+      if (!map[sem]) map[sem] = { semana: sem }
+      map[sem][r.canal + '_pct']    = parseFloat(r.sal_won_pct)  || 0
+      map[sem][r.canal + '_sal']    = parseInt(r.total_sal)       || 0
+      map[sem][r.canal + '_won']    = parseInt(r.total_won)       || 0
+    })
+
+    return { mock: false, semanas: Object.values(map).slice(-16) }
+  } catch (err) {
+    return { mock: true, semanas: getMockSalWonTrend(), error: err.message }
+  }
+}
+
+function getMockSalWonTrend() {
+  const weeks = []
+  for (let i = 15; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i * 7)
+    weeks.push({
+      semana: d.toISOString().slice(0, 10),
+      Organico_pct: Math.round(28 + Math.random() * 8),
+      Pago_pct:     Math.round(48 + Math.random() * 10),
+      Organico_sal: Math.round(300 + Math.random() * 100),
+      Pago_sal:     Math.round(500 + Math.random() * 150),
+    })
+  }
+  return weeks
+}
+
+// ─── Cohort: tempo médio MQL→WON por canal e por mês de entrada ───────────────
+async function getClosingCohort(days = 180) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, cohort: getMockClosingCohort() }
+
+  try {
+    const data = await executeStatement(`
+      WITH mql_ts AS (
+        SELECT deal_id, event_at AS mql_at,
+          CASE WHEN utm_medium = 'cpc' THEN 'Pago' ELSE 'Organico' END AS canal,
+          DATE_TRUNC('month', event_at) AS mes_entrada
+        FROM production.diamond.funil_marketing
+        WHERE event = 'mql'
+          AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+      ),
+      won_ts AS (
+        SELECT deal_id, MIN(event_at) AS won_at
+        FROM production.diamond.funil_marketing
+        WHERE event = 'won'
+          AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+        GROUP BY deal_id
+      )
+      SELECT
+        m.canal,
+        DATE_FORMAT(m.mes_entrada, 'yyyy-MM') AS mes,
+        COUNT(DISTINCT m.deal_id)                                        AS total_mql,
+        COUNT(DISTINCT w.deal_id)                                        AS total_won,
+        ROUND(AVG(DATEDIFF(w.won_at, m.mql_at)), 1)                     AS dias_medio,
+        ROUND(COUNT(DISTINCT w.deal_id) * 100.0 / NULLIF(COUNT(DISTINCT m.deal_id), 0), 1) AS conv_pct
+      FROM mql_ts m
+      LEFT JOIN won_ts w ON m.deal_id = w.deal_id
+      GROUP BY m.canal, m.mes_entrada
+      ORDER BY m.mes_entrada ASC, m.canal ASC
+    `, 100)
+
+    const { rows } = parseResult(data)
+    const cohort = rows.map(r => ({
+      canal:      r.canal,
+      mes:        r.mes,
+      total_mql:  parseInt(r.total_mql)  || 0,
+      total_won:  parseInt(r.total_won)  || 0,
+      dias_medio: parseFloat(r.dias_medio) || 0,
+      conv_pct:   parseFloat(r.conv_pct) || 0,
+    }))
+
+    return { mock: false, cohort }
+  } catch (err) {
+    return { mock: true, cohort: getMockClosingCohort(), error: err.message }
+  }
+}
+
+function getMockClosingCohort() {
+  const result = []
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(); d.setMonth(d.getMonth() - i)
+    const mes = d.toISOString().slice(0, 7)
+    result.push(
+      { canal: 'Organico', mes, total_mql: 4200 + Math.round(Math.random()*800), total_won: 1200 + Math.round(Math.random()*200), dias_medio: Math.round(38 + Math.random()*14), conv_pct: Math.round(28 + Math.random()*8) },
+      { canal: 'Pago',     mes, total_mql: 6800 + Math.round(Math.random()*1200), total_won: 2400 + Math.round(Math.random()*400), dias_medio: Math.round(22 + Math.random()*10), conv_pct: Math.round(35 + Math.random()*8) },
+    )
+  }
+  return result
+}
+
+// ─── First Click Funnel: MQL→SAL→WON por canal de entrada ────────────────────
+async function getFirstClickFunnel(days = 90) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, canais: getMockFirstClickFunnel() }
+
+  try {
+    const data = await executeStatement(`
+      WITH mql_canal AS (
+        SELECT deal_id,
+          CASE
+            WHEN utm_medium = 'cpc' THEN 'Pago'
+            WHEN utm_source IS NULL OR utm_source IN ('null','','(direct)') THEN 'Direto'
+            ELSE 'Organico'
+          END AS canal_first_click
+        FROM production.diamond.funil_marketing
+        WHERE event = 'mql'
+          AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+      ),
+      sal_deals AS (
+        SELECT DISTINCT deal_id FROM production.diamond.funil_marketing
+        WHERE event = 'sal' AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+      ),
+      won_deals AS (
+        SELECT DISTINCT deal_id FROM production.diamond.funil_marketing
+        WHERE event = 'won' AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
+      )
+      SELECT
+        m.canal_first_click,
+        COUNT(DISTINCT m.deal_id)  AS total_mql,
+        COUNT(DISTINCT s.deal_id)  AS total_sal,
+        COUNT(DISTINCT w.deal_id)  AS total_won,
+        ROUND(COUNT(DISTINCT s.deal_id) * 100.0 / NULLIF(COUNT(DISTINCT m.deal_id), 0), 1) AS mql_sal_pct,
+        ROUND(COUNT(DISTINCT w.deal_id) * 100.0 / NULLIF(COUNT(DISTINCT s.deal_id), 0), 1) AS sal_won_pct,
+        ROUND(COUNT(DISTINCT w.deal_id) * 100.0 / NULLIF(COUNT(DISTINCT m.deal_id), 0), 1) AS mql_won_pct
+      FROM mql_canal m
+      LEFT JOIN sal_deals s ON m.deal_id = s.deal_id
+      LEFT JOIN won_deals w ON m.deal_id = w.deal_id
+      GROUP BY m.canal_first_click
+      ORDER BY total_mql DESC
+    `, 30)
+
+    const { rows } = parseResult(data)
+    const ORDER = ['Organico', 'Pago', 'Direto']
+    const canais = rows
+      .sort((a, b) => ORDER.indexOf(a.canal_first_click) - ORDER.indexOf(b.canal_first_click))
+      .map(r => ({
+        canal:       r.canal_first_click,
+        total_mql:   parseInt(r.total_mql)  || 0,
+        total_sal:   parseInt(r.total_sal)  || 0,
+        total_won:   parseInt(r.total_won)  || 0,
+        mql_sal_pct: parseFloat(r.mql_sal_pct) || 0,
+        sal_won_pct: parseFloat(r.sal_won_pct) || 0,
+        mql_won_pct: parseFloat(r.mql_won_pct) || 0,
+      }))
+
+    return { mock: false, days, canais }
+  } catch (err) {
+    console.error('[Databricks] getFirstClickFunnel error:', err.message)
+    return { mock: true, error: err.message, canais: getMockFirstClickFunnel() }
+  }
+}
+
+function getMockFirstClickFunnel() {
+  return [
+    { canal: 'Organico', total_mql: 28121, total_sal: 16116, total_won: 4911, mql_sal_pct: 57.3, sal_won_pct: 30.5, mql_won_pct: 17.5 },
+    { canal: 'Pago',     total_mql: 45803, total_sal: 18788, total_won: 10004, mql_sal_pct: 41.0, sal_won_pct: 53.2, mql_won_pct: 21.8 },
+    { canal: 'Direto',   total_mql: 17804, total_sal: 7048,  total_won: 1548,  mql_sal_pct: 39.6, sal_won_pct: 22.0, mql_won_pct: 8.7  },
+  ]
+}
+
 // Chaves determinísticas por função + parâmetros relevantes
 const cached = {
   getStatus:              ()       => withCache('status',              getStatus),
@@ -1577,6 +1839,10 @@ const cached = {
   getTopCampaigns:        (d)      => withCache(`top-campaigns:${d}`,  () => getTopCampaigns(d)),
   getFormAttribution:       (d)      => withCache(`form-attr:${d}`,      () => getFormAttribution(d)),
   getOrganicAttribution:   (d)      => withCache(`organic-attr:${d}`,   () => getOrganicAttribution(d)),
+  getFirstClickFunnel:     (d)      => withCache(`first-click:${d}`,    () => getFirstClickFunnel(d)),
+  getAnomalyAlerts:        ()       => withCache('anomaly-alerts',       getAnomalyAlerts),
+  getSalWonTrend:          (d)      => withCache(`sal-won-trend:${d}`,   () => getSalWonTrend(d)),
+  getClosingCohort:        (d)      => withCache(`closing-cohort:${d}`,  () => getClosingCohort(d)),
 }
 
 module.exports = {
@@ -1599,6 +1865,10 @@ module.exports = {
   getTopCampaigns:        cached.getTopCampaigns,
   getFormAttribution:       cached.getFormAttribution,
   getOrganicAttribution:   cached.getOrganicAttribution,
+  getFirstClickFunnel:     cached.getFirstClickFunnel,
+  getAnomalyAlerts:        cached.getAnomalyAlerts,
+  getSalWonTrend:          cached.getSalWonTrend,
+  getClosingCohort:        cached.getClosingCohort,
   // Sem cache (listagem/preview sempre frescos)
   listTables, previewTable,
   // Utilitário para invalidação forçada

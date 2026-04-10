@@ -229,13 +229,15 @@ async function getEventVolume(days = 7) {
   }
 }
 
-// ─── Qualidade por evento (endpoint alternativo) ─────────────────────────────
+// ─── Qualidade por evento ─────────────────────────────────────────────────────
+// Usa match_rate_approx do pixel (geral) + event_stats se disponível.
+// event_stats só existe em pixels com acesso Business Manager avançado.
 async function getEventQuality() {
   const pixelId = getPixelId()
-  if (!pixelId) return { mock: true, events: getMockMeta().events }
+  if (!pixelId) return { mock: true, unavailable: false, events: [] }
 
   try {
-    // event_stats retorna dados por evento com match_rate_approx
+    // Tenta event_stats (por evento) — disponível apenas em BM avançado
     const data = await metaGet(`${pixelId}/event_stats`, {
       fields: 'event_name,match_rate_approx,count_deduplicated',
     })
@@ -250,9 +252,40 @@ async function getEventQuality() {
         quality: matchRate >= 90 ? 'Excelente' : matchRate >= 80 ? 'Alto' : matchRate >= 70 ? 'Médio' : 'Baixo',
       }
     })
-    return { mock: false, events }
+    if (events.length === 0) {
+      // Fallback: usa match_rate_approx geral do pixel
+      return await getPixelMatchRate(pixelId)
+    }
+    return { mock: false, unavailable: false, events }
   } catch (err) {
-    return { mock: true, events: getMockMeta().events, error: err.message }
+    // event_stats não suportado — tenta match_rate_approx geral
+    return await getPixelMatchRate(pixelId)
+  }
+}
+
+async function getPixelMatchRate(pixelId) {
+  try {
+    const px = await metaGet(pixelId, { fields: 'match_rate_approx,name' })
+    const rate = px.match_rate_approx
+    // -1 = sem dados suficientes
+    if (!rate || rate < 0) return { mock: false, unavailable: true, events: [] }
+    const matchRate = Math.round(rate * 100)
+    const quality = matchRate >= 90 ? 'Excelente' : matchRate >= 80 ? 'Alto' : matchRate >= 70 ? 'Médio' : 'Baixo'
+    return {
+      mock: false,
+      unavailable: false,
+      overallOnly: true, // indica que só temos dado agregado, não por evento
+      events: [{
+        name: px.name || 'Pixel Global',
+        received: null,
+        matched: null,
+        matchRate,
+        status: matchRate >= 80 ? 'ok' : 'warn',
+        quality,
+      }],
+    }
+  } catch {
+    return { mock: false, unavailable: true, events: [] }
   }
 }
 

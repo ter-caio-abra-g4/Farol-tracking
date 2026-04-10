@@ -37,6 +37,7 @@ export const api = {
   gtmContainers: () => get('/api/gtm/containers', { mock: true, containers: [] }),
   gtmContainer: (id) => get(`/api/gtm/container/${id}`, { mock: true, tags: [], triggers: [], variables: [] }),
   gtmSilentTags: () => get('/api/gtm/silent-tags', { mock: true, tags: [] }),
+  gtmHealth: () => get('/api/gtm/health', { mock: true, connections: [] }),
 
   // GA4
   ga4Properties: () => get('/api/ga4/properties', { mock: true, properties: [], activePropertyId: null }),
@@ -46,6 +47,7 @@ export const api = {
   ga4Dashboards: (propertyId, days = 28) => get(`/api/ga4/dashboards/${propertyId}?days=${days}`, { mock: true }),
   ga4InternalRef: (propertyId, days = 28) => get(`/api/ga4/internal-ref/${propertyId}?days=${days}`, { mock: true, rows: [] }),
   ga4SourceMedium: (propertyId, days = 28) => get(`/api/ga4/source-medium/${propertyId}?days=${days}`, { mock: true, rows: [] }),
+  ga4ExitPages: (propertyId, days = 28) => get(`/api/ga4/exit-pages/${propertyId}?days=${days}`, { mock: true, pages: [] }),
 
   // Databricks
   databricksSetConfig: (cfg) => post('/api/databricks/config', cfg),
@@ -58,7 +60,11 @@ export const api = {
   databricksFunnelLostReasons: (days = 30) => get(`/api/databricks/funnel/lost-reasons?days=${days}`, { mock: true, reasons: [] }),
   databricksFunnelProducts: (days = 30) => get(`/api/databricks/funnel/products?days=${days}`, { mock: true, products: [] }),
   databricksFunnelTrend: (days = 30) => get(`/api/databricks/funnel/trend?days=${days}`, { mock: true, trend: [] }),
+  databricksFunnelFirstClick: (days = 90) => get(`/api/databricks/funnel/first-click?days=${days}`, { mock: true, canais: [] }),
   databricksFunnelOrganicVsPaid: (days = 30) => get(`/api/databricks/funnel/organic-vs-paid?days=${days}`, { mock: true, sources: [], totals: {} }),
+  databricksAnomalyAlerts:   ()           => get(`/api/databricks/anomaly-alerts`,                   { mock: true, alerts: [] }),
+  databricksSalWonTrend:     (days = 90)  => get(`/api/databricks/sal-won-trend?days=${days}`,        { mock: true, semanas: [] }),
+  databricksClosingCohort:   (days = 180) => get(`/api/databricks/closing-cohort?days=${days}`,       { mock: true, cohort: [] }),
 
   // Comparação GA4 × Meta × CRM
   databricksCompareChannels: (days = 30) => get(`/api/databricks/compare/channels?days=${days}`, { mock: true, channels: [] }),
@@ -73,6 +79,11 @@ export const api = {
   analyticsGetJourney: (days = 30) => get(`/api/databricks/analytics/journey?days=${days}`,           { mock: true, journeys: [], totals: {} }),
   analyticsGetMedia:   (days = 90) => get(`/api/databricks/analytics/media-performance?days=${days}`, { mock: true, weekly: [], totals: [], campaigns: [], projection: [] }),
   analyticsGetOrganic: (days = 90) => get(`/api/databricks/analytics/organic?days=${days}`, { mock: true }),
+
+  // Search Console
+  scSites: () => get('/api/searchconsole/sites', { mock: true, sites: [] }),
+  scPerformance: (days = 28, site = '') => get(`/api/searchconsole/performance?days=${days}&site=${encodeURIComponent(site)}`, { mock: true }),
+  scSetSite: (site_url) => post('/api/searchconsole/config', { site_url }),
 
   // Meta
   metaPixels: () => get('/api/meta/pixels', { mock: true, pixels: [] }),

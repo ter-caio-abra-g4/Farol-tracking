@@ -59,9 +59,11 @@ function KpiCard({ icon: Icon, label, value, sub, color = '#6366F1' }) {
 }
 
 const PERIOD_OPTIONS = [
-  { label: '7d',  days: 7  },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
+  { label: 'Hoje', days: 1  },
+  { label: '7d',   days: 7  },
+  { label: '15d',  days: 15 },
+  { label: '30d',  days: 30 },
+  { label: '90d',  days: 90 },
 ]
 
 // ─── Tooltip customizado ──────────────────────────────────────────────────────
@@ -96,12 +98,13 @@ function sourceColor(fonte) {
 }
 
 export default function FunilPage() {
-  const [days, setDays]               = useState(30)
+  const [days, setDays]               = useState(1)
   const [stages, setStages]           = useState(null)
   const [lostReasons, setLostReasons] = useState(null)
   const [products, setProducts]       = useState(null)
   const [trend, setTrend]             = useState(null)
   const [ovp, setOvp]                 = useState(null)   // organic vs paid
+  const [salWon, setSalWon]           = useState(null)   // SAL→WON trend
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [isMock, setIsMock]           = useState(false)
@@ -109,18 +112,20 @@ export default function FunilPage() {
   async function loadAll(d, forceRefresh = false) {
     if (forceRefresh) await api.databricksCacheClear()
     setLoading(true)
-    const [s, l, p, t, o] = await Promise.all([
+    const [s, l, p, t, o, sw] = await Promise.all([
       api.databricksFunnelStages(d),
       api.databricksFunnelLostReasons(d),
       api.databricksFunnelProducts(d),
       api.databricksFunnelTrend(d),
       api.databricksFunnelOrganicVsPaid(d),
+      api.databricksSalWonTrend(d),
     ])
     setStages(s)
     setLostReasons(l)
     setProducts(p)
     setTrend(t)
     setOvp(o)
+    setSalWon(sw)
     setIsMock(!!(s?.mock || p?.mock))
     setLastUpdated(new Date())
     setLoading(false)
@@ -262,7 +267,7 @@ export default function FunilPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                       <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis type="category" dataKey="name" tick={{ fill: '#D1D5DB', fontSize: 12 }} width={90} axisLine={false} tickLine={false} />
-                      <Tooltip content={<CustomTooltip />} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                       <Bar dataKey="value" radius={[0, 4, 4, 0]} name="Leads">
                         {funnelData.map((entry, i) => (
                           <Cell key={i} fill={entry.fill} />
@@ -296,7 +301,7 @@ export default function FunilPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                       <XAxis dataKey="dia" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <Tooltip content={<CustomTooltip />} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 }} />
                       <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                       <Area type="monotone" dataKey="MQLs"     stroke="#6366F1" fill="url(#gMQL)"     strokeWidth={2} dot={false} />
                       <Area type="monotone" dataKey="Ganhos"   stroke="#22C55E" fill="url(#gGanhos)"  strokeWidth={2} dot={false} />
@@ -323,6 +328,7 @@ export default function FunilPage() {
                       <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
                       <YAxis type="category" dataKey="name" tick={{ fill: '#D1D5DB', fontSize: 11 }} width={160} axisLine={false} tickLine={false} />
                       <Tooltip
+                        cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                         content={({ active, payload, label }) => {
                           if (!active || !payload?.length) return null
                           const d = payload[0]?.payload
@@ -504,7 +510,7 @@ export default function FunilPage() {
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                             <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
                             <YAxis type="category" dataKey="name" tick={{ fill: '#D1D5DB', fontSize: 12 }} width={80} axisLine={false} tickLine={false} />
-                            <Tooltip content={({ active, payload, label }) => {
+                            <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload, label }) => {
                               if (!active || !payload?.length) return null
                               const d = payload[0]?.payload
                               return (
@@ -534,7 +540,7 @@ export default function FunilPage() {
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                             <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} axisLine={false} tickLine={false} />
                             <YAxis type="category" dataKey="name" tick={{ fill: '#D1D5DB', fontSize: 12 }} width={80} axisLine={false} tickLine={false} />
-                            <Tooltip content={({ active, payload, label }) => {
+                            <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload, label }) => {
                               if (!active || !payload?.length) return null
                               const d = payload[0]?.payload
                               return (
@@ -606,6 +612,103 @@ export default function FunilPage() {
                       </div>
                     </CardBody>
                   </Card>
+                </div>
+              )
+            })()}
+
+            {/* ── Tendência SAL→WON por canal ───────────────────────── */}
+            {salWon && (salWon.semanas || []).length > 0 && (() => {
+              const semanas = salWon.semanas || []
+              const avgOrg = semanas.reduce((s, w) => s + (w.Organico_pct || 0), 0) / semanas.length
+              const avgPago = semanas.reduce((s, w) => s + (w.Pago_pct || 0), 0) / semanas.length
+              const lastOrg  = semanas[semanas.length - 1]?.Organico_pct || 0
+              const lastPago = semanas[semanas.length - 1]?.Pago_pct || 0
+              const orgTrend = semanas.length > 4
+                ? semanas.slice(-4).reduce((s, w) => s + (w.Organico_pct || 0), 0) / 4 - semanas.slice(0, 4).reduce((s, w) => s + (w.Organico_pct || 0), 0) / 4
+                : 0
+
+              return (
+                <div>
+                  {/* Alerta de tendência de queda */}
+                  {orgTrend < -3 && (
+                    <div style={{ marginBottom: 12, padding: '10px 16px', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 12, color: '#FCA5A5' }}>
+                      ⚠ <strong>Tendência de queda no SAL→WON Orgânico:</strong> taxa caiu {Math.abs(orgTrend).toFixed(1)}pp nas últimas semanas. Investigar priorização comercial.
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+                    {/* Gráfico de linha */}
+                    <Card>
+                      <CardHeader
+                        title="SAL → WON ao longo do tempo"
+                        subtitle="Taxa semanal por canal — Orgânico vs Pago"
+                      />
+                      <CardBody style={{ paddingTop: 4 }}>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <LineChart data={semanas} margin={{ top: 4, right: 12, left: -16, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                            <XAxis dataKey="semana" tick={{ fill: '#9CA3AF', fontSize: 10 }} axisLine={false} tickLine={false}
+                              tickFormatter={v => v?.slice(5)} interval="preserveStartEnd" />
+                            <YAxis tick={{ fill: '#9CA3AF', fontSize: 10 }} axisLine={false} tickLine={false}
+                              tickFormatter={v => `${v}%`} />
+                            <Tooltip
+                              cursor={{ stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 }}
+                              content={({ active, payload, label }) => {
+                                if (!active || !payload?.length) return null
+                                return (
+                                  <div style={{ background: '#1E1F2A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+                                    <div style={{ color: '#F9FAFB', fontWeight: 600, marginBottom: 4 }}>Semana {label}</div>
+                                    {payload.map(p => (
+                                      <div key={p.dataKey} style={{ color: p.color }}>{p.name}: {p.value?.toFixed(1)}%</div>
+                                    ))}
+                                  </div>
+                                )
+                              }}
+                            />
+                            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                            <Line dataKey="Organico_pct" name="Orgânico" stroke="#22C55E" strokeWidth={2} dot={false} connectNulls />
+                            <Line dataKey="Pago_pct"     name="Pago"     stroke="#6366F1" strokeWidth={2} dot={false} connectNulls />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+
+                    {/* Cards de média */}
+                    <Card>
+                      <CardHeader title="Média do período" subtitle="SAL→WON por canal" />
+                      <CardBody style={{ display: 'flex', flexDirection: 'column', gap: 14, justifyContent: 'center' }}>
+                        {[
+                          { label: 'Orgânico', avg: avgOrg, curr: lastOrg, color: '#22C55E' },
+                          { label: 'Pago',     avg: avgPago, curr: lastPago, color: '#6366F1' },
+                        ].map(c => {
+                          const delta = c.curr - c.avg
+                          return (
+                            <div key={c.label} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '12px 16px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: c.color }}>{c.label}</span>
+                                <span style={{ fontSize: 10, color: delta >= 0 ? '#22C55E' : '#EF4444', fontWeight: 700 }}>
+                                  {delta >= 0 ? '+' : ''}{delta.toFixed(1)}pp vs média
+                                </span>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                <div>
+                                  <div style={{ fontSize: 18, fontWeight: 800, color: c.color }}>{c.curr.toFixed(1)}%</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>última semana</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 15, fontWeight: 600, color: '#9CA3AF' }}>{c.avg.toFixed(1)}%</div>
+                                  <div style={{ fontSize: 9, color: '#6B7280' }}>média do período</div>
+                                </div>
+                              </div>
+                              <div style={{ marginTop: 8, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                                <div style={{ width: `${Math.min(c.curr, 100)}%`, height: '100%', background: c.color, borderRadius: 2 }} />
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </CardBody>
+                    </Card>
+                  </div>
                 </div>
               )
             })()}

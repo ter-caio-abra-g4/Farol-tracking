@@ -279,4 +279,158 @@ function getMockContainers() {
   ]
 }
 
-module.exports = { listContainersWithStats, getContainerDetails, getSilentTags }
+// Detecta se uma tag é Meta Pixel (pageview ativa)
+function isMetaPageView(tag) {
+  if (tag.paused) return false
+  const name = (tag.name || '').toLowerCase()
+  const type = (tag.type || '').toLowerCase()
+  // Tag customhtml com "fbq" ou "fbevents" ou nome contendo "meta" + "pageview"/"page view"
+  if (type === 'html') {
+    const params = tag.parameter || []
+    const html = params.find(p => p.key === 'html')?.value || ''
+    if (html.includes('fbq') || html.includes('fbevents')) {
+      if (name.includes('pageview') || name.includes('page view') || name.includes('page_view')) return true
+    }
+  }
+  // Tag do tipo fblpixel ou customPixel
+  if (type === 'fblpixel') return true
+  // Nome contém pixel + pageview
+  if ((name.includes('meta') || name.includes('pixel') || name.includes('fb')) &&
+      (name.includes('pageview') || name.includes('page view'))) return true
+  return false
+}
+
+// Detecta se uma tag é GA4 Config (ativa)
+function isGA4Config(tag) {
+  if (tag.paused) return false
+  const type = (tag.type || '').toLowerCase()
+  return type === 'googl' || type === 'gaawc' || type === 'gaawe' && (tag.name || '').toLowerCase().includes('config')
+}
+
+// Detecta Conversion Linker ativo
+function isConvLinker(tag) {
+  if (tag.paused) return false
+  const type = (tag.type || '').toLowerCase()
+  return type === 'cl' || type === 'awcl' || (tag.name || '').toLowerCase().includes('conversion linker')
+}
+
+// Detecta Advanced Matching (script geo_fetch ou campo em tag Meta)
+function hasAdvancedMatching(tags) {
+  return tags.some(tag => {
+    if (tag.paused) return false
+    const name = (tag.name || '').toLowerCase()
+    const params = tag.parameter || []
+    // Geo fetch script
+    if (name.includes('geo_fetch') || name.includes('geo fetch')) return true
+    // Tag Meta com campos de AM (em, ph, fn)
+    const hasAMFields = params.some(p =>
+      ['em', 'ph', 'fn', 'ln'].includes(p.key) && p.value
+    )
+    return hasAMFields
+  })
+}
+
+/**
+ * Agrega saúde das conexões GTM → Meta Pixel e GTM → GA4
+ * em todos os containers principais (G4 Educação).
+ * Lógica: se QUALQUER container tiver a conexão ativa → ok.
+ */
+async function getConnectionHealth() {
+  const auth = await getAuthClient()
+  if (!auth) return getMockConnectionHealth()
+
+  const gtm = getTagManger(auth)
+  const MAIN_CONTAINERS = ['GTM-MJT8CNGM', 'GTM-PMNN5VZ', 'GTM-WFTGXLRD']
+
+  const containerResults = []
+
+  for (const publicId of MAIN_CONTAINERS) {
+    const accountId = CONTAINER_ACCOUNT_MAP[publicId]
+    const containerId = CONTAINER_ID_MAP[publicId]
+    if (!accountId || !containerId) continue
+
+    try {
+      const parent = `accounts/${accountId}/containers/${containerId}`
+      const wsRes = await gtm.accounts.containers.workspaces.list({ parent })
+      const ws = (wsRes.data.workspace || [])[0]
+      if (!ws) continue
+
+      const tagsRes = await gtm.accounts.containers.workspaces.tags.list({ parent: ws.path })
+      const tags = tagsRes.data.tag || []
+
+      const activeTags = tags.filter(t => !t.paused)
+      const pausedCount = tags.filter(t => t.paused).length
+
+      containerResults.push({
+        publicId,
+        totalTags: tags.length,
+        activeTags: activeTags.length,
+        pausedCount,
+        hasMetaPageView: tags.some(isMetaPageView),
+        hasGA4Config: tags.some(isGA4Config),
+        hasConvLinker: tags.some(isConvLinker),
+        hasAdvancedMatching: hasAdvancedMatching(tags),
+      })
+    } catch (err) {
+      console.error(`[GTM health] Erro container ${publicId}:`, err.message)
+    }
+  }
+
+  if (!containerResults.length) return getMockConnectionHealth()
+
+  // Agrega: ok se pelo menos um container tiver a conexão ativa
+  const metaOk    = containerResults.some(c => c.hasMetaPageView)
+  const ga4Ok     = containerResults.some(c => c.hasGA4Config)
+  const linkerOk  = containerResults.some(c => c.hasConvLinker)
+  const amOk      = containerResults.some(c => c.hasAdvancedMatching)
+  const totalPaused = containerResults.reduce((s, c) => s + c.pausedCount, 0)
+
+  return {
+    mock: false,
+    connections: [
+      {
+        key: 'gtm_meta',
+        label: 'GTM → Meta Pixel',
+        ok: metaOk,
+        detail: metaOk ? 'PageView ativo' : 'Nenhum PageView ativo encontrado',
+      },
+      {
+        key: 'gtm_ga4',
+        label: 'GTM → GA4',
+        ok: ga4Ok,
+        detail: ga4Ok ? 'Config tag ativa' : 'Nenhuma Config tag ativa encontrada',
+      },
+      {
+        key: 'gtm_linker',
+        label: 'GTM → Conversion Linker',
+        ok: linkerOk,
+        detail: linkerOk ? 'Linker ativo' : 'Conversion Linker não encontrado',
+      },
+      {
+        key: 'gtm_am',
+        label: 'Advanced Matching',
+        ok: amOk,
+        detail: amOk ? 'Configurado (Global)' : 'Não configurado em nenhum container',
+      },
+    ],
+    summary: {
+      containersChecked: containerResults.length,
+      totalPaused,
+    },
+  }
+}
+
+function getMockConnectionHealth() {
+  return {
+    mock: true,
+    connections: [
+      { key: 'gtm_meta',   label: 'GTM → Meta Pixel',        ok: true,  detail: 'PageView ativo' },
+      { key: 'gtm_ga4',    label: 'GTM → GA4',               ok: true,  detail: 'Config tag ativa' },
+      { key: 'gtm_linker', label: 'GTM → Conversion Linker', ok: true,  detail: 'Linker ativo' },
+      { key: 'gtm_am',     label: 'Advanced Matching',        ok: false, detail: 'Não configurado em nenhum container' },
+    ],
+    summary: { containersChecked: 3, totalPaused: 4 },
+  }
+}
+
+module.exports = { listContainersWithStats, getContainerDetails, getSilentTags, getConnectionHealth }

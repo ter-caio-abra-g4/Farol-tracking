@@ -20,24 +20,27 @@ export default function GA4Page() {
   const [dashboards, setDashboards]   = useState(null)
   const [internalRef, setInternalRef] = useState(null)
   const [sourceMedium, setSourceMedium] = useState(null)
+  const [exitPages, setExitPages]     = useState(null)
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
-  const [days, setDays]               = useState(30)
+  const [days, setDays]               = useState(1)
 
   async function loadData(propId, d) {
     setLoading(true)
-    const [rep, evs, dash, iRef, sm] = await Promise.all([
+    const [rep, evs, dash, iRef, sm, exitPgs] = await Promise.all([
       api.ga4Report(propId, d),
       api.ga4Events(propId),
       api.ga4Dashboards(propId, d),
       api.ga4InternalRef(propId, d),
       api.ga4SourceMedium(propId, d),
+      api.ga4ExitPages(propId, d),
     ])
     setReport(rep)
     setEvents(evs)
     setDashboards(dash)
     setInternalRef(iRef)
     setSourceMedium(sm)
+    setExitPages(exitPgs)
     setLoading(false)
     setLastUpdated(Date.now())
   }
@@ -83,6 +86,7 @@ export default function GA4Page() {
         onRefresh={() => loadData(selectedGA4, days)}
         lastUpdated={lastUpdated}
         action={<PeriodSelect value={days} onChange={setDays} />}
+        showGA4
       />
 
       <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
@@ -150,7 +154,7 @@ export default function GA4Page() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#B9915B11" />
                   <XAxis dataKey="data" tick={{ fontSize: 10, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: '#8A9BAA' }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 }} />
                   <Legend wrapperStyle={{ fontSize: 11, color: '#8A9BAA' }} />
                   <Line type="monotone" dataKey="eventos" name="Eventos" stroke="#B9915B" strokeWidth={2} dot={false} />
                   <Line type="monotone" dataKey="usuarios" name="Usuários" stroke="#22C55E" strokeWidth={2} dot={false} strokeDasharray="4 2" />
@@ -241,6 +245,26 @@ export default function GA4Page() {
             </CardBody>
           </Card>
         </div>
+
+        {/* ── Páginas de saída do funil ── */}
+        <Card style={{ marginBottom: 20 }}>
+          <CardHeader
+            title="Páginas de saída no funil"
+            action={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {exitPages && !exitPages.mock && (
+                  <span style={{ fontSize: 11, color: '#22C55E' }}>● dados reais</span>
+                )}
+                <span style={{ fontSize: 11, color: '#8A9BAA' }}>{days} dias</span>
+              </div>
+            }
+          />
+          <CardBody style={{ padding: '4px 0 8px' }}>
+            {loading ? <LoadingBox /> : (
+              <ExitPagesTable pages={exitPages?.pages ?? []} />
+            )}
+          </CardBody>
+        </Card>
 
         {/* ── Top eventos (dropdown) ── */}
         <EventsSection
@@ -620,6 +644,114 @@ function EventDetail({ event }) {
       <div>
         <div style={{ fontSize: 10, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Fonte</div>
         <div style={{ fontSize: 12, color: '#F5F4F3' }}>{event.source || 'GA4'}</div>
+      </div>
+    </div>
+  )
+}
+
+// ── Páginas de saída ────────────────────────────────────────────────────────
+function ExitPagesTable({ pages }) {
+  if (!pages.length) return <EmptyMsg />
+
+  // Classifica: >70% saída = crítico, >50% = atenção, resto = ok
+  const getExitColor = (rate) => rate >= 0.70 ? '#EF4444' : rate >= 0.50 ? '#F59E0B' : '#22C55E'
+  const getExitLabel = (rate) => rate >= 0.70 ? 'Crítico' : rate >= 0.50 ? 'Atenção' : 'Normal'
+  const avgExit = pages.reduce((s, p) => s + p.exitRate, 0) / pages.length
+
+  // Quantas críticas
+  const criticas = pages.filter(p => p.exitRate >= 0.70)
+
+  return (
+    <div>
+      {criticas.length > 0 && (
+        <div style={{
+          margin: '0 16px 12px',
+          padding: '10px 14px',
+          background: 'rgba(239,68,68,0.08)',
+          border: '1px solid rgba(239,68,68,0.25)',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}>
+          <span style={{ fontSize: 14 }}>⚠️</span>
+          <span style={{ fontSize: 12, color: '#F87171' }}>
+            <strong>{criticas.length} {criticas.length === 1 ? 'página crítica' : 'páginas críticas'}</strong> com taxa de saída acima de 70% — usuários estão desistindo antes de converter.
+          </span>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, padding: '0 16px 12px' }}>
+        <div style={{ background: 'rgba(185,145,91,0.06)', borderRadius: 8, padding: '10px 14px' }}>
+          <div style={{ fontSize: 10, color: '#8A9BAA', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Páginas analisadas</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#F5F4F3' }}>{pages.length}</div>
+          <div style={{ fontSize: 11, color: '#8A9BAA' }}>no funil de conversão</div>
+        </div>
+        <div style={{ background: 'rgba(185,145,91,0.06)', borderRadius: 8, padding: '10px 14px' }}>
+          <div style={{ fontSize: 10, color: '#8A9BAA', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Saída média</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: getExitColor(avgExit) }}>{Math.round(avgExit * 100)}%</div>
+          <div style={{ fontSize: 11, color: '#8A9BAA' }}>de usuários saem sem converter</div>
+        </div>
+        <div style={{ background: 'rgba(185,145,91,0.06)', borderRadius: 8, padding: '10px 14px' }}>
+          <div style={{ fontSize: 10, color: '#8A9BAA', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pior página</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#EF4444' }}>{Math.round(Math.max(...pages.map(p => p.exitRate)) * 100)}%</div>
+          <div style={{ fontSize: 11, color: '#8A9BAA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {pages.sort((a, b) => b.exitRate - a.exitRate)[0]?.path?.split('/').pop() ?? '—'}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(185,145,91,0.2)', position: 'sticky', top: 0, background: '#001A2E', zIndex: 1 }}>
+              {['Página', 'Sessões', 'Views', 'Taxa de saída', 'Bounce', 'Status'].map(h => (
+                <th key={h} style={{
+                  padding: '8px 12px',
+                  textAlign: h === 'Página' ? 'left' : 'right',
+                  fontSize: 10, color: '#8A9BAA', fontWeight: 600,
+                  letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...pages].sort((a, b) => b.exitRate - a.exitRate).map((p, i) => {
+              const exitColor = getExitColor(p.exitRate)
+              const label = getExitLabel(p.exitRate)
+              const barW = Math.round(p.exitRate * 100)
+              return (
+                <tr key={i} style={{ borderBottom: '1px solid rgba(185,145,91,0.06)' }}>
+                  <td style={{ padding: '8px 12px', maxWidth: 220 }}>
+                    <div style={{ fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      title={p.path}>{p.path}</div>
+                    <div style={{ marginTop: 3, height: 3, background: 'rgba(185,145,91,0.1)', borderRadius: 2 }}>
+                      <div style={{ height: 3, background: exitColor, borderRadius: 2, width: `${barW}%`, opacity: 0.7 }} />
+                    </div>
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#F5F4F3' }}>
+                    {p.sessions.toLocaleString('pt-BR')}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#8A9BAA' }}>
+                    {p.views.toLocaleString('pt-BR')}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: exitColor }}>{Math.round(p.exitRate * 100)}%</span>
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 12, color: '#8A9BAA' }}>
+                    {Math.round(p.bounceRate * 100)}%
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 4,
+                      color: exitColor, background: `${exitColor}18`, whiteSpace: 'nowrap',
+                    }}>{label}</span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )

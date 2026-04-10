@@ -15,7 +15,12 @@
   "meta": {
     "access_token": "EAANvGxHuv6oBRHtZB03UVJvhLHLOtYTkiBGNiemn45wZBzCvCgl5kYgPYNylZCdwpxyUvjqD4rpB2KCQjkaZBXDyxBYr88EQZBMnn5TeVy9q7v8cc9nXeZAUBEZAjaj80cNIkjZCIzQkLVYboad6TvyeKsSGNLjTL4HfBEkXZBPWf570K2FVDRyMMSBdZA2ywIqgZDZD",
     "pixel_id": "702432142505333",
-    "pixel_ids": ["702432142505333"]
+    "pixel_ids": [
+      "702432142505333"
+    ]
   },
-  "gtm": {}
+  "gtm": {},
+  "searchconsole": {
+    "site_url": "sc-domain:g4business.com"
+  }
 }

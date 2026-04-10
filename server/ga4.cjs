@@ -449,4 +449,69 @@ function getMockEvents() {
   ]
 }
 
-module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport }
+async function getExitPages(propertyId, days = 28) {
+  const auth = await getAuthClient()
+  if (!auth) return { mock: true, pages: getMockExitPages() }
+
+  try {
+    const analyticsData = google.analyticsdata({ version: 'v1beta', auth })
+
+    // Páginas com sessões e exits — filtra paths relevantes (páginas de formulário/checkout)
+    const res = await analyticsData.properties.runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dimensions: [{ name: 'pagePath' }],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'bounceRate' },
+          { name: 'screenPageViews' },
+          { name: 'exitRate' },
+        ],
+        dimensionFilter: {
+          orGroup: {
+            expressions: [
+              { filter: { fieldName: 'pagePath', stringFilter: { matchType: 'CONTAINS', value: '/inscricao' } } },
+              { filter: { fieldName: 'pagePath', stringFilter: { matchType: 'CONTAINS', value: '/checkout' } } },
+              { filter: { fieldName: 'pagePath', stringFilter: { matchType: 'CONTAINS', value: '/formulario' } } },
+              { filter: { fieldName: 'pagePath', stringFilter: { matchType: 'CONTAINS', value: '/form' } } },
+              { filter: { fieldName: 'pagePath', stringFilter: { matchType: 'CONTAINS', value: '/lead' } } },
+              { filter: { fieldName: 'pagePath', stringFilter: { matchType: 'CONTAINS', value: '/lp' } } },
+              { filter: { fieldName: 'pagePath', stringFilter: { matchType: 'CONTAINS', value: '/landing' } } },
+            ],
+          },
+        },
+        limit: 20,
+        orderBys: [{ metric: { metricName: 'exitRate' }, desc: true }],
+      },
+    })
+
+    const pages = (res.data.rows || []).map(r => ({
+      path:       r.dimensionValues[0].value,
+      sessions:   parseInt(r.metricValues[0].value, 10),
+      bounceRate: parseFloat(r.metricValues[1].value),
+      views:      parseInt(r.metricValues[2].value, 10),
+      exitRate:   parseFloat(r.metricValues[3].value),
+    }))
+    .filter(p => p.sessions >= 10) // Filtra páginas com tráfego mínimo
+
+    return { mock: false, pages, days }
+  } catch (err) {
+    console.error('[GA4] getExitPages error:', err.message)
+    return { mock: true, pages: getMockExitPages(), error: err.message }
+  }
+}
+
+function getMockExitPages() {
+  return [
+    { path: '/inscricao/g4-programas-presenciais', sessions: 8420, views: 15979, exitRate: 0.68, bounceRate: 0.44 },
+    { path: '/inscricao/g4-summit',                sessions: 4810, views: 9420,  exitRate: 0.61, bounceRate: 0.38 },
+    { path: '/inscricao/mentoria-executiva',        sessions: 2940, views: 6310,  exitRate: 0.74, bounceRate: 0.52 },
+    { path: '/inscricao/capacitacao-online',        sessions: 2180, views: 4880,  exitRate: 0.57, bounceRate: 0.35 },
+    { path: '/checkout/programas',                  sessions: 1820, views: 3240,  exitRate: 0.82, bounceRate: 0.60 },
+    { path: '/lp/g4-skills',                        sessions: 1340, views: 2870,  exitRate: 0.48, bounceRate: 0.29 },
+    { path: '/lp/mentoria-grupo',                   sessions: 980,  views: 1920,  exitRate: 0.55, bounceRate: 0.33 },
+  ]
+}
+
+module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport, getExitPages }

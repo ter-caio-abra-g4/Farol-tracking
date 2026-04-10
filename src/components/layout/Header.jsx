@@ -20,7 +20,9 @@ const SELECT_STYLE = {
   fontFamily: 'Manrope, sans-serif',
 }
 
-export default function Header({ title, subtitle, onRefresh, lastUpdated, select, hideGlobalSelects, action }) {
+// showGTM / showGA4: controla quais seletores globais aparecem por tela.
+// Padrão false — cada página declara explicitamente o que precisa.
+export default function Header({ title, subtitle, onRefresh, lastUpdated, select, action, showGTM = false, showGA4 = false }) {
   const [spinning, setSpinning] = useState(false)
   const { gtmContainers, selectedGTM, setSelectedGTM, ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
 
@@ -34,7 +36,7 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
     ? new Date(lastUpdated).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     : null
 
-  const hasBottomRow = time || onRefresh !== undefined
+  const hasSelects = showGTM || showGA4
 
   return (
     <div style={{
@@ -42,7 +44,7 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
       flexShrink: 0,
     }}>
 
-      {/* ── Linha 1: título · selects globais · action ── */}
+      {/* ── Linha 1: título · selects contextuais · action ── */}
       <div style={{
         padding: '14px 28px 12px',
         display: 'flex',
@@ -67,29 +69,35 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
           )}
         </div>
 
-        {/* Selects globais GTM + GA4 */}
-        {!hideGlobalSelects && (
+        {/* Selects contextuais — só aparecem quando a tela precisa */}
+        {hasSelects && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, justifyContent: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GTM</span>
-              <select value={selectedGTM} onChange={(e) => setSelectedGTM(e.target.value)} style={SELECT_STYLE}>
-                <option value="all">Todos os containers</option>
-                {gtmContainers.map(c => (
-                  <option key={c.id} value={c.id}>{c.name || c.id}</option>
-                ))}
-              </select>
-            </div>
+            {showGTM && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GTM</span>
+                <select value={selectedGTM} onChange={(e) => setSelectedGTM(e.target.value)} style={SELECT_STYLE}>
+                  <option value="all">Todos os containers</option>
+                  {gtmContainers.map(c => (
+                    <option key={c.id} value={c.id}>{c.name || c.id}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            <div style={{ width: 1, height: 20, background: 'rgba(185,145,91,0.2)' }} />
+            {showGTM && showGA4 && (
+              <div style={{ width: 1, height: 20, background: 'rgba(185,145,91,0.2)' }} />
+            )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GA4</span>
-              <select value={selectedGA4} onChange={(e) => setSelectedGA4(e.target.value)} style={SELECT_STYLE}>
-                {ga4Properties.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
+            {showGA4 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GA4</span>
+                <select value={selectedGA4} onChange={(e) => setSelectedGA4(e.target.value)} style={SELECT_STYLE}>
+                  {ga4Properties.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
 

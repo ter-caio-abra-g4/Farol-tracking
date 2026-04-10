@@ -92,8 +92,7 @@ export default function Sidebar() {
         <div className="sidebar__footer">
           <NavItem {...settingsItem} collapsed={collapsed} />
           <div className="sidebar__footer-info">
-            <div className="sidebar__footer-company">G4 Education</div>
-            <div className="sidebar__footer-version">v1.0.0</div>
+            <div className="sidebar__footer-version">v0.6.0</div>
           </div>
         </div>
 

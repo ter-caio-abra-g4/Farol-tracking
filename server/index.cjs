@@ -12,6 +12,7 @@ const gtmService = require('./gtm.cjs')
 const ga4Service = require('./ga4.cjs')
 const metaService = require('./meta.cjs')
 const databricksService = require('./databricks.cjs')
+const scService = require('./searchconsole.cjs')
 
 const app = express()
 const PORT = 3001
@@ -166,12 +167,31 @@ app.get('/api/ga4/source-medium/:propertyId', async (req, res) => {
   }
 })
 
+app.get('/api/ga4/exit-pages/:propertyId', async (req, res) => {
+  const days = parseInt(req.query.days) || 28
+  try {
+    const result = await ga4Service.getExitPages(req.params.propertyId, days)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, pages: [] })
+  }
+})
+
 app.get('/api/gtm/silent-tags', async (req, res) => {
   try {
     const result = await gtmService.getSilentTags()
     res.json(result)
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message, tags: [] })
+  }
+})
+
+app.get('/api/gtm/health', async (req, res) => {
+  try {
+    const result = await gtmService.getConnectionHealth()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, connections: [] })
   }
 })
 
@@ -437,7 +457,61 @@ app.get('/api/databricks/analytics/organic', async (req, res) => {
   catch (err) { res.status(500).json({ mock: true, error: err.message }) }
 })
 
+app.get('/api/databricks/funnel/first-click', async (req, res) => {
+  const days = parseInt(req.query.days) || 90
+  try { res.json(await databricksService.getFirstClickFunnel(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, canais: [] }) }
+})
+
+app.get('/api/databricks/anomaly-alerts', async (req, res) => {
+  try { res.json(await databricksService.getAnomalyAlerts()) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, alerts: [] }) }
+})
+
+app.get('/api/databricks/sal-won-trend', async (req, res) => {
+  const days = parseInt(req.query.days) || 90
+  try { res.json(await databricksService.getSalWonTrend(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, semanas: [] }) }
+})
+
+app.get('/api/databricks/closing-cohort', async (req, res) => {
+  const days = parseInt(req.query.days) || 180
+  try { res.json(await databricksService.getClosingCohort(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, cohort: [] }) }
+})
+
 // ─── Start ─────────────────────────────────────────────────────────────────
+// ─── Search Console ────────────────────────────────────────────────────────
+app.get('/api/searchconsole/sites', async (req, res) => {
+  try {
+    res.json(await scService.listSites())
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, sites: [] })
+  }
+})
+
+app.post('/api/searchconsole/config', (req, res) => {
+  const { site_url } = req.body || {}
+  if (!site_url) return res.status(400).json({ error: 'site_url obrigatório' })
+  const cfg = loadConfig()
+  cfg.searchconsole = { ...(cfg.searchconsole || {}), site_url: site_url.trim() }
+  saveConfig(cfg)
+  res.json({ ok: true, site_url: cfg.searchconsole.site_url })
+})
+
+app.get('/api/searchconsole/performance', async (req, res) => {
+  const days    = parseInt(req.query.days) || 28
+  const siteUrl = req.query.site || loadConfig().searchconsole?.site_url || ''
+  if (!siteUrl) {
+    return res.json(await scService.getPerformance('', days))
+  }
+  try {
+    res.json(await scService.getPerformance(siteUrl, days))
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
 function startServer() {
   return new Promise((resolve, reject) => {
     const server = app.listen(PORT, '127.0.0.1', () => {
