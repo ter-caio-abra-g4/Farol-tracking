@@ -9,26 +9,10 @@ import {
 } from 'recharts'
 import { Settings, X, Eye, EyeOff, Save, TrendingUp, TrendingDown, Minus, Users, Monitor, Layers, ShieldCheck, PlugZap } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-
-const TT = {
-  contentStyle: { background: '#001A2E', border: '1px solid rgba(185,145,91,0.3)', borderRadius: 8, fontSize: 12, color: '#F5F4F3' },
-  cursorBar:  { fill: 'rgba(255,255,255,0.04)' },
-  cursorLine: { stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 },
-}
+import PeriodSelect from '../components/ui/PeriodSelect'
+import { fmtNum, fmtMoney } from '../utils/format'
+import { TT } from '../components/ui/DarkTooltip'
 const FUNNEL_COLORS = ['#B9915B', '#A07848', '#885F36', '#6F4724', '#572F13']
-
-function fmtMoney(v) {
-  if (!v && v !== 0) return '—'
-  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `R$ ${(v / 1_000).toFixed(0)}K`
-  return `R$ ${v.toFixed(0)}`
-}
-function fmtNum(v) {
-  if (v === null || v === undefined) return '—'
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `${(v / 1_000).toFixed(1)}k`
-  return String(v)
-}
 
 const TABS = [
   { id: 'pixel',    label: 'Pixel',      icon: Layers },
@@ -263,6 +247,140 @@ function TabAudience({ data, days }) {
           {platforms.map(p => <PlatformCard key={p.platform} p={p} />)}
         </div>
       </div>
+
+      {/* ── Comparação de perfis ── */}
+      {(() => {
+        const ranked = ageRows
+          .filter(r => r.gender !== 'unknown' && r.leads > 0 && r.cpl)
+          .slice()
+          .sort((a, b) => a.cpl - b.cpl) // melhor CPL primeiro
+
+        if (ranked.length === 0) return null
+
+        const worstCpl  = Math.max(...ranked.map(r => r.cpl))
+        const bestCplVal = ranked[0].cpl
+        const totalSpendAll = ageRows.reduce((s, r) => s + r.spend, 0)
+        const totalLeadsAll = ageRows.reduce((s, r) => s + r.leads, 0)
+
+        // Detecta desalinhamentos: segmento com % gasto >> % leads
+        const misaligned = ageRows
+          .filter(r => r.gender !== 'unknown' && totalSpendAll > 0 && totalLeadsAll > 0)
+          .map(r => ({
+            ...r,
+            spendShare: (r.spend / totalSpendAll) * 100,
+            leadsShare: (r.leads / totalLeadsAll) * 100,
+            gap: ((r.spend / totalSpendAll) - (r.leads / totalLeadsAll)) * 100,
+          }))
+          .filter(r => r.gap > 5) // gasto 5pp+ acima da contribuição em leads
+          .sort((a, b) => b.gap - a.gap)
+          .slice(0, 3)
+
+        return (
+          <Card>
+            <CardHeader
+              title="Comparação de perfis"
+              subtitle="Ranking de eficiência e distribuição de orçamento por segmento"
+            />
+            <CardBody style={{ padding: '16px' }}>
+
+              {/* Alerta de desalinhamento */}
+              {misaligned.length > 0 && (
+                <div style={{
+                  marginBottom: 16, padding: '10px 14px',
+                  background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)',
+                  borderRadius: 8, fontSize: 12, color: '#FCD34D', lineHeight: 1.5,
+                }}>
+                  ⚠ <strong>{misaligned.length} {misaligned.length === 1 ? 'segmento consome' : 'segmentos consomem'} orçamento desproporcional ao retorno:</strong>{' '}
+                  {misaligned.map(r => {
+                    const gLabel = r.gender === 'male' ? 'H' : 'M'
+                    return `${r.age} ${gLabel} (${r.spendShare.toFixed(0)}% gasto → ${r.leadsShare.toFixed(0)}% leads)`
+                  }).join(' · ')}
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+
+                {/* Ranking de eficiência (CPL) */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                    Ranking por CPL — melhores primeiro
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {ranked.map((r, i) => {
+                      const gColor = GENDER_COLOR[r.gender]
+                      const gLabel = r.gender === 'male' ? 'H' : 'M'
+                      // Barra: 100% = pior CPL, boa = estreita (CPL baixo)
+                      const barW = Math.round((r.cpl / worstCpl) * 100)
+                      const barColor = i === 0 ? '#22C55E' : i < 3 ? '#B9915B' : r.cpl > worstCpl * 0.75 ? '#EF4444' : '#6366F1'
+                      return (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 11, color: '#6B7280', width: 16, textAlign: 'right', flexShrink: 0 }}>#{i + 1}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: 72, flexShrink: 0 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#F5F4F3' }}>{r.age}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: gColor, background: gColor + '22', borderRadius: 4, padding: '1px 5px' }}>{gLabel}</span>
+                          </div>
+                          <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3 }}>
+                            <div style={{ height: 6, borderRadius: 3, background: barColor, width: `${barW}%`, transition: 'width 0.4s' }} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: barColor, width: 56, textAlign: 'right', flexShrink: 0 }}>{fmtMoney(r.cpl)}</span>
+                          <span style={{ fontSize: 10, color: '#6B7280', width: 48, textAlign: 'right', flexShrink: 0 }}>{fmtNum(r.leads)} leads</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Distribuição gasto vs. leads */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#8A9BAA', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                    Distribuição — gasto vs. leads gerados
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {ageRows
+                      .filter(r => r.gender !== 'unknown')
+                      .sort((a, b) => b.spend - a.spend)
+                      .slice(0, 7)
+                      .map((r, i) => {
+                        const gColor = GENDER_COLOR[r.gender]
+                        const gLabel = r.gender === 'male' ? 'H' : 'M'
+                        const spendPct = totalSpendAll > 0 ? (r.spend / totalSpendAll) * 100 : 0
+                        const leadsPct = totalLeadsAll > 0 ? (r.leads / totalLeadsAll) * 100 : 0
+                        const gap = spendPct - leadsPct
+                        const gapColor = gap > 5 ? '#F59E0B' : gap < -5 ? '#22C55E' : '#6B7280'
+                        return (
+                          <div key={i}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: '#F5F4F3' }}>{r.age}</span>
+                                <span style={{ fontSize: 10, color: gColor, background: gColor + '22', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>{gLabel}</span>
+                              </div>
+                              <span style={{ fontSize: 10, color: gapColor, fontWeight: 700 }}>
+                                {gap > 0 ? '+' : ''}{gap.toFixed(1)}pp
+                              </span>
+                            </div>
+                            <div style={{ position: 'relative', height: 5, background: 'rgba(255,255,255,0.04)', borderRadius: 3, marginBottom: 1 }}>
+                              <div style={{ position: 'absolute', height: '100%', borderRadius: 3, background: '#B9915B', width: `${spendPct}%`, opacity: 0.8 }} />
+                            </div>
+                            <div style={{ position: 'relative', height: 5, background: 'rgba(255,255,255,0.04)', borderRadius: 3 }}>
+                              <div style={{ position: 'absolute', height: '100%', borderRadius: 3, background: '#6366F1', width: `${leadsPct}%`, opacity: 0.8 }} />
+                            </div>
+                          </div>
+                        )
+                      })
+                    }
+                    <div style={{ display: 'flex', gap: 14, marginTop: 4, fontSize: 10, color: '#6B7280' }}>
+                      <span><span style={{ color: '#B9915B' }}>━</span> % do gasto</span>
+                      <span><span style={{ color: '#6366F1' }}>━</span> % dos leads</span>
+                      <span style={{ color: '#F59E0B' }}>+pp = gasto desproporcional</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </CardBody>
+          </Card>
+        )
+      })()}
 
       {/* Tabela detalhada de segmentos */}
       <Card>
@@ -766,19 +884,7 @@ export default function MetaPage() {
         lastUpdated={lastUpdated}
         action={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Seletor de período */}
-            <div style={{ display: 'flex', gap: 2, background: 'rgba(185,145,91,0.06)', borderRadius: 6, padding: 2 }}>
-              {PERIOD_OPTIONS.map(o => (
-                <button key={o.days} onClick={() => setDays(o.days)} style={{
-                  background: days === o.days ? 'rgba(185,145,91,0.2)' : 'transparent',
-                  color: days === o.days ? '#B9915B' : '#8A9BAA',
-                  border: 'none', borderRadius: 4, padding: '3px 10px', cursor: 'pointer',
-                  fontSize: 11, fontWeight: 600, fontFamily: 'Manrope, sans-serif',
-                }}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            <PeriodSelect value={days} onChange={setDays} options={PERIOD_OPTIONS} />
             {!isMock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>LIVE</span>}
             {isMock   && <span style={{ fontSize: 10, color: '#F59E0B', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>MOCK</span>}
             <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(185,145,91,0.4)', background: 'rgba(185,145,91,0.08)', color: '#B9915B', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Manrope, sans-serif' }}>

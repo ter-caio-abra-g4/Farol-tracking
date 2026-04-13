@@ -12,6 +12,7 @@ import FunilPage from './pages/Funil'
 import ComparacaoPage from './pages/Comparacao'
 import AnalyticsPage from './pages/Analytics'
 import SEOPage from './pages/SEO'
+import PaidPage from './pages/Paid'
 import SettingsPage from './pages/Settings'
 import SetupWizard from './pages/Setup'
 import { TrackingProvider } from './context/TrackingContext'
@@ -100,6 +101,7 @@ export default function App() {
                 <Route path="/comparacao" element={<ComparacaoPage />} />
                 <Route path="/analytics" element={<AnalyticsPage />} />
                 <Route path="/seo" element={<SEOPage />} />
+                <Route path="/paid" element={<PaidPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </main>

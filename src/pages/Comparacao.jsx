@@ -8,6 +8,8 @@ import {
   Cell, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis,
 } from 'recharts'
 import { DollarSign, Target, Users, TrendingUp, Zap, FileText } from 'lucide-react'
+import PeriodSelect from '../components/ui/PeriodSelect'
+import { fmtNum, fmtMoney } from '../utils/format'
 
 // ─── Paleta ──────────────────────────────────────────────────────────────────
 const CANAL_COLORS = {
@@ -21,18 +23,6 @@ const META_COLOR   = '#3B82F6'
 const GOOGLE_COLOR = '#F59E0B'
 const PLATFORM_COLORS = { Meta: META_COLOR, Google: GOOGLE_COLOR }
 
-function fmtMoney(v) {
-  if (!v) return 'R$ 0'
-  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `R$ ${(v / 1_000).toFixed(0)}K`
-  return `R$ ${v.toFixed(0)}`
-}
-function fmtNum(v) {
-  if (v === null || v === undefined) return '—'
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `${(v / 1_000).toFixed(1)}k`
-  return String(v)
-}
 function pct(a, b) {
   if (!b) return '—'
   return `${((a / b) * 100).toFixed(1)}%`
@@ -298,24 +288,14 @@ export default function ComparacaoPage() {
         onRefresh={() => loadAll(days, true)}
         lastUpdated={lastUpdated}
         action={
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <PeriodSelect value={days} onChange={setDays} options={PERIOD_OPTIONS} />
             {isMock && (
               <span style={{
                 background: 'rgba(245,158,11,0.15)', color: '#F59E0B',
-                borderRadius: 6, padding: '3px 10px', fontSize: 12,
+                borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
               }}>MOCK</span>
             )}
-            <div style={{ display: 'flex', gap: 2, background: '#1A1B23', borderRadius: 8, padding: 3 }}>
-              {PERIOD_OPTIONS.map(o => (
-                <button key={o.days} onClick={() => setDays(o.days)} style={{
-                  background: days === o.days ? '#6366F1' : 'transparent',
-                  color: days === o.days ? '#fff' : '#9CA3AF',
-                  border: 'none', borderRadius: 6, padding: '4px 10px',
-                  cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                  whiteSpace: 'nowrap',
-                }}>{o.label}</button>
-              ))}
-            </div>
           </div>
         }
       />

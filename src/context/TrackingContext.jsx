@@ -13,9 +13,14 @@ export function TrackingProvider({ children }) {
   const [gtmContainers, setGtmContainers] = useState([])
   const [selectedGTM, setSelectedGTM] = useState('all') // 'all' | publicId
 
-  // GA4
+  // GA4 — seed com as properties conhecidas (sobrescritas pela API quando disponível)
   const [ga4Properties, setGa4Properties] = useState([
-    { id: '521780491', name: 'G4 Educacao - Principal' },
+    { id: '521780491', name: 'G4 Educações - Global' },
+    { id: '381992026', name: 'G4 Educação [PROD]' },
+    { id: '506905667', name: 'G4 Forms' },
+    { id: '300192855', name: 'G4 Skills - Plataforma' },
+    { id: '480343979', name: 'G4 Sales Analytics' },
+    { id: '525799105', name: 'g4tools - plataforma' },
   ])
   const [selectedGA4, setSelectedGA4] = useState('521780491')
 

@@ -501,10 +501,7 @@ app.post('/api/searchconsole/config', (req, res) => {
 
 app.get('/api/searchconsole/performance', async (req, res) => {
   const days    = parseInt(req.query.days) || 28
-  const siteUrl = req.query.site || loadConfig().searchconsole?.site_url || ''
-  if (!siteUrl) {
-    return res.json(await scService.getPerformance('', days))
-  }
+  const siteUrl = req.query.site || loadConfig().searchconsole?.site_url || 'sc-domain:g4business.com'
   try {
     res.json(await scService.getPerformance(siteUrl, days))
   } catch (err) {

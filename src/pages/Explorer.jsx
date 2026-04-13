@@ -115,6 +115,8 @@ export default function Explorer() {
         subtitle="Eventos GA4 e tags GTM em tempo real"
         onRefresh={handleRefresh}
         lastUpdated={lastUpdated}
+        showGTM
+        showGA4
       />
 
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', gap: 0 }}>

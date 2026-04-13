@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
+import pkg from '../../../package.json'
 import {
   LayoutDashboard,
   Database,
@@ -14,6 +15,7 @@ import {
   ChevronDown,
   LineChart,
   Sprout,
+  DollarSign,
 } from 'lucide-react'
 
 // ── Estrutura de navegação agrupada ──────────────────────────────────────────
@@ -26,21 +28,22 @@ const navGroups = [
   },
   {
     label: 'Canais',
-    defaultOpen: true,
+    defaultOpen: false,
     items: [
       { to: '/gtm',  icon: Tag,       label: 'GTM'      },
       { to: '/ga4',  icon: BarChart2, label: 'GA4'      },
       { to: '/meta', icon: Activity,  label: 'Meta Ads' },
+      { to: '/paid', icon: DollarSign, label: 'Paid'    },
+      { to: '/seo',  icon: Sprout,    label: 'Orgânico' },
     ],
   },
   {
-    label: 'Funil',
-    defaultOpen: true,
+    label: 'Análise',
+    defaultOpen: false,
     items: [
       { to: '/funil',      icon: TrendingUp, label: 'Funil'      },
       { to: '/comparacao', icon: GitCompare, label: 'Comparação' },
       { to: '/analytics',  icon: LineChart,  label: 'Analytics'  },
-      { to: '/seo',        icon: Sprout,     label: 'Orgânico'   },
     ],
   },
   {
@@ -92,7 +95,7 @@ export default function Sidebar() {
         <div className="sidebar__footer">
           <NavItem {...settingsItem} collapsed={collapsed} />
           <div className="sidebar__footer-info">
-            <div className="sidebar__footer-version">v0.6.0</div>
+            <div className="sidebar__footer-version">v{pkg.version}</div>
           </div>
         </div>
 

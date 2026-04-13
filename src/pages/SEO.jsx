@@ -8,38 +8,10 @@ import {
   LineChart, Line, Legend, AreaChart, Area, Cell,
 } from 'recharts'
 import { TrendingUp, TrendingDown, Minus, Zap, Search, MousePointerClick, Eye, Target, PlugZap } from 'lucide-react'
+import PeriodSelect from '../components/ui/PeriodSelect'
 import { useNavigate } from 'react-router-dom'
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const TT = {
-  contentStyle: {
-    background: '#001A2E', border: '1px solid rgba(185,145,91,0.3)',
-    borderRadius: 8, fontSize: 12, color: '#F5F4F3',
-  },
-  cursorBar:  { fill: 'rgba(255,255,255,0.04)' },
-  cursorLine: { stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 },
-}
-
-function fmtMoney(v) {
-  if (!v && v !== 0) return '—'
-  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `R$ ${(v / 1_000).toFixed(0)}K`
-  return `R$ ${v.toFixed(0)}`
-}
-function fmtNum(v) {
-  if (v === null || v === undefined) return '—'
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `${(v / 1_000).toFixed(1)}k`
-  return String(v)
-}
-function fmtDays(v) {
-  if (!v && v !== 0) return '—'
-  return `${v.toFixed(1)}d`
-}
-function pct(v) {
-  if (v === null || v === undefined) return '—'
-  return `${v.toFixed(1)}%`
-}
+import { fmtNum, fmtMoney, fmtPct, fmtDays } from '../utils/format'
+import { TT } from '../components/ui/DarkTooltip'
 
 const CANAL_COLOR = {
   'Orgânico': '#22C55E',
@@ -212,18 +184,7 @@ export default function SEOPage() {
         lastUpdated={lastUpdated}
         action={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 2, background: 'rgba(185,145,91,0.06)', borderRadius: 6, padding: 2 }}>
-              {PERIOD_OPTIONS.map(o => (
-                <button key={o.days} onClick={() => setDays(o.days)} style={{
-                  background: days === o.days ? 'rgba(185,145,91,0.2)' : 'transparent',
-                  color: days === o.days ? '#B9915B' : '#8A9BAA',
-                  border: 'none', borderRadius: 4, padding: '3px 10px', cursor: 'pointer',
-                  fontSize: 11, fontWeight: 600, fontFamily: 'Manrope, sans-serif',
-                }}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            <PeriodSelect value={days} onChange={setDays} options={PERIOD_OPTIONS} />
             {!data?.mock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>CRM LIVE</span>}
             {scData && !scData?.mock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>GSC LIVE</span>}
           </div>
@@ -263,7 +224,7 @@ export default function SEOPage() {
                 />
                 <KpiCard
                   label="Contribuição Orgânico"
-                  value={pct(kpis.contribOrg)}
+                  value={fmtPct(kpis.contribOrg)}
                   sub={`${organico.ganhos} de ${kpis.totalGanhos} vendas totais`}
                   color="#22C55E"
                 />
@@ -549,8 +510,8 @@ export default function SEOPage() {
                   />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     {[
-                      { label: 'Conv. Orgânico', val: pct(organico.conv_pct), color: '#22C55E' },
-                      { label: 'Conv. Pago',     val: pct(pago.conv_pct),     color: '#6366F1' },
+                      { label: 'Conv. Orgânico', val: fmtPct(organico.conv_pct), color: '#22C55E' },
+                      { label: 'Conv. Pago',     val: fmtPct(pago.conv_pct),     color: '#6366F1' },
                       { label: 'Vendas Org.',    val: fmtNum(organico.ganhos), color: '#22C55E' },
                       { label: 'Vendas Pagas',   val: fmtNum(pago.ganhos),    color: '#6366F1' },
                     ].map(m => (
@@ -1164,7 +1125,7 @@ export default function SEOPage() {
                                       <span style={{
                                         color: s.conv_pct >= 10 ? '#22C55E' : s.conv_pct >= 6 ? '#F59E0B' : '#EF4444',
                                         fontWeight: 700,
-                                      }}>{pct(s.conv_pct)}</span>
+                                      }}>{fmtPct(s.conv_pct)}</span>
                                     </td>
                                     <td style={{ padding: '9px 14px', textAlign: 'right', color: '#F5F4F3', fontWeight: 700 }}>{fmtMoney(s.receita)}</td>
                                     <td style={{ padding: '9px 14px', textAlign: 'right' }}>

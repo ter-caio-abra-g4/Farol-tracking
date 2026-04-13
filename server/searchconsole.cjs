@@ -170,8 +170,7 @@ async function getPerformance(siteUrl, days = 28) {
 
 function getMockSites() {
   return [
-    { url: 'https://g4educacao.com/', permissionLevel: 'siteRestrictedUser' },
-    { url: 'sc-domain:g4business.com', permissionLevel: 'siteRestrictedUser' },
+    { url: 'sc-domain:g4business.com', permissionLevel: 'siteOwner' },
   ]
 }
 
@@ -185,46 +184,46 @@ function getMockPerformance(days) {
     const noise = () => 0.8 + Math.random() * 0.4
     trend.push({
       date:        d.toISOString().slice(0, 10),
-      clicks:      Math.round(320 * noise()),
-      impressions: Math.round(8400 * noise()),
-      ctr:         +(3.8 * noise()).toFixed(1),
-      position:    +(14.2 * noise()).toFixed(1),
+      clicks:      Math.round(420 * noise()),
+      impressions: Math.round(9800 * noise()),
+      ctr:         +(4.3 * noise()).toFixed(1),
+      position:    +(12.8 * noise()).toFixed(1),
     })
   }
 
   return {
     mock: true,
-    siteUrl: 'https://g4educacao.com/',
+    siteUrl: 'sc-domain:g4business.com',
     days,
     totals: {
       clicks:      trend.reduce((s, r) => s + r.clicks, 0),
       impressions: trend.reduce((s, r) => s + r.impressions, 0),
-      ctr:         3.8,
-      position:    14.2,
+      ctr:         4.3,
+      position:    12.8,
     },
     queries: [
-      { query: 'g4 educacao',       clicks: 1840, impressions: 12400, ctr: 14.8, position: 1.2 },
-      { query: 'curso de liderança', clicks:  620, impressions:  8900, ctr:  7.0, position: 3.4 },
-      { query: 'g4 business',       clicks:  540, impressions:  7200, ctr:  7.5, position: 2.1 },
-      { query: 'treinamento gestão', clicks:  480, impressions:  9100, ctr:  5.3, position: 5.8 },
-      { query: 'curso de vendas',    clicks:  390, impressions:  6800, ctr:  5.7, position: 4.2 },
-      { query: 'gestão empresarial', clicks:  310, impressions:  7400, ctr:  4.2, position: 6.1 },
-      { query: 'masterclass g4',     clicks:  280, impressions:  4200, ctr:  6.7, position: 2.8 },
-      { query: 'g4 summit',          clicks:  240, impressions:  3800, ctr:  6.3, position: 3.0 },
-      { query: 'liderança empresas',  clicks:  210, impressions:  5600, ctr:  3.8, position: 8.4 },
-      { query: 'gestão de equipes',   clicks:  180, impressions:  4900, ctr:  3.7, position: 9.2 },
+      { query: 'g4 business',         clicks: 2100, impressions: 14200, ctr: 14.8, position: 1.1 },
+      { query: 'g4 educacao',         clicks:  980, impressions: 10400, ctr:  9.4, position: 1.8 },
+      { query: 'curso de liderança',  clicks:  640, impressions:  9200, ctr:  7.0, position: 3.2 },
+      { query: 'treinamento gestão',  clicks:  510, impressions:  9800, ctr:  5.2, position: 5.4 },
+      { query: 'curso de vendas b2b', clicks:  420, impressions:  7100, ctr:  5.9, position: 4.0 },
+      { query: 'gestão empresarial',  clicks:  340, impressions:  7900, ctr:  4.3, position: 5.9 },
+      { query: 'masterclass g4',      clicks:  290, impressions:  4400, ctr:  6.6, position: 2.7 },
+      { query: 'g4 summit',           clicks:  250, impressions:  3900, ctr:  6.4, position: 2.9 },
+      { query: 'liderança empresas',  clicks:  220, impressions:  5800, ctr:  3.8, position: 8.1 },
+      { query: 'gestão de equipes',   clicks:  190, impressions:  5100, ctr:  3.7, position: 8.9 },
     ],
     pages: [
-      { page: 'https://g4educacao.com/',                    clicks: 2100, impressions: 18000, ctr: 11.7, position: 2.1 },
-      { page: 'https://g4educacao.com/lideranca',           clicks:  890, impressions:  9800, ctr:  9.1, position: 3.8 },
-      { page: 'https://g4educacao.com/vendas',              clicks:  720, impressions:  8400, ctr:  8.6, position: 4.2 },
-      { page: 'https://g4educacao.com/gestao',              clicks:  540, impressions:  7200, ctr:  7.5, position: 5.1 },
-      { page: 'https://g4educacao.com/summit',              clicks:  480, impressions:  5100, ctr:  9.4, position: 2.9 },
-      { page: 'https://g4educacao.com/blog/lideranca',      clicks:  320, impressions:  6800, ctr:  4.7, position: 8.6 },
-      { page: 'https://g4educacao.com/masterclass',         clicks:  280, impressions:  4200, ctr:  6.7, position: 3.4 },
-      { page: 'https://g4educacao.com/blog/gestao',         clicks:  240, impressions:  5900, ctr:  4.1, position: 9.8 },
-      { page: 'https://g4educacao.com/sobre',               clicks:  190, impressions:  3400, ctr:  5.6, position: 4.7 },
-      { page: 'https://g4educacao.com/blog/vendas-b2b',     clicks:  160, impressions:  4100, ctr:  3.9, position: 11.2 },
+      { page: 'https://g4business.com/',                clicks: 2400, impressions: 19500, ctr: 12.3, position: 1.8 },
+      { page: 'https://g4business.com/lideranca',       clicks:  920, impressions: 10200, ctr:  9.0, position: 3.6 },
+      { page: 'https://g4business.com/vendas',          clicks:  760, impressions:  8900, ctr:  8.5, position: 4.0 },
+      { page: 'https://g4business.com/gestao',          clicks:  570, impressions:  7600, ctr:  7.5, position: 4.9 },
+      { page: 'https://g4business.com/summit',          clicks:  500, impressions:  5400, ctr:  9.3, position: 2.8 },
+      { page: 'https://g4business.com/blog/lideranca',  clicks:  340, impressions:  7100, ctr:  4.8, position: 8.4 },
+      { page: 'https://g4business.com/masterclass',     clicks:  295, impressions:  4400, ctr:  6.7, position: 3.3 },
+      { page: 'https://g4business.com/blog/gestao',     clicks:  255, impressions:  6200, ctr:  4.1, position: 9.5 },
+      { page: 'https://g4business.com/sobre',           clicks:  200, impressions:  3600, ctr:  5.6, position: 4.5 },
+      { page: 'https://g4business.com/blog/vendas-b2b', clicks:  170, impressions:  4300, ctr:  4.0, position: 10.8 },
     ],
     trend,
   }

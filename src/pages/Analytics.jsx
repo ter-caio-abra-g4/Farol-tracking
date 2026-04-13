@@ -4,12 +4,14 @@ import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import Spinner from '../components/ui/Spinner'
 import PeriodSelect from '../components/ui/PeriodSelect'
 import { api } from '../services/api'
+import { fmtNum, fmtMoney, fmtPct } from '../utils/format'
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { TrendingUp, ArrowRightLeft, BarChart2, LineChart as LineChartIcon } from 'lucide-react'
+import DarkTooltip, { TT } from '../components/ui/DarkTooltip'
 
 // ─── Paleta ──────────────────────────────────────────────────────────────────
 const C = {
@@ -24,44 +26,10 @@ const C = {
   google:  '#EA4335',
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function fmtNum(v) {
-  if (v === null || v === undefined) return '—'
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `${(v / 1_000).toFixed(1)}k`
-  return String(v)
-}
-function fmtMoney(v) {
-  if (!v) return 'R$ 0'
-  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(2)}M`
-  if (v >= 1_000)     return `R$ ${(v / 1_000).toFixed(0)}K`
-  return `R$ ${v.toFixed(0)}`
-}
-function fmtPct(v)  { return v != null ? `${v.toFixed(1)}%` : '—' }
 function shortDate(str) {
   if (!str) return ''
   const [, m, d] = str.split('-')
   return `${d}/${m}`
-}
-
-function DarkTooltip({ active, payload, label, money = false }) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      background: '#0D2236', border: '1px solid rgba(185,145,91,0.3)',
-      borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#F5F4F3',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-    }}>
-      <div style={{ color: '#8A9BAA', marginBottom: 6, fontWeight: 600 }}>{label}</div>
-      {payload.map((p, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
-          <span style={{ color: '#8A9BAA' }}>{p.name}:</span>
-          <span style={{ fontWeight: 600 }}>{money ? fmtMoney(p.value) : fmtNum(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 function MockBadge() {

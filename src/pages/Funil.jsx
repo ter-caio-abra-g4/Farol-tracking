@@ -9,6 +9,8 @@ import {
   AreaChart, Area,
 } from 'recharts'
 import { TrendingUp, TrendingDown, ShoppingBag, Users, Target, DollarSign } from 'lucide-react'
+import PeriodSelect from '../components/ui/PeriodSelect'
+import { fmtNum, fmtMoney } from '../utils/format'
 
 // ─── Paleta ─────────────────────────────────────────────────────────────────
 const STAGE_COLORS = {
@@ -24,34 +26,22 @@ const STAGE_COLORS = {
 
 const BU_COLORS = ['#6366F1','#22C55E','#F59E0B','#3B82F6','#EC4899','#14B8A6','#F97316','#8B5CF6']
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function fmtMoney(val) {
-  if (!val) return 'R$ 0'
-  if (val >= 1_000_000) return `R$ ${(val / 1_000_000).toFixed(1)}M`
-  if (val >= 1_000)     return `R$ ${(val / 1_000).toFixed(0)}K`
-  return `R$ ${val.toFixed(0)}`
-}
-
-function fmtNum(val) {
-  if (val === null || val === undefined) return '—'
-  if (val >= 1_000) return `${(val / 1000).toFixed(1)}k`
-  return String(val)
-}
-
 function KpiCard({ icon: Icon, label, value, sub, color = '#6366F1' }) {
   return (
     <div style={{
-      background: '#1A1B23', border: '1px solid rgba(255,255,255,0.06)',
-      borderRadius: 12, padding: '20px 24px', display: 'flex', alignItems: 'flex-start', gap: 16,
+      background: '#0D1B26', border: `1px solid ${color}33`,
+      borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 16,
+      position: 'relative', overflow: 'hidden',
     }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: color, borderRadius: '10px 0 0 10px' }} />
       <div style={{
         background: color + '22', borderRadius: 10, padding: 10, flexShrink: 0,
       }}>
         <Icon size={20} color={color} />
       </div>
       <div>
-        <div style={{ color: '#9CA3AF', fontSize: 12, marginBottom: 4 }}>{label}</div>
-        <div style={{ color: '#F9FAFB', fontSize: 22, fontWeight: 700 }}>{value}</div>
+        <div style={{ color: '#8A9BAA', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+        <div style={{ color: '#F5F4F3', fontSize: 22, fontWeight: 700 }}>{value}</div>
         {sub && <div style={{ color: '#6B7280', fontSize: 12, marginTop: 2 }}>{sub}</div>}
       </div>
     </div>
@@ -71,13 +61,16 @@ function CustomTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
     <div style={{
-      background: '#1E1F2A', border: '1px solid rgba(255,255,255,0.1)',
-      borderRadius: 8, padding: '10px 14px', fontSize: 13,
+      background: '#0D2236', border: '1px solid rgba(185,145,91,0.3)',
+      borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#F5F4F3',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
     }}>
-      <div style={{ color: '#9CA3AF', marginBottom: 4 }}>{label}</div>
+      <div style={{ color: '#8A9BAA', marginBottom: 6, fontWeight: 600 }}>{label}</div>
       {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color || '#F9FAFB', marginBottom: 2 }}>
-          {p.name}: <strong>{typeof p.value === 'number' && p.value > 1000 ? fmtNum(p.value) : p.value}</strong>
+        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+          <span style={{ color: '#8A9BAA' }}>{p.name}:</span>
+          <span style={{ fontWeight: 600 }}>{typeof p.value === 'number' ? fmtNum(p.value) : p.value}</span>
         </div>
       ))}
     </div>
@@ -176,38 +169,18 @@ export default function FunilPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Header
         title="Funil Comercial"
-        subtitle={lastUpdated
-          ? `Atualizado ${lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
-          : 'Carregando…'}
-        actions={
+        subtitle="Funil comercial — MQL → Ganho"
+        onRefresh={() => loadAll(days, true)}
+        lastUpdated={lastUpdated}
+        action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <PeriodSelect value={days} onChange={setDays} options={PERIOD_OPTIONS} />
             {isMock && (
               <span style={{
                 background: 'rgba(245,158,11,0.15)', color: '#F59E0B',
-                borderRadius: 6, padding: '3px 10px', fontSize: 12,
+                borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 700,
               }}>MOCK</span>
             )}
-            <div style={{ display: 'flex', gap: 4, background: '#1A1B23', borderRadius: 8, padding: 4 }}>
-              {PERIOD_OPTIONS.map(o => (
-                <button key={o.days}
-                  onClick={() => setDays(o.days)}
-                  style={{
-                    background: days === o.days ? '#6366F1' : 'transparent',
-                    color: days === o.days ? '#fff' : '#9CA3AF',
-                    border: 'none', borderRadius: 6, padding: '4px 12px',
-                    cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                  }}
-                >{o.label}</button>
-              ))}
-            </div>
-            <button
-              onClick={() => loadAll(days, true)}
-              style={{
-                background: '#1A1B23', border: '1px solid rgba(255,255,255,0.1)',
-                color: '#9CA3AF', borderRadius: 8, padding: '6px 14px',
-                cursor: 'pointer', fontSize: 13,
-              }}
-            >↻ Atualizar</button>
           </div>
         }
       />

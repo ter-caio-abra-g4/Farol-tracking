@@ -18,12 +18,18 @@ async function get(path, fallback = null) {
 }
 
 async function post(path, body) {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return await res.json()
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return await res.json()
+  } catch (err) {
+    console.warn(`[API] POST ${path} falhou:`, err.message)
+    return null
+  }
 }
 
 export const api = {

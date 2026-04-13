@@ -16,20 +16,7 @@ import {
   Database, PlugZap,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-function fmtNum(v) {
-  if (v === null || v === undefined) return '—'
-  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(1)}k`
-  return String(v)
-}
-function fmtMoney(v) {
-  if (!v) return 'R$ 0'
-  if (v >= 1_000_000) return `R$ ${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000) return `R$ ${(v / 1_000).toFixed(0)}K`
-  return `R$ ${v}`
-}
+import { fmtNum, fmtMoney } from '../utils/format'
 function DeltaBadge({ delta, suffix = '', inverse = false }) {
   if (delta === 0 || delta === null || delta === undefined)
     return <span style={{ color: '#6B7280', fontSize: 11 }}>= igual</span>
@@ -49,6 +36,7 @@ export default function Dashboard() {
   const { selectedGTM, gtmContainers, selectedGA4 } = useTracking()
   const [lastUpdated, setLastUpdated] = useState(null)
   const [days, setDays] = useState(1)
+  const [appConfig, setAppConfig] = useState({})
 
   // Executive summary (Databricks)
   const [exec, setExec] = useState(null)
@@ -132,6 +120,11 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    api.getConfig().then(cfg => setAppConfig(cfg ?? {}))
+  }, [])
+
+  useEffect(() => {
+    if (gtmContainers.length === 0 && !selectedGA4) return
     loadData()
   }, [selectedGTM, selectedGA4, gtmContainers.length, days])
 
@@ -289,8 +282,8 @@ export default function Dashboard() {
             loading={execLoading}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Row label="Warehouse" value="bbae754ea44f67e0" mono />
-              <Row label="Catalog" value="production" />
+              <Row label="Warehouse" value={appConfig?.databricks?.warehouse_id ?? '—'} mono />
+              <Row label="Catalog" value={appConfig?.databricks?.catalog ?? 'production'} />
               <Row label="MQLs hoje" value={execLoading ? '…' : fmtNum(exec?.mqls_hoje)} />
               <Row label="Ganhos hoje" value={execLoading ? '…' : fmtNum(exec?.ganhos_hoje)} />
               <Row label="Conv% 7d" value={execLoading ? '…' : `${exec?.conv_7d ?? 0}%`} />
