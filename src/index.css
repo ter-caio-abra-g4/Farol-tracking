@@ -166,7 +166,7 @@ main {
   overflow: hidden;
   white-space: nowrap;
   /* Expand: espera o container abrir, depois aparece */
-  max-width: 140px;
+  max-width: 160px;
   opacity: 1;
   transition:
     max-width  var(--sb-dur-layout)  var(--sb-ease-spring)  0.1s,
@@ -191,10 +191,10 @@ main {
   line-height: 1;
 }
 .sidebar__logo-sub {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--sb-text);
   margin-top: 2px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
 }
 
 /* ── Nav ── */

@@ -78,7 +78,7 @@ export default function Sidebar() {
           <FarolLogo />
           <div className="sidebar__logo-text">
             <div className="sidebar__logo-name">Farol</div>
-            <div className="sidebar__logo-sub">TRACKING</div>
+            <div className="sidebar__logo-sub">TRACKING INTELLIGENCE</div>
           </div>
         </div>
 
