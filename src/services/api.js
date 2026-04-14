@@ -51,6 +51,13 @@ export const api = {
   getConfig: () => get('/api/setup/config', {}),
   saveConfig: (cfg) => post('/api/setup/save', cfg),
 
+  // Credenciais portáteis
+  credentialsStatus: () => get('/api/setup/credentials-status', { source: null, syncedAt: null, sourceExists: false }),
+  importCredentialsFromPath: (path) => post('/api/setup/import-credentials', { path }),
+  importCredentialsInline: (json) => post('/api/setup/import-credentials-inline', json),
+  exportCredentials: () => get('/api/setup/export-credentials', null),
+  syncCredentials: () => post('/api/setup/sync-credentials', {}),
+
   // GTM
   gtmContainers: () => get('/api/gtm/containers', { mock: true, containers: [] }),
   gtmContainer: (id) => get(`/api/gtm/container/${id}`, { mock: true, tags: [], triggers: [], variables: [] }),

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import { CheckCircle, AlertTriangle, Key, ArrowRight, Download, Zap, Loader, XCircle, FolderOpen, ChevronDown } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Key, ArrowRight, Download, Zap, Loader, XCircle, FolderOpen, ChevronDown, Upload, Link, RefreshCw, Shield } from 'lucide-react'
 
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState('detect') // detect | manual | review | done
@@ -15,6 +15,7 @@ export default function SetupWizard({ onComplete }) {
   const [saving, setSaving] = useState(false)
   const [testResults, setTestResults] = useState(null)
   const [testing, setTesting] = useState(false)
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false)
 
   useEffect(() => {
     api.detectG4OS().then((result) => {
@@ -341,10 +342,26 @@ export default function SetupWizard({ onComplete }) {
       <button onClick={handleSave} disabled={saving} style={btnStyle}>
         {saving ? 'Salvando...' : <><ArrowRight size={15} /> Salvar e abrir Farol</>}
       </button>
+
+      {/* Botão de importar credenciais portáteis */}
+      <button
+        onClick={() => setShowCredentialsModal(true)}
+        style={{ ...btnStyle, background: 'transparent', border: '1px solid rgba(185,145,91,0.35)', color: '#B9915B', marginTop: 0 }}
+      >
+        <Upload size={14} /> Importar credenciais (.json)
+      </button>
+
       <button onClick={onComplete}
         style={{ ...btnStyle, background: 'transparent', border: '1px solid rgba(185,145,91,0.2)', color: '#8A9BAA', marginTop: 0 }}>
         Pular — usar dados demo
       </button>
+
+      {showCredentialsModal && (
+        <CredentialsModal
+          onClose={() => setShowCredentialsModal(false)}
+          onImported={() => { setShowCredentialsModal(false); fetchProperties() }}
+        />
+      )}
     </Screen>
   )
 }
@@ -436,4 +453,263 @@ const btnStyle = {
   justifyContent: 'center',
   gap: 8,
   fontFamily: 'Manrope, sans-serif',
+}
+
+// ── Modal de Credenciais Portáteis ───────────────────────────────────────────
+export function CredentialsModal({ onClose, onImported }) {
+  const [tab, setTab] = useState('import')   // 'import' | 'export' | 'link'
+  const [status, setStatus] = useState(null) // resultado da operação
+  const [loading, setLoading] = useState(false)
+  const [credPath, setCredPath] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const [credSource, setCredSource] = useState(null)
+
+  useEffect(() => {
+    api.credentialsStatus().then(s => {
+      setCredSource(s)
+      if (s?.source) setCredPath(s.source)
+    })
+  }, [])
+
+  // Importar via caminho no disco
+  async function handleImportPath() {
+    if (!credPath.trim()) return
+    setLoading(true); setStatus(null)
+    const r = await api.importCredentialsFromPath(credPath.trim())
+    setLoading(false)
+    if (r?.ok) { setStatus({ ok: true, msg: `Credenciais importadas de ${r.source}` }); onImported() }
+    else setStatus({ ok: false, msg: r?.error || 'Erro ao importar' })
+  }
+
+  // Importar via upload de arquivo (drag & drop ou file input)
+  async function handleFileUpload(file) {
+    if (!file) return
+    setLoading(true); setStatus(null)
+    try {
+      const text = await file.text()
+      const json = JSON.parse(text)
+      const r = await api.importCredentialsInline(json)
+      setLoading(false)
+      if (r?.ok) { setStatus({ ok: true, msg: 'Credenciais importadas com sucesso!' }); onImported() }
+      else setStatus({ ok: false, msg: r?.error || 'Arquivo inválido' })
+    } catch (e) {
+      setLoading(false)
+      setStatus({ ok: false, msg: 'Arquivo inválido — ' + e.message })
+    }
+  }
+
+  // Exportar credenciais
+  async function handleExport() {
+    setLoading(true); setStatus(null)
+    const creds = await api.exportCredentials()
+    setLoading(false)
+    if (!creds) { setStatus({ ok: false, msg: 'Erro ao exportar' }); return }
+    const blob = new Blob([JSON.stringify(creds, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = 'farol.credentials.json'; a.click()
+    URL.revokeObjectURL(url)
+    setStatus({ ok: true, msg: 'farol.credentials.json baixado — compartilhe com a equipe.' })
+  }
+
+  // Sync manual com arquivo mestre
+  async function handleSync() {
+    setLoading(true); setStatus(null)
+    const r = await api.syncCredentials()
+    setLoading(false)
+    if (r?.ok) { setStatus({ ok: true, msg: 'Sincronizado com sucesso!' }); onImported() }
+    else setStatus({ ok: false, msg: r?.error || 'Erro ao sincronizar' })
+  }
+
+  const TAB_STYLE = (active) => ({
+    padding: '7px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+    border: active ? '1px solid rgba(185,145,91,0.5)' : '1px solid transparent',
+    background: active ? 'rgba(185,145,91,0.1)' : 'transparent',
+    color: active ? '#B9915B' : '#8A9BAA', cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+  })
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 2000,
+      background: 'rgba(0,15,26,0.88)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backdropFilter: 'blur(4px)',
+    }} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        width: 480, background: '#001A2E',
+        border: '1px solid rgba(185,145,91,0.3)',
+        borderRadius: 12, padding: 28,
+        boxShadow: '0 24px 60px rgba(0,0,0,0.6)',
+        maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Shield size={18} color="#B9915B" />
+            <div>
+              <div style={{ fontFamily: "'PPMuseum','Georgia',serif", fontSize: 15, color: '#B9915B', fontWeight: 600 }}>
+                Credenciais Portáteis
+              </div>
+              <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>
+                Compartilhe a chave de configuração entre máquinas da equipe
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#8A9BAA', cursor: 'pointer', padding: 4 }}>✕</button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+          <button style={TAB_STYLE(tab === 'import')} onClick={() => setTab('import')}><Upload size={11} style={{ marginRight: 4, verticalAlign: 'middle' }} />Importar</button>
+          <button style={TAB_STYLE(tab === 'export')} onClick={() => setTab('export')}><Download size={11} style={{ marginRight: 4, verticalAlign: 'middle' }} />Exportar</button>
+          <button style={TAB_STYLE(tab === 'link')} onClick={() => setTab('link')}><Link size={11} style={{ marginRight: 4, verticalAlign: 'middle' }} />Arquivo mestre</button>
+        </div>
+
+        {/* Tab: Importar */}
+        {tab === 'import' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.5 }}>
+              Faça upload de um <code style={{ color: '#B9915B', background: 'rgba(185,145,91,0.1)', padding: '1px 5px', borderRadius: 3 }}>farol.credentials.json</code> para configurar esta máquina instantaneamente.
+            </div>
+
+            {/* Drag & Drop zone */}
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFileUpload(e.dataTransfer.files[0]) }}
+              onClick={() => document.getElementById('cred-file-input').click()}
+              style={{
+                border: `2px dashed ${dragOver ? '#B9915B' : 'rgba(185,145,91,0.3)'}`,
+                borderRadius: 8, padding: '28px 20px', textAlign: 'center', cursor: 'pointer',
+                background: dragOver ? 'rgba(185,145,91,0.06)' : 'rgba(185,145,91,0.02)',
+                transition: 'all 0.15s',
+              }}
+            >
+              <Upload size={22} color="#B9915B" style={{ marginBottom: 8, opacity: 0.7 }} />
+              <div style={{ fontSize: 13, color: '#F5F4F3', fontWeight: 600 }}>Arrastar arquivo aqui</div>
+              <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 4 }}>ou clique para selecionar</div>
+              <input id="cred-file-input" type="file" accept=".json" style={{ display: 'none' }}
+                onChange={(e) => handleFileUpload(e.target.files[0])} />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1, height: 1, background: 'rgba(185,145,91,0.15)' }} />
+              <span style={{ fontSize: 11, color: '#8A9BAA' }}>ou informar caminho</span>
+              <div style={{ flex: 1, height: 1, background: 'rgba(185,145,91,0.15)' }} />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                placeholder="C:\Users\...\farol.credentials.json"
+                value={credPath}
+                onChange={(e) => setCredPath(e.target.value)}
+                style={{ ...inputStyle, flex: 1, fontSize: 12 }}
+              />
+              <button
+                onClick={handleImportPath}
+                disabled={loading || !credPath.trim()}
+                style={{ padding: '9px 16px', borderRadius: 6, border: 'none', background: '#B9915B', color: '#031A26', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', whiteSpace: 'nowrap' }}
+              >
+                {loading ? '...' : 'Importar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Exportar */}
+        {tab === 'export' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.6 }}>
+              Gera um <code style={{ color: '#B9915B', background: 'rgba(185,145,91,0.1)', padding: '1px 5px', borderRadius: 3 }}>farol.credentials.json</code> com todas as credenciais configuradas nesta máquina.
+              Compartilhe com a equipe ou salve em pasta de rede para usar como arquivo mestre.
+            </div>
+            <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 6, fontSize: 11, color: '#F59E0B' }}>
+              ⚠ O arquivo contém tokens de API. Compartilhe apenas em canais seguros (pasta de rede interna, OneDrive corporativo).
+            </div>
+            <button
+              onClick={handleExport}
+              disabled={loading}
+              style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: '#B9915B', color: '#031A26', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              <Download size={14} />
+              {loading ? 'Exportando...' : 'Baixar farol.credentials.json'}
+            </button>
+          </div>
+        )}
+
+        {/* Tab: Arquivo mestre */}
+        {tab === 'link' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.6 }}>
+              Configure um <strong style={{ color: '#F5F4F3' }}>arquivo mestre</strong> em pasta de rede ou OneDrive. O Farol verifica automaticamente se há versão mais nova a cada inicialização e sincroniza.
+            </div>
+
+            {credSource?.source && (
+              <div style={{ padding: '10px 14px', background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 6 }}>
+                <div style={{ fontSize: 11, color: '#22C55E', fontWeight: 700, marginBottom: 2 }}>Arquivo mestre configurado</div>
+                <div style={{ fontSize: 11, color: '#8A9BAA', wordBreak: 'break-all' }}>{credSource.source}</div>
+                {credSource.syncedAt && (
+                  <div style={{ fontSize: 10, color: '#8A9BAA55', marginTop: 4 }}>
+                    Última sync: {new Date(credSource.syncedAt).toLocaleString('pt-BR')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <label style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 6, display: 'block' }}>
+                Caminho do arquivo mestre
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="\\servidor\ti\farol.credentials.json  ou  C:\..."
+                  value={credPath}
+                  onChange={(e) => setCredPath(e.target.value)}
+                  style={{ ...inputStyle, flex: 1, fontSize: 12 }}
+                />
+              </div>
+              <div style={{ fontSize: 10, color: '#8A9BAA55', marginTop: 4 }}>
+                Pode ser caminho local, UNC de rede (\\servidor\pasta) ou OneDrive sincronizado
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleImportPath}
+                disabled={loading || !credPath.trim()}
+                style={{ flex: 1, padding: '9px 14px', borderRadius: 6, border: 'none', background: '#B9915B', color: '#031A26', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif' }}
+              >
+                {loading ? '...' : 'Vincular e importar agora'}
+              </button>
+              {credSource?.source && (
+                <button
+                  onClick={handleSync}
+                  disabled={loading}
+                  style={{ padding: '9px 14px', borderRadius: 6, border: '1px solid rgba(185,145,91,0.4)', background: 'transparent', color: '#B9915B', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  <RefreshCw size={12} /> Sincronizar
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Status */}
+        {status && (
+          <div style={{
+            marginTop: 16, padding: '10px 14px', borderRadius: 6,
+            background: status.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+            border: `1px solid ${status.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+            fontSize: 12, color: status.ok ? '#22C55E' : '#EF4444',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            {status.ok ? <CheckCircle size={13} /> : <XCircle size={13} />}
+            {status.msg}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }

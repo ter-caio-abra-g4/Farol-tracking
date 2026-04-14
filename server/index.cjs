@@ -7,7 +7,11 @@
 const express = require('express')
 const cors = require('cors')
 const path = require('path')
-const { loadConfig, saveConfig, detectG4OS, importFromG4OS, CONFIG_PATH } = require('./config.cjs')
+const {
+  loadConfig, saveConfig, detectG4OS, importFromG4OS,
+  exportCredentials, importCredentials, syncCredentialsIfNewer,
+  CONFIG_PATH,
+} = require('./config.cjs')
 const gtmService = require('./gtm.cjs')
 const ga4Service = require('./ga4.cjs')
 const metaService = require('./meta.cjs')
@@ -19,6 +23,9 @@ const PORT = 3001
 
 app.use(cors({ origin: ['http://localhost:5175', 'file://'] }))
 app.use(express.json())
+
+// Sincroniza credenciais externas na inicialização (não-bloqueante)
+syncCredentialsIfNewer()
 
 // ─── Health ────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -74,6 +81,81 @@ app.get('/api/setup/config', (req, res) => {
     } : {},
   }
   res.json(safe)
+})
+
+// ─── Credenciais portáteis ─────────────────────────────────────────────────
+
+// GET status das credenciais externas
+app.get('/api/setup/credentials-status', (req, res) => {
+  try {
+    const cfg = loadConfig()
+    const source = cfg._credentials_source || null
+    const syncedAt = cfg._credentials_synced_at || null
+    let sourceExists = false
+    let sourceMtime = null
+    if (source) {
+      const fs = require('fs')
+      try { sourceExists = fs.existsSync(source); if (sourceExists) sourceMtime = fs.statSync(source).mtime } catch (_) {}
+    }
+    res.json({ source, syncedAt, sourceExists, sourceMtime, configPath: CONFIG_PATH })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST importar de caminho no disco
+app.post('/api/setup/import-credentials', (req, res) => {
+  try {
+    const { path: credPath } = req.body
+    if (!credPath) return res.status(400).json({ ok: false, error: 'Caminho não informado' })
+    const result = importCredentials(credPath)
+    res.json(result)
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message })
+  }
+})
+
+// POST importar conteúdo JSON diretamente (upload via UI — sem caminho no disco)
+app.post('/api/setup/import-credentials-inline', (req, res) => {
+  try {
+    const creds = req.body
+    if (!creds._farol_credentials) return res.status(400).json({ ok: false, error: 'Arquivo inválido — não é um farol.credentials.json' })
+    const fs = require('fs')
+    const os = require('os')
+    const tmpPath = require('path').join(os.tmpdir(), 'farol-imported.credentials.json')
+    fs.writeFileSync(tmpPath, JSON.stringify(creds, null, 2), 'utf8')
+    const result = importCredentials(tmpPath)
+    res.json(result)
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message })
+  }
+})
+
+// GET exportar credenciais como JSON para download
+app.get('/api/setup/export-credentials', (req, res) => {
+  try {
+    const os = require('os')
+    const tmpPath = require('path').join(os.tmpdir(), 'farol.credentials.json')
+    const creds = exportCredentials(tmpPath)
+    res.setHeader('Content-Disposition', 'attachment; filename="farol.credentials.json"')
+    res.setHeader('Content-Type', 'application/json')
+    res.json(creds)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// POST forçar sync manual do arquivo externo
+app.post('/api/setup/sync-credentials', (req, res) => {
+  try {
+    const cfg = loadConfig()
+    const source = cfg._credentials_source
+    if (!source) return res.status(400).json({ ok: false, error: 'Nenhum arquivo de credenciais configurado' })
+    const result = importCredentials(source)
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message })
+  }
 })
 
 // ─── GTM ───────────────────────────────────────────────────────────────────

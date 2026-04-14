@@ -2,6 +2,12 @@
  * server/config.js
  * Carrega farol.config.json com fallback para G4 OS quando disponível.
  * NÃO modifica nenhum arquivo do G4 OS — somente lê.
+ *
+ * Sistema de credenciais portáteis:
+ *   - farol.credentials.json pode estar em qualquer caminho salvo em credentials_source
+ *   - Na inicialização, se o arquivo externo for mais novo que o local, mescla automaticamente
+ *   - Credenciais externas SEMPRE ganham sobre as locais (campos de API)
+ *   - Preferências de UI (property_id, etc.) são mantidas localmente
  */
 
 const fs = require('fs')
@@ -12,6 +18,70 @@ const os = require('os')
 // Em dev, salva na raiz do projeto para facilitar iteração
 const USER_DATA = process.env.FAROL_USER_DATA || path.join(__dirname, '..')
 const CONFIG_PATH = path.join(USER_DATA, 'farol.config.json')
+
+// Campos que pertencem ao arquivo de credenciais (empresa) — ganham no merge
+const CREDENTIAL_KEYS = ['ga4', 'databricks', 'meta', 'gtm', 'searchconsole']
+
+/**
+ * Exporta um farol.credentials.json a partir do config atual.
+ * Contém apenas os campos de credenciais (sem preferências de UI).
+ */
+function exportCredentials(outputPath) {
+  const cfg = loadConfig()
+  const creds = {
+    _farol_credentials: '1.0',
+    _updated_at: new Date().toISOString(),
+  }
+  for (const key of CREDENTIAL_KEYS) {
+    if (cfg[key]) creds[key] = cfg[key]
+  }
+  fs.writeFileSync(outputPath, JSON.stringify(creds, null, 2), 'utf8')
+  return creds
+}
+
+/**
+ * Importa um farol.credentials.json e mescla no config local.
+ * Campos de credencial do arquivo importado sobrescrevem os locais.
+ * Salva o caminho de origem em credentials_source para sync futuro.
+ */
+function importCredentials(credentialsPath) {
+  if (!fs.existsSync(credentialsPath)) throw new Error('Arquivo não encontrado: ' + credentialsPath)
+  const creds = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
+  if (!creds._farol_credentials) throw new Error('Arquivo inválido — não é um farol.credentials.json')
+
+  const cfg = loadConfig()
+  for (const key of CREDENTIAL_KEYS) {
+    if (creds[key]) cfg[key] = { ...(cfg[key] || {}), ...creds[key] }
+  }
+  // Salva caminho de origem para sync automático futuro
+  cfg._credentials_source = credentialsPath
+  cfg._credentials_synced_at = new Date().toISOString()
+  saveConfig(cfg)
+  return { ok: true, source: credentialsPath, updatedAt: creds._updated_at }
+}
+
+/**
+ * Verifica se há um arquivo de credenciais externo configurado e mais novo.
+ * Se sim, mescla automaticamente. Chamado na inicialização do servidor.
+ * Nunca lança erro — falha silenciosamente para não bloquear o app.
+ */
+function syncCredentialsIfNewer() {
+  try {
+    const cfg = loadConfig()
+    const source = cfg._credentials_source
+    if (!source || !fs.existsSync(source)) return
+
+    const extStat = fs.statSync(source)
+    const localSyncedAt = cfg._credentials_synced_at ? new Date(cfg._credentials_synced_at) : new Date(0)
+
+    if (extStat.mtime > localSyncedAt) {
+      console.log('[Config] Credenciais externas mais novas — sincronizando:', source)
+      importCredentials(source)
+    }
+  } catch (err) {
+    console.warn('[Config] Falha ao sincronizar credenciais:', err.message)
+  }
+}
 
 const G4OS_PATHS = {
   ga4ServiceAccount: path.join(
@@ -103,4 +173,9 @@ function importFromG4OS() {
   return { imported: changed, g4detected: g4.available, paths: g4 }
 }
 
-module.exports = { loadConfig, saveConfig, detectG4OS, importFromG4OS, CONFIG_PATH }
+module.exports = {
+  loadConfig, saveConfig,
+  detectG4OS, importFromG4OS,
+  exportCredentials, importCredentials, syncCredentialsIfNewer,
+  CONFIG_PATH,
+}

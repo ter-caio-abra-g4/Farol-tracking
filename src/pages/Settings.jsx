@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
-import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server, Search } from 'lucide-react'
+import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server, Search, Shield } from 'lucide-react'
+import { CredentialsModal } from './Setup'
 import { api } from '../services/api'
 
 const SOURCES = [
@@ -131,6 +132,7 @@ export default function SettingsPage() {
   const [savingPixel, setSavingPixel] = useState(false)
   const [pixelSaved, setPixelSaved] = useState(false)
   const [metaPixelMode, setMetaPixelMode] = useState('single') // 'single' | 'unified'
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false)
 
   useEffect(() => {
     api.ga4Properties().then((res) => {
@@ -262,7 +264,31 @@ export default function SettingsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <Header title="Configurações" subtitle="Conexões e preferências do Farol" />
+      <Header
+        title="Configurações"
+        subtitle="Conexões e preferências do Farol"
+        action={
+          <button
+            onClick={() => setShowCredentialsModal(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 6,
+              border: '1px solid rgba(185,145,91,0.4)',
+              background: 'rgba(185,145,91,0.08)',
+              color: '#B9915B', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+            }}
+          >
+            <Shield size={13} /> Credenciais portáteis
+          </button>
+        }
+      />
+      {showCredentialsModal && (
+        <CredentialsModal
+          onClose={() => setShowCredentialsModal(false)}
+          onImported={() => setShowCredentialsModal(false)}
+        />
+      )}
 
       <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
 
