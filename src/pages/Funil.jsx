@@ -10,7 +10,7 @@ import {
   LineChart, Line, FunnelChart, Funnel, LabelList, Legend, Cell,
   AreaChart, Area,
 } from 'recharts'
-import { TrendingUp, TrendingDown, ShoppingBag, Users, Target, DollarSign, Download } from 'lucide-react'
+import { TrendingUp, TrendingDown, ShoppingBag, Users, Target, DollarSign, Download, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
 import PeriodSelect from '../components/ui/PeriodSelect'
 import { fmtNum, fmtMoney } from '../utils/format'
 import { downloadCsv } from '../utils/export'
@@ -104,6 +104,8 @@ export default function FunilPage() {
   const [ovp, setOvp]                 = useState(null)   // organic vs paid
   const [salWon, setSalWon]           = useState(null)   // SAL→WON trend
   const [qualCamp, setQualCamp]       = useState(null)   // qualificação por campanha
+  const [anomalyAlerts, setAnomalyAlerts] = useState(null) // G: anomaly detection
+  const [closingCohort, setClosingCohort] = useState(null) // H: cohort fechamento
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [isMock, setIsMock]           = useState(false)
@@ -146,6 +148,7 @@ export default function FunilPage() {
       if (cached) {
         setStages(cached.s); setLostReasons(cached.l); setProducts(cached.p)
         setTrend(cached.t); setOvp(cached.o); setSalWon(cached.sw); setQualCamp(cached.qc || null)
+        setAnomalyAlerts(cached.aa || null); setClosingCohort(cached.cc || null)
         setIsMock(!!(cached.s?.mock || cached.p?.mock))
         setLastUpdated(new Date(cached.savedAt))
         setFromCache(true)
@@ -155,7 +158,7 @@ export default function FunilPage() {
     }
     setFromCache(false)
     setLoading(true)
-    const [s, l, p, t, o, sw, qc] = await Promise.all([
+    const [s, l, p, t, o, sw, qc, aa, cc] = await Promise.all([
       api.databricksFunnelStages(d),
       api.databricksFunnelLostReasons(d),
       api.databricksFunnelProducts(d),
@@ -163,13 +166,16 @@ export default function FunilPage() {
       api.databricksFunnelOrganicVsPaid(d),
       api.databricksSalWonTrend(d),
       api.funnelQualByCampaign(d),
+      api.databricksAnomalyAlerts(),
+      api.databricksClosingCohort(d),
     ])
     setStages(s); setLostReasons(l); setProducts(p); setTrend(t); setOvp(o); setSalWon(sw); setQualCamp(qc)
+    setAnomalyAlerts(aa); setClosingCohort(cc)
     setIsMock(!!(s?.mock || p?.mock))
     const now = new Date()
     setLastUpdated(now)
     setLoading(false)
-    writeLocalCache(cacheKey, { s, l, p, t, o, sw, qc, savedAt: now.toISOString() })
+    writeLocalCache(cacheKey, { s, l, p, t, o, sw, qc, aa, cc, savedAt: now.toISOString() })
   }
 
   useEffect(() => { loadAll(days) }, [days])
@@ -817,6 +823,210 @@ export default function FunilPage() {
                     </div>
                   </CardBody>
                 </Card>
+              )
+            })()}
+
+            {/* ── G: Anomaly Detection ──────────────────────────── */}
+            {anomalyAlerts && (() => {
+              const alerts = anomalyAlerts.alerts || []
+              const semCurr = anomalyAlerts.semana_curr?.slice(0, 10)
+              const semPrev = anomalyAlerts.semana_prev?.slice(0, 10)
+              return (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <div style={{ width: 3, height: 20, background: alerts.length > 0 ? '#EF4444' : '#22C55E', borderRadius: 2 }} />
+                    <span style={{ color: '#F9FAFB', fontWeight: 700, fontSize: 15 }}>Anomaly Detection</span>
+                    <span style={{ color: '#6B7280', fontSize: 13 }}>variação semana a semana — alertas automáticos ≥ 20%</span>
+                    {semCurr && (
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#6B7280' }}>
+                        Semana atual: {semCurr} · anterior: {semPrev}
+                      </span>
+                    )}
+                  </div>
+
+                  {alerts.length === 0 ? (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)',
+                      borderRadius: 10, padding: '14px 20px',
+                    }}>
+                      <CheckCircle size={18} color="#22C55E" />
+                      <span style={{ color: '#4ADE80', fontWeight: 600 }}>Todas as métricas dentro do padrão histórico — nenhuma anomalia detectada esta semana.</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+                      {alerts.map((a, i) => {
+                        const isUp   = a.delta > 0
+                        const color  = isUp ? '#22C55E' : '#EF4444'
+                        const bgColor = isUp ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)'
+                        const borderColor = isUp ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'
+                        return (
+                          <div key={i} style={{
+                            background: bgColor, border: `1px solid ${borderColor}`,
+                            borderRadius: 10, padding: '14px 16px',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              <AlertTriangle size={14} color={color} />
+                              <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{a.label}</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+                              <div>
+                                <div style={{ fontSize: 22, fontWeight: 800, color }}>
+                                  {a.delta > 0 ? '+' : ''}{a.delta}%
+                                </div>
+                                <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>vs semana anterior</div>
+                              </div>
+                              <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                                <div style={{ fontSize: 13, color: '#F5F4F3', fontWeight: 700 }}>
+                                  {a.unit === 'R$' ? fmtMoney(a.curr) : fmtNum(a.curr)}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#6B7280' }}>
+                                  antes: {a.unit === 'R$' ? fmtMoney(a.prev) : fmtNum(a.prev)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* ── H: Cohort de fechamento ────────────────────────── */}
+            {closingCohort && (closingCohort.cohort || []).length > 0 && (() => {
+              const cohort = closingCohort.cohort || []
+              const mesMap = {}
+              cohort.forEach(r => {
+                if (!mesMap[r.mes]) mesMap[r.mes] = { mes: r.mes }
+                mesMap[r.mes][r.canal + '_mql']  = r.total_mql
+                mesMap[r.mes][r.canal + '_won']  = r.total_won
+                mesMap[r.mes][r.canal + '_dias'] = r.dias_medio
+                mesMap[r.mes][r.canal + '_conv'] = r.conv_pct
+              })
+              const meses = Object.values(mesMap).sort((a, b) => a.mes > b.mes ? 1 : -1)
+              const canais = [...new Set(cohort.map(r => r.canal))]
+              const CANAL_COLOR = { Pago: '#6366F1', Organico: '#22C55E', Direto: '#F59E0B' }
+
+              return (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <div style={{ width: 3, height: 20, background: '#14B8A6', borderRadius: 2 }} />
+                    <span style={{ color: '#F9FAFB', fontWeight: 700, fontSize: 15 }}>Cohort de Fechamento</span>
+                    <span style={{ color: '#6B7280', fontSize: 13 }}>tempo médio MQL→WON por canal e mês de entrada</span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+                    <Card>
+                      <CardHeader title="Dias médios MQL→WON" subtitle="Por canal e mês de entrada do lead" />
+                      <CardBody>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <LineChart data={meses} margin={{ top: 4, right: 12, left: -16, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                            <XAxis dataKey="mes" tick={{ fill: '#9CA3AF', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fill: '#9CA3AF', fontSize: 10 }} axisLine={false} tickLine={false}
+                              tickFormatter={v => `${v}d`} />
+                            <Tooltip
+                              cursor={{ stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 }}
+                              content={({ active, payload, label }) => {
+                                if (!active || !payload?.length) return null
+                                return (
+                                  <div style={{ background: '#1E1F2A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+                                    <div style={{ color: '#F9FAFB', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+                                    {payload.map(p => (
+                                      <div key={p.dataKey} style={{ color: p.color }}>{p.name}: {p.value?.toFixed(1)} dias</div>
+                                    ))}
+                                  </div>
+                                )
+                              }}
+                            />
+                            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                            {canais.map(canal => (
+                              <Line key={canal} dataKey={canal + '_dias'} name={canal}
+                                stroke={CANAL_COLOR[canal] || '#8B5CF6'} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+
+                    <Card>
+                      <CardHeader title="Resumo por canal" subtitle="Último mês disponível" />
+                      <CardBody style={{ padding: 0 }}>
+                        <div style={{ padding: '4px 0' }}>
+                          {canais.map(canal => {
+                            const lastMes = meses[meses.length - 1]
+                            if (!lastMes) return null
+                            const dias  = lastMes[canal + '_dias'] || 0
+                            const conv  = lastMes[canal + '_conv'] || 0
+                            const mql   = lastMes[canal + '_mql']  || 0
+                            const won   = lastMes[canal + '_won']  || 0
+                            const color = CANAL_COLOR[canal] || '#8B5CF6'
+                            return (
+                              <div key={canal} style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color }}>{canal}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <Clock size={11} color="#6B7280" />
+                                    <span style={{ fontSize: 13, fontWeight: 800, color }}>{dias.toFixed(1)}d</span>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, fontSize: 11 }}>
+                                  {[
+                                    { label: 'MQLs', value: fmtNum(mql), color: '#9CA3AF' },
+                                    { label: 'WONs', value: fmtNum(won), color },
+                                    { label: 'Conv%', value: conv.toFixed(1) + '%', color: conv >= 30 ? '#22C55E' : conv >= 20 ? '#F59E0B' : '#EF4444' },
+                                  ].map(k => (
+                                    <div key={k.label} style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: '5px 0' }}>
+                                      <div style={{ color: '#6B7280', marginBottom: 2 }}>{k.label}</div>
+                                      <div style={{ color: k.color, fontWeight: 700 }}>{k.value}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        <div style={{ overflowX: 'auto', padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                                <th style={{ padding: '6px 8px', textAlign: 'left', color: '#6B7280', fontWeight: 600 }}>Mês</th>
+                                {canais.map(c => (
+                                  <th key={c + '_d'} style={{ padding: '6px 8px', textAlign: 'right', color: CANAL_COLOR[c] || '#8B5CF6', fontWeight: 600 }}>{c} dias</th>
+                                ))}
+                                {canais.map(c => (
+                                  <th key={c + '_c'} style={{ padding: '6px 8px', textAlign: 'right', color: CANAL_COLOR[c] || '#8B5CF6', fontWeight: 600 }}>{c} conv%</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {meses.slice(-6).map((m, i) => (
+                                <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                  <td style={{ padding: '6px 8px', color: '#9CA3AF' }}>{m.mes}</td>
+                                  {canais.map(c => (
+                                    <td key={c + '_d'} style={{ padding: '6px 8px', textAlign: 'right', color: '#D1D5DB' }}>
+                                      {m[c + '_dias'] ? m[c + '_dias'].toFixed(1) + 'd' : '—'}
+                                    </td>
+                                  ))}
+                                  {canais.map(c => (
+                                    <td key={c + '_c'} style={{ padding: '6px 8px', textAlign: 'right' }}>
+                                      {m[c + '_conv'] != null
+                                        ? <span style={{ color: m[c + '_conv'] >= 30 ? '#22C55E' : m[c + '_conv'] >= 20 ? '#F59E0B' : '#EF4444' }}>{m[c + '_conv'].toFixed(1)}%</span>
+                                        : <span style={{ color: '#374151' }}>—</span>
+                                      }
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardBody>
+                    </Card>
+                  </div>
+                </div>
               )
             })()}
 
