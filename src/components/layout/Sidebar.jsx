@@ -108,16 +108,14 @@ export default function Sidebar() {
         {/* Footer com Config */}
         <div className="sidebar__footer">
           <NavItem {...settingsItem} collapsed={collapsed} />
-          <div className="sidebar__footer-info">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {/* Bolinha pulsante de status */}
-              <span className={
-                serverAlive === null ? 'status-dot status-dot--checking'
-                : serverAlive ? 'status-dot status-dot--alive'
-                : 'status-dot status-dot--dead'
-              } title={serverAlive ? 'Sistema online' : serverAlive === null ? 'Verificando...' : 'Servidor offline'} />
-              <div className="sidebar__footer-version">v{pkg.version}</div>
-            </div>
+          <div className="sidebar__footer-info" style={{ gap: 6 }}>
+            {/* Bolinha pulsante de status */}
+            <span className={
+              serverAlive === null ? 'status-dot status-dot--checking'
+              : serverAlive ? 'status-dot status-dot--alive'
+              : 'status-dot status-dot--dead'
+            } title={serverAlive ? 'Sistema online' : serverAlive === null ? 'Verificando...' : 'Servidor offline'} />
+            <span className="sidebar__footer-version">v{pkg.version}</span>
           </div>
         </div>
 
@@ -225,17 +223,71 @@ function FarolLogo() {
       fill="none" xmlns="http://www.w3.org/2000/svg"
       style={{ flexShrink: 0 }}
     >
+      <defs>
+        <linearGradient id="beamGrad" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
+          <stop offset="0%" stopColor="#E8C17A" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="#E8C17A" stopOpacity="0" />
+        </linearGradient>
+        <clipPath id="boxClip">
+          <rect width="32" height="32" rx="7" />
+        </clipPath>
+      </defs>
+
+      {/* Fundo */}
       <rect width="32" height="32" rx="7" fill="#B9915B" fillOpacity="0.12" />
-      <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" stroke="#B9915B" strokeOpacity="0.5" />
-      <rect x="13" y="26" width="6" height="2" rx="1" fill="#B9915B" />
-      <rect x="14.5" y="19" width="3" height="7" rx="0.5" fill="#B9915B" />
-      <rect x="12" y="15" width="8" height="5" rx="1.5" fill="#B9915B" />
-      <rect x="14" y="16.5" width="4" height="2" rx="0.5" fill="#001F35" />
-      <path d="M11 15 L16 11 L21 15 Z" fill="#B9915B" />
-      <line x1="16" y1="11" x2="10" y2="7" stroke="#B9915B" strokeWidth="1.2" strokeOpacity="0.6" strokeLinecap="round" />
-      <line x1="16" y1="11" x2="22" y2="7" stroke="#B9915B" strokeWidth="1.2" strokeOpacity="0.6" strokeLinecap="round" />
-      <line x1="16" y1="11" x2="8"  y2="10" stroke="#B9915B" strokeWidth="1"   strokeOpacity="0.35" strokeLinecap="round" />
-      <line x1="16" y1="11" x2="24" y2="10" stroke="#B9915B" strokeWidth="1"   strokeOpacity="0.35" strokeLinecap="round" />
+      <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" stroke="#B9915B" strokeOpacity="0.4" />
+
+      {/* Feixe 3D — rotação 360° + opacidade senoidal simulando perspectiva */}
+      {/* Quando aponta pra frente: brilhante e largo. Quando vai pro fundo: some. */}
+      <g clipPath="url(#boxClip)">
+        <path d="M16 10.75 L42 4 L42 17.5 Z" fill="#E8C17A">
+          {/* Rotação contínua em torno do pivô da lanterna */}
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            from="0 16 10.75"
+            to="360 16 10.75"
+            dur="4s"
+            repeatCount="indefinite"
+          />
+          {/* Opacidade pulsa em sincronia: frente=visível, fundo=invisível */}
+          <animate
+            attributeName="fill-opacity"
+            values="0.55; 0.05; 0.55; 0.05; 0.55"
+            keyTimes="0; 0.25; 0.5; 0.75; 1"
+            calcMode="spline"
+            keySplines="0.5 0 0.5 1; 0.5 0 0.5 1; 0.5 0 0.5 1; 0.5 0 0.5 1"
+            dur="4s"
+            repeatCount="indefinite"
+          />
+        </path>
+      </g>
+
+      {/* Base */}
+      <rect x="12" y="27" width="8" height="3" rx="1.2" fill="#B9915B" />
+
+      {/* Torre */}
+      <rect x="14" y="14" width="4" height="13" fill="#B9915B" fillOpacity="0.85" />
+      <rect x="14" y="16" width="4" height="1.4" fill="#001F35" fillOpacity="0.3" />
+      <rect x="14" y="20" width="4" height="1.4" fill="#001F35" fillOpacity="0.3" />
+      <rect x="14" y="24" width="4" height="1.4" fill="#001F35" fillOpacity="0.3" />
+
+      {/* Varanda */}
+      <rect x="12.5" y="13" width="7" height="1.5" rx="0.7" fill="#B9915B" />
+
+      {/* Câmara da lanterna */}
+      <rect x="13.5" y="8.5" width="5" height="4.5" rx="0.8" fill="#001F35" />
+      <rect x="13.5" y="8.5" width="5" height="4.5" rx="0.8" stroke="#B9915B" strokeWidth="0.6" />
+
+      {/* Vidros iluminados */}
+      <rect x="14.2" y="9.2" width="1.5" height="3" rx="0.4" fill="#E8C17A" fillOpacity="0.75" />
+      <rect x="16.2" y="9.2" width="1.5" height="3" rx="0.4" fill="#E8C17A" fillOpacity="0.35" />
+
+      {/* Cúpula */}
+      <path d="M13.5 8.5 Q16 5.5 18.5 8.5 Z" fill="#B9915B" />
+
+      {/* Antena */}
+      <line x1="16" y1="5.5" x2="16" y2="4" stroke="#E8C17A" strokeWidth="1" strokeLinecap="round" />
     </svg>
   )
 }

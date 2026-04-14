@@ -58,6 +58,9 @@ export default function Titlebar() {
           color: '#8A9BAA',
           letterSpacing: '0.06em',
           userSelect: 'none',
+          lineHeight: 1,
+          display: 'flex',
+          alignItems: 'center',
         }}
       >
         Farol — Tracking Intelligence

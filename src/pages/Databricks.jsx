@@ -122,6 +122,22 @@ export default function DatabricksPage() {
           </div>
         )}
 
+        {/* Alerta: configurado mas warehouse indisponível / timeout / cold start */}
+        {!isMock && !loading && status?.connected === false && status?.error && (
+          <div style={{
+            padding: '10px 16px',
+            background: 'rgba(245,158,11,0.08)',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: 8, fontSize: 12, color: '#F59E0B',
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Warehouse indisponível — pode estar hibernando</div>
+            <div style={{ color: '#8A9BAA', lineHeight: 1.5 }}>
+              O warehouse demora até 60s para acordar após inatividade. Aguarde e recarregue a página.
+              <br /><span style={{ opacity: 0.6 }}>{status.error}</span>
+            </div>
+          </div>
+        )}
+
         {/* Alerta: conectado mas catálogo sem schemas/tabelas */}
         {!isMock && !loading && status?.connected && tables.length === 0 && (
           <div style={{

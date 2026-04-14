@@ -7,14 +7,16 @@
 const fetch = require('node-fetch')
 const { loadConfig } = require('./config.cjs')
 
-// ─── Cache em memória — TTL 5 minutos ────────────────────────────────────────
-const CACHE_TTL_MS = 5 * 60 * 1000   // 5 min
+// ─── Cache em memória ────────────────────────────────────────────────────────
+const CACHE_TTL_MS        = 5 * 60 * 1000   // 5 min — dados
+const CACHE_TTL_STATUS_MS = 2 * 60 * 1000   // 2 min — status (reconecta mais rápido)
 const _cache = new Map()
 
 function cacheGet(key) {
   const entry = _cache.get(key)
   if (!entry) return null
-  if (Date.now() - entry.ts > CACHE_TTL_MS) { _cache.delete(key); return null }
+  const ttl = key === 'status' ? CACHE_TTL_STATUS_MS : CACHE_TTL_MS
+  if (Date.now() - entry.ts > ttl) { _cache.delete(key); return null }
   return entry.value
 }
 function cacheSet(key, value) { _cache.set(key, { value, ts: Date.now() }) }
@@ -22,11 +24,12 @@ function cacheClear(key) {
   if (key) { _cache.delete(key) } else { _cache.clear() }
 }
 // Wrapper: se há cache válido retorna direto; senão executa fn() e armazena
+// Resultados mock (erro/não configurado) nunca ficam cacheados — próxima chamada tenta de novo
 async function withCache(key, fn) {
   const hit = cacheGet(key)
   if (hit !== null) return hit
   const result = await fn()
-  cacheSet(key, result)
+  if (!result?.mock) cacheSet(key, result)
   return result
 }
 
@@ -99,7 +102,8 @@ async function getStatus() {
   }
 
   try {
-    const data = await executeStatement('SELECT 1 AS ok', 10)
+    // timeout generoso (60s) para aguentar cold start do warehouse após hibernação
+    const data = await executeStatement('SELECT 1 AS ok', 60)
     const warehouseId = httpPath.split('/warehouses/')[1]
 
     // Conta tabelas, lista schemas e catálogos disponíveis
@@ -138,7 +142,23 @@ async function getStatus() {
     }
   } catch (err) {
     console.error('[Databricks] getStatus error:', err.message)
-    return { mock: true, error: err.message, ...getMockStatus() }
+    // Distingue "credenciais inválidas" (mock real) de "warehouse indisponível/timeout" (connected: false)
+    const isAuthError = /401|403|unauthorized|forbidden/i.test(err.message)
+    if (isAuthError) {
+      return { mock: true, error: err.message, ...getMockStatus() }
+    }
+    // Timeout ou warehouse hibernando — credenciais OK mas warehouse não respondeu
+    return {
+      mock: false,
+      connected: false,
+      error: err.message,
+      host,
+      catalog,
+      schema,
+      tables: 0,
+      availableSchemas: [],
+      availableCatalogs: [],
+    }
   }
 }
 

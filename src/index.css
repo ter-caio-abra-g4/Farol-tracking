@@ -324,7 +324,9 @@ main {
 .sidebar__footer-info {
   font-size: 11px;
   color: var(--sb-text);
-  padding: 6px 12px 4px;
+  padding: 6px 12px 6px;
+  display: flex;
+  align-items: center;
   overflow: hidden;
   max-height: 36px;
   opacity: 1;
@@ -343,7 +345,7 @@ main {
     max-height var(--sb-dur-content) var(--sb-ease-in-out) 0s;
 }
 .sidebar__footer-company { margin-bottom: 2px; white-space: nowrap; }
-.sidebar__footer-version  { color: rgba(185, 145, 91, 0.33); }
+.sidebar__footer-version  { color: rgba(185, 145, 91, 0.55); }
 
 /* ── Status dot ── */
 .status-dot {
@@ -374,6 +376,7 @@ main {
   0%, 100% { opacity: 0.3; }
   50%       { opacity: 0.9; }
 }
+
 
 /* ── Toggle button ── */
 .sidebar__toggle {
