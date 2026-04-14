@@ -16,12 +16,29 @@ import { useTracking } from '../context/TrackingContext'
 
 const POLL_INTERVAL_MS = 30_000   // 30 segundos
 
-// Gera um sessionId único: data + evento
+// Gera um sessionId diário: live-YYYYMMDD-evento
+// Mesmo ID se o app reiniciar no mesmo dia com o mesmo evento — garante continuidade
 function makeSessionId(eventFilter) {
   const d = new Date()
   const pad = (n) => String(n).padStart(2, '0')
-  const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`
+  const dateStr = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
   return `live-${dateStr}-${eventFilter.replace(/[^a-z0-9_]/gi, '_')}`
+}
+
+// Extrai data YYYYMMDD de qualquer formato de sessionId (novo ou legado com hora)
+function sessionDateKey(id) {
+  const m = id.match(/live-(\d{8})/)
+  return m ? m[1] : null
+}
+
+// Recorta pontos pelo filtro de período (em minutos; 0 = todos)
+function filterPointsByPeriod(points, minutes) {
+  if (!minutes || !points?.length) return points || []
+  const cutoff = Date.now() - minutes * 60 * 1000
+  return points.filter(p => {
+    const ts = p.savedAt ? new Date(p.savedAt).getTime() : 0
+    return ts >= cutoff
+  })
 }
 
 // Exporta array de points como CSV e dispara download
@@ -173,10 +190,14 @@ export default function LiveMonitor() {
   const sessionIdRef = useRef(makeSessionId('generate_lead'))
 
   // Painel de histórico
-  const [showHistory, setShowHistory]   = useState(false)
-  const [sessions, setSessions]         = useState([])
+  const [showHistory, setShowHistory]       = useState(false)
+  const [sessions, setSessions]             = useState([])
   const [loadingSession, setLoadingSession] = useState(false)
-  const [viewSession, setViewSession]   = useState(null) // sessão sendo visualizada
+  const [viewSession, setViewSession]       = useState(null)   // sessão sendo visualizada
+  const [viewDayAll, setViewDayAll]         = useState(false)  // modo "dia todo"
+  const [dayAllPoints, setDayAllPoints]     = useState([])     // pontos agregados do dia
+  const [periodFilter, setPeriodFilter]     = useState(0)      // 0=tudo, 30, 60, 180 (min)
+  const [loadingDayAll, setLoadingDayAll]   = useState(false)
 
   const propertyId = selectedGA4 || '381992026'
 
@@ -315,7 +336,32 @@ export default function LiveMonitor() {
     setLoadingSession(true)
     const session = await api.liveSession(id)
     setViewSession(session)
+    setPeriodFilter(0)
     setLoadingSession(false)
+  }
+
+  // Agrega todos os pontos do dia atual de todas as sessões (suporta reinicializações)
+  async function handleViewDayAll() {
+    setLoadingDayAll(true)
+    setViewDayAll(true)
+    setViewSession(null)
+    setPeriodFilter(0)
+    const today = (() => {
+      const d = new Date()
+      const pad = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`
+    })()
+    // Busca lista de sessões e filtra as do dia de hoje (suporta formato legado com hora)
+    const { sessions: all } = await api.liveSessions()
+    const todaySessions = (all || []).filter(s => sessionDateKey(s.id) === today)
+    // Carrega pontos de cada sessão em paralelo
+    const results = await Promise.all(todaySessions.map(s => api.liveSession(s.id)))
+    // Merge e ordena cronologicamente por savedAt
+    const merged = results
+      .flatMap(s => (s?.points || []))
+      .sort((a, b) => new Date(a.savedAt || 0) - new Date(b.savedAt || 0))
+    setDayAllPoints(merged)
+    setLoadingDayAll(false)
   }
 
   async function handleDeleteSession(id) {
@@ -397,90 +443,224 @@ export default function LiveMonitor() {
           zIndex: 100, display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 32px rgba(0,0,0,0.4)',
         }}>
           {/* Header do painel */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F4F3' }}>Histórico de Sessões</div>
-              <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>{sessions.length} sessão{sessions.length !== 1 ? 'ões' : ''} salva{sessions.length !== 1 ? 's' : ''}</div>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#F5F4F3' }}>Histórico de Sessões</div>
+                <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>{sessions.length} sessão{sessions.length !== 1 ? 'ões' : ''} salva{sessions.length !== 1 ? 's' : ''}</div>
+              </div>
+              <button onClick={() => { setShowHistory(false); setViewSession(null); setViewDayAll(false) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', display: 'flex' }}>
+                <X size={16} />
+              </button>
             </div>
-            <button onClick={() => { setShowHistory(false); setViewSession(null) }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', display: 'flex' }}>
-              <X size={16} />
+            {/* Botão Dia Todo */}
+            <button
+              onClick={handleViewDayAll}
+              disabled={loadingDayAll}
+              style={{
+                width: '100%', padding: '7px 0', borderRadius: 7, fontSize: 12, fontWeight: 700,
+                cursor: loadingDayAll ? 'wait' : 'pointer', fontFamily: 'Manrope, sans-serif',
+                background: viewDayAll ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.08)',
+                border: `1px solid ${viewDayAll ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.25)'}`,
+                color: '#A5B4FC', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}
+            >
+              <Activity size={12} />
+              {loadingDayAll ? 'Carregando…' : 'Ver dia todo (hoje)'}
             </button>
           </div>
 
           {/* Conteúdo do painel */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-            {/* Visualização de sessão específica */}
-            {viewSession ? (
+            {/* ── View: Dia todo ── */}
+            {viewDayAll && !viewSession ? (() => {
+              const pts = filterPointsByPeriod(dayAllPoints, periodFilter)
+              return (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <button onClick={() => setViewDayAll(false)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      ← Voltar
+                    </button>
+                    <button
+                      onClick={() => exportCsv({ id: `dia-todo-${new Date().toISOString().slice(0,10)}`, points: pts })}
+                      style={{
+                        marginLeft: 'auto', padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+                        background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#22C55E',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                      <Download size={11} /> CSV
+                    </button>
+                  </div>
+
+                  {/* Info + filtro de período */}
+                  <div style={{ background: '#0D1B26', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 4 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#A5B4FC', marginBottom: 6 }}>
+                      Hoje — {new Date().toLocaleDateString('pt-BR')}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#8A9BAA', marginBottom: 8 }}>
+                      {dayAllPoints.length} pontos totais · {pts.length} exibidos
+                    </div>
+                    {/* Filtro de período */}
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {[{ label: '30min', v: 30 }, { label: '1h', v: 60 }, { label: '3h', v: 180 }, { label: 'Tudo', v: 0 }].map(opt => (
+                        <button key={opt.v} onClick={() => setPeriodFilter(opt.v)}
+                          style={{
+                            flex: 1, padding: '4px 0', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                            background: periodFilter === opt.v ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.08)',
+                            border: `1px solid ${periodFilter === opt.v ? 'rgba(99,102,241,0.7)' : 'rgba(99,102,241,0.2)'}`,
+                            color: periodFilter === opt.v ? '#E0E7FF' : '#8A9BAA',
+                          }}>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Gráfico do dia todo */}
+                  {pts.length >= 2 && (
+                    <div style={{ background: '#0D1B26', borderRadius: 8, padding: '10px 8px', marginBottom: 8 }}>
+                      <ResponsiveContainer width="100%" height={150}>
+                        <LineChart data={pts} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                          <XAxis dataKey="time" tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                          <YAxis tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ background: '#0D1B26', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 10 }} />
+                          <Line type="monotone" dataKey="ga4"        name="GA4"        stroke="#6366F1" strokeWidth={1.5} dot={false} />
+                          <Line type="monotone" dataKey="meta"       name="Meta"       stroke="#E1306C" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+                          <Line type="monotone" dataKey="databricks" name="Databricks" stroke="#F59E0B" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+                          <Line type="monotone" dataKey="crm"        name="CRM"        stroke="#22C55E" strokeWidth={1.5} dot={false} strokeDasharray="6 2" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {pts.length === 0 && (
+                    <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 12, padding: '24px 0' }}>
+                      Nenhum ponto no período selecionado.
+                    </div>
+                  )}
+
+                  {/* Tabela de pontos */}
+                  {pts.length > 0 && (
+                    <div style={{ background: '#0D1B26', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr 1fr', gap: 6, padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        {[
+                          { label: 'Hora', color: '#6B7280' }, { label: 'GA4', color: '#6366F1' },
+                          { label: 'Meta', color: '#E1306C' }, { label: 'DB',  color: '#F59E0B' },
+                          { label: 'CRM',  color: '#22C55E' }, { label: 'MQL', color: '#06B6D4' },
+                        ].map((h, i) => (
+                          <div key={i} style={{ fontSize: 10, color: h.color, fontWeight: 700, textAlign: i > 0 ? 'right' : 'left' }}>{h.label}</div>
+                        ))}
+                      </div>
+                      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                        {[...pts].reverse().map((p, i) => (
+                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr 1fr', gap: 6, padding: '5px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                            <div style={{ fontSize: 10, color: '#8A9BAA', fontFamily: 'monospace' }}>{p.time}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#6366F1', fontWeight: 600 }}>{fmtNum(p.ga4)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#E1306C', fontWeight: 600 }}>{fmtNum(p.meta)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#F59E0B', fontWeight: 600 }}>{fmtNum(p.databricks)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#22C55E', fontWeight: 600 }}>{fmtNum(p.crm ?? 0)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#06B6D4', fontWeight: 600 }}>{fmtNum(p.qualificados ?? 0)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })() : viewSession ? (
+              /* ── View: sessão específica ── */
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <button onClick={() => setViewSession(null)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
                     ← Voltar
                   </button>
-                  <button onClick={() => exportCsv(viewSession)}
+                  <button onClick={() => exportCsv({ ...viewSession, points: filterPointsByPeriod(viewSession.points, periodFilter) })}
                     style={{
                       marginLeft: 'auto', padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
                       background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#22C55E',
                       display: 'flex', alignItems: 'center', gap: 4,
                     }}>
-                    <Download size={11} /> Exportar CSV
+                    <Download size={11} /> CSV
                   </button>
                 </div>
-                <div style={{ background: '#0D1B26', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
+                <div style={{ background: '#0D1B26', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 4 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#A5B4FC', marginBottom: 4 }}>{viewSession.id}</div>
                   <div style={{ fontSize: 11, color: '#8A9BAA' }}>Evento: <span style={{ color: '#F5F4F3' }}>{viewSession.eventFilter || '—'}</span></div>
-                  <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>{viewSession.points?.length || 0} pontos · {new Date(viewSession.createdAt).toLocaleString('pt-BR')}</div>
-                </div>
-
-                {/* Mini gráfico da sessão */}
-                {(viewSession.points?.length || 0) >= 2 && (
-                  <div style={{ background: '#0D1B26', borderRadius: 8, padding: '10px 8px', marginBottom: 8 }}>
-                    <ResponsiveContainer width="100%" height={140}>
-                      <LineChart data={viewSession.points} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                        <XAxis dataKey="time" tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                        <YAxis tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={{ background: '#0D1B26', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 10 }} />
-                        <Line type="monotone" dataKey="ga4"        name="GA4"        stroke="#6366F1" strokeWidth={1.5} dot={false} />
-                        <Line type="monotone" dataKey="meta"       name="Meta"       stroke="#E1306C" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
-                        <Line type="monotone" dataKey="databricks" name="Databricks" stroke="#F59E0B" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2, marginBottom: 8 }}>
+                    {viewSession.points?.length || 0} pontos · {new Date(viewSession.createdAt).toLocaleString('pt-BR')}
                   </div>
-                )}
-
-                {/* Tabela de pontos */}
-                <div style={{ background: '#0D1B26', borderRadius: 8, overflow: 'hidden' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr 1fr', gap: 6, padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    {[
-                      { label: 'Hora',       color: '#6B7280' },
-                      { label: 'GA4',        color: '#6366F1' },
-                      { label: 'Meta',       color: '#E1306C' },
-                      { label: 'Databricks', color: '#F59E0B' },
-                      { label: 'CRM',        color: '#22C55E' },
-                      { label: 'MQL',        color: '#06B6D4' },
-                    ].map((h, i) => (
-                      <div key={i} style={{ fontSize: 10, color: h.color, fontWeight: 700, textAlign: i > 0 ? 'right' : 'left' }}>{h.label}</div>
+                  {/* Filtro de período */}
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[{ label: '30min', v: 30 }, { label: '1h', v: 60 }, { label: '3h', v: 180 }, { label: 'Tudo', v: 0 }].map(opt => (
+                      <button key={opt.v} onClick={() => setPeriodFilter(opt.v)}
+                        style={{
+                          flex: 1, padding: '4px 0', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                          background: periodFilter === opt.v ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.08)',
+                          border: `1px solid ${periodFilter === opt.v ? 'rgba(99,102,241,0.7)' : 'rgba(99,102,241,0.2)'}`,
+                          color: periodFilter === opt.v ? '#E0E7FF' : '#8A9BAA',
+                        }}>
+                        {opt.label}
+                      </button>
                     ))}
                   </div>
-                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                    {[...(viewSession.points || [])].reverse().map((p, i) => (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr 1fr', gap: 6, padding: '5px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                        <div style={{ fontSize: 10, color: '#8A9BAA', fontFamily: 'monospace' }}>{p.time}</div>
-                        <div style={{ textAlign: 'right', fontSize: 10, color: '#6366F1', fontWeight: 600 }}>{fmtNum(p.ga4)}</div>
-                        <div style={{ textAlign: 'right', fontSize: 10, color: '#E1306C', fontWeight: 600 }}>{fmtNum(p.meta)}</div>
-                        <div style={{ textAlign: 'right', fontSize: 10, color: '#F59E0B', fontWeight: 600 }}>{fmtNum(p.databricks)}</div>
-                        <div style={{ textAlign: 'right', fontSize: 10, color: '#22C55E', fontWeight: 600 }}>{fmtNum(p.crm ?? 0)}</div>
-                        <div style={{ textAlign: 'right', fontSize: 10, color: '#06B6D4', fontWeight: 600 }}>{fmtNum(p.qualificados ?? 0)}</div>
+                </div>
+
+                {/* Mini gráfico da sessão (filtrado) */}
+                {(() => {
+                  const pts = filterPointsByPeriod(viewSession.points, periodFilter)
+                  return pts.length >= 2 ? (
+                    <div style={{ background: '#0D1B26', borderRadius: 8, padding: '10px 8px', marginBottom: 8 }}>
+                      <ResponsiveContainer width="100%" height={140}>
+                        <LineChart data={pts} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                          <XAxis dataKey="time" tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                          <YAxis tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ background: '#0D1B26', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 10 }} />
+                          <Line type="monotone" dataKey="ga4"        name="GA4"        stroke="#6366F1" strokeWidth={1.5} dot={false} />
+                          <Line type="monotone" dataKey="meta"       name="Meta"       stroke="#E1306C" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+                          <Line type="monotone" dataKey="databricks" name="Databricks" stroke="#F59E0B" strokeWidth={1.5} dot={false} strokeDasharray="2 2" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : null
+                })()}
+
+                {/* Tabela de pontos (filtrada) */}
+                {(() => {
+                  const pts = filterPointsByPeriod(viewSession.points, periodFilter)
+                  return (
+                    <div style={{ background: '#0D1B26', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr 1fr', gap: 6, padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        {[
+                          { label: 'Hora', color: '#6B7280' }, { label: 'GA4', color: '#6366F1' },
+                          { label: 'Meta', color: '#E1306C' }, { label: 'DB',  color: '#F59E0B' },
+                          { label: 'CRM',  color: '#22C55E' }, { label: 'MQL', color: '#06B6D4' },
+                        ].map((h, i) => (
+                          <div key={i} style={{ fontSize: 10, color: h.color, fontWeight: 700, textAlign: i > 0 ? 'right' : 'left' }}>{h.label}</div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                      <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                        {[...pts].reverse().map((p, i) => (
+                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '72px 1fr 1fr 1fr 1fr 1fr', gap: 6, padding: '5px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                            <div style={{ fontSize: 10, color: '#8A9BAA', fontFamily: 'monospace' }}>{p.time}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#6366F1', fontWeight: 600 }}>{fmtNum(p.ga4)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#E1306C', fontWeight: 600 }}>{fmtNum(p.meta)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#F59E0B', fontWeight: 600 }}>{fmtNum(p.databricks)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#22C55E', fontWeight: 600 }}>{fmtNum(p.crm ?? 0)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 10, color: '#06B6D4', fontWeight: 600 }}>{fmtNum(p.qualificados ?? 0)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </>
             ) : (
-              /* Lista de sessões */
+              /* ── Lista de sessões ── */
               sessions.length === 0 ? (
                 <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 12, padding: '40px 0' }}>
                   Nenhuma sessão salva ainda.<br />O histórico é criado automaticamente durante o monitoramento.
