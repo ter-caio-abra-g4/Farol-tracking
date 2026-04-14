@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { api } from '../../services/api'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import pkg from '../../../package.json'
 import {
   LayoutDashboard,
@@ -67,6 +67,15 @@ const COLLAPSED_W = 56
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [serverAlive, setServerAlive] = useState(null) // null=checking, true, false
+  // Accordion: só um grupo aberto por vez (guarda o label do grupo aberto)
+  const location = useLocation()
+  const [openGroup, setOpenGroup] = useState(() => {
+    // Abre o grupo que contém a rota atual na carga inicial
+    const active = navGroups.find(g =>
+      g.label && g.items?.some(item => item.to === window.location.pathname)
+    )
+    return active?.label ?? null
+  })
 
   const checkServer = useCallback(() => {
     api.health().then(r => setServerAlive(!!(r?.ok))).catch(() => setServerAlive(false))
@@ -98,7 +107,13 @@ export default function Sidebar() {
         <nav className="sidebar__nav">
           {navGroups.map((group, i) =>
             group.label
-              ? <NavGroup key={group.label} group={group} collapsed={collapsed} />
+              ? <NavGroup
+                  key={group.label}
+                  group={group}
+                  collapsed={collapsed}
+                  isOpen={openGroup === group.label}
+                  onToggle={() => setOpenGroup(g => g === group.label ? null : group.label)}
+                />
               : group.items.map(item => (
                   <NavItem key={item.to} {...item} collapsed={collapsed} />
                 ))
@@ -134,24 +149,22 @@ export default function Sidebar() {
 }
 
 // ── NavGroup — seção colapsável ───────────────────────────────────────────────
-function NavGroup({ group, collapsed }) {
-  const [open, setOpen] = useState(group.defaultOpen)
-
+function NavGroup({ group, collapsed, isOpen, onToggle }) {
   // Quando a sidebar colapsa, expande todos os grupos (ícones ficam todos visíveis)
-  const effectiveOpen = collapsed ? true : open
+  const effectiveOpen = collapsed ? true : isOpen
 
   return (
     <div className="sidebar__group">
       {/* Header do grupo — só visível quando expandido */}
       <button
         className="sidebar__group-header"
-        onClick={() => !collapsed && setOpen(o => !o)}
+        onClick={() => !collapsed && onToggle()}
         tabIndex={collapsed ? -1 : 0}
       >
         <span className="sidebar__group-label">{group.label}</span>
         <span
           className="sidebar__group-chevron"
-          style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+          style={{ transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
         >
           <ChevronDown size={10} strokeWidth={2} />
         </span>
