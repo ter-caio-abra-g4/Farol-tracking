@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@resvg/resvg-js": "^2.6.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -43,8 +44,8 @@
     "wait-on": "^9.0.4"
   },
   "build": {
-    "appId": "com.g4.farol-tracking",
-    "productName": "Farol Tracking",
+    "appId": "com.g4.farol",
+    "productName": "Farol",
     "directories": {
       "output": "release"
     },
@@ -57,6 +58,12 @@
     "win": {
       "target": "nsis",
       "icon": "src/assets/icon.ico"
+    },
+    "mac": {
+      "icon": "src/assets/icon.png"
+    },
+    "linux": {
+      "icon": "src/assets/icon.png"
     }
   }
 }

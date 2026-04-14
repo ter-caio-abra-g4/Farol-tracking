@@ -140,7 +140,7 @@ ipcMain.handle('show-notification', (_event, { title, body, urgency = 'normal' }
     const { Notification } = require('electron')
     if (!Notification.isSupported()) return { ok: false, reason: 'not-supported' }
     const n = new Notification({
-      title: title || 'Farol Tracking',
+      title: title || 'Farol',
       body: body || '',
       icon: require('path').join(__dirname, '..', 'src', 'assets', 'icon.png'),
       urgency, // 'normal' | 'critical' | 'low'
