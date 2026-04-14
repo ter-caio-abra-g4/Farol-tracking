@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { api } from '../../services/api'
 import { NavLink } from 'react-router-dom'
 import pkg from '../../../package.json'
 import {
@@ -65,6 +66,17 @@ const COLLAPSED_W = 56
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const [serverAlive, setServerAlive] = useState(null) // null=checking, true, false
+
+  const checkServer = useCallback(() => {
+    api.health().then(r => setServerAlive(!!(r?.ok))).catch(() => setServerAlive(false))
+  }, [])
+
+  useEffect(() => {
+    checkServer()
+    const interval = setInterval(checkServer, 30000) // checa a cada 30s
+    return () => clearInterval(interval)
+  }, [checkServer])
 
   return (
     <aside
@@ -97,7 +109,15 @@ export default function Sidebar() {
         <div className="sidebar__footer">
           <NavItem {...settingsItem} collapsed={collapsed} />
           <div className="sidebar__footer-info">
-            <div className="sidebar__footer-version">v{pkg.version}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {/* Bolinha pulsante de status */}
+              <span className={
+                serverAlive === null ? 'status-dot status-dot--checking'
+                : serverAlive ? 'status-dot status-dot--alive'
+                : 'status-dot status-dot--dead'
+              } title={serverAlive ? 'Sistema online' : serverAlive === null ? 'Verificando...' : 'Servidor offline'} />
+              <div className="sidebar__footer-version">v{pkg.version}</div>
+            </div>
           </div>
         </div>
 
