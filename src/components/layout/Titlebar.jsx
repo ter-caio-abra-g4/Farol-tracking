@@ -60,7 +60,7 @@ export default function Titlebar() {
           userSelect: 'none',
         }}
       >
-        RAIS — Tracking Intelligence
+        Farol — Tracking Intelligence
       </span>
 
       <div style={{ display: 'flex', WebkitAppRegion: 'no-drag' }}>
