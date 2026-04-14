@@ -103,6 +103,7 @@ export default function FunilPage() {
   const [trend, setTrend]             = useState(null)
   const [ovp, setOvp]                 = useState(null)   // organic vs paid
   const [salWon, setSalWon]           = useState(null)   // SAL→WON trend
+  const [qualCamp, setQualCamp]       = useState(null)   // qualificação por campanha
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [isMock, setIsMock]           = useState(false)
@@ -144,7 +145,7 @@ export default function FunilPage() {
       const cached = readLocalCache(cacheKey)
       if (cached) {
         setStages(cached.s); setLostReasons(cached.l); setProducts(cached.p)
-        setTrend(cached.t); setOvp(cached.o); setSalWon(cached.sw)
+        setTrend(cached.t); setOvp(cached.o); setSalWon(cached.sw); setQualCamp(cached.qc || null)
         setIsMock(!!(cached.s?.mock || cached.p?.mock))
         setLastUpdated(new Date(cached.savedAt))
         setFromCache(true)
@@ -154,20 +155,21 @@ export default function FunilPage() {
     }
     setFromCache(false)
     setLoading(true)
-    const [s, l, p, t, o, sw] = await Promise.all([
+    const [s, l, p, t, o, sw, qc] = await Promise.all([
       api.databricksFunnelStages(d),
       api.databricksFunnelLostReasons(d),
       api.databricksFunnelProducts(d),
       api.databricksFunnelTrend(d),
       api.databricksFunnelOrganicVsPaid(d),
       api.databricksSalWonTrend(d),
+      api.funnelQualByCampaign(d),
     ])
-    setStages(s); setLostReasons(l); setProducts(p); setTrend(t); setOvp(o); setSalWon(sw)
+    setStages(s); setLostReasons(l); setProducts(p); setTrend(t); setOvp(o); setSalWon(sw); setQualCamp(qc)
     setIsMock(!!(s?.mock || p?.mock))
     const now = new Date()
     setLastUpdated(now)
     setLoading(false)
-    writeLocalCache(cacheKey, { s, l, p, t, o, sw, savedAt: now.toISOString() })
+    writeLocalCache(cacheKey, { s, l, p, t, o, sw, qc, savedAt: now.toISOString() })
   }
 
   useEffect(() => { loadAll(days) }, [days])
@@ -750,6 +752,71 @@ export default function FunilPage() {
                     </Card>
                   </div>
                 </div>
+              )
+            })()}
+
+            {/* ── Qualificação histórica por campanha ─────────────── */}
+            {qualCamp && (qualCamp.campaigns || []).length > 0 && (() => {
+              const camps = qualCamp.campaigns || []
+              const maxLeads = Math.max(...camps.map(c => c.leads), 1)
+              return (
+                <Card>
+                  <CardHeader
+                    title="Qualificação por Campanha"
+                    subtitle={`Top campanhas · taxa de qualificação (MQL/Lead) e conversão (Ganho/MQL) · últimos ${days}d`}
+                  />
+                  <CardBody style={{ padding: 0 }}>
+                    {/* Header */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px 70px 70px 70px', gap: 8, padding: '6px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      {[
+                        { label: 'Campanha',     color: '#6B7280' },
+                        { label: 'Leads',        color: '#6B7280' },
+                        { label: 'MQLs',         color: '#6366F1' },
+                        { label: 'Ganhos',       color: '#22C55E' },
+                        { label: 'Taxa MQL%',    color: '#8B5CF6' },
+                        { label: 'Taxa Ganho%',  color: '#F59E0B' },
+                      ].map((h, i) => (
+                        <div key={i} style={{ fontSize: 10, color: h.color, fontWeight: 700, textAlign: i > 0 ? 'right' : 'left' }}>{h.label}</div>
+                      ))}
+                    </div>
+                    {camps.map((c, i) => {
+                      const barPct = (c.leads / maxLeads) * 100
+                      const qualColor = c.qual_pct >= 40 ? '#22C55E' : c.qual_pct >= 20 ? '#F59E0B' : '#EF4444'
+                      const convColor = c.conv_pct >= 10 ? '#22C55E' : c.conv_pct >= 5  ? '#F59E0B' : '#EF4444'
+                      return (
+                        <div key={i} style={{ padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px 70px 70px 70px', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                            <div style={{ fontSize: 11, color: '#F5F4F3', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.campanha}>
+                              {c.campanha}
+                            </div>
+                            <div style={{ textAlign: 'right', fontSize: 11, color: '#9CA3AF' }}>{fmtNum(c.leads)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 11, color: '#6366F1', fontWeight: 600 }}>{fmtNum(c.mqls)}</div>
+                            <div style={{ textAlign: 'right', fontSize: 11, color: '#22C55E', fontWeight: 600 }}>{fmtNum(c.ganhos)}</div>
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: qualColor, background: qualColor + '20', borderRadius: 4, padding: '1px 6px' }}>
+                                {c.qual_pct}%
+                              </span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: convColor, background: convColor + '20', borderRadius: 4, padding: '1px 6px' }}>
+                                {c.conv_pct}%
+                              </span>
+                            </div>
+                          </div>
+                          {/* Barra proporcional de leads */}
+                          <div style={{ height: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
+                            <div style={{ width: `${barPct}%`, height: '100%', background: '#6366F1', borderRadius: 2, opacity: 0.5, transition: 'width 0.4s ease' }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {/* Legenda de cores */}
+                    <div style={{ padding: '8px 16px', display: 'flex', gap: 16, fontSize: 10, color: '#6B7280' }}>
+                      <span>Taxa MQL%: <span style={{ color: '#22C55E' }}>≥40 boa</span> · <span style={{ color: '#F59E0B' }}>≥20 ok</span> · <span style={{ color: '#EF4444' }}>&lt;20 atenção</span></span>
+                      <span>Taxa Ganho%: <span style={{ color: '#22C55E' }}>≥10 boa</span> · <span style={{ color: '#F59E0B' }}>≥5 ok</span> · <span style={{ color: '#EF4444' }}>&lt;5 atenção</span></span>
+                    </div>
+                  </CardBody>
+                </Card>
               )
             })()}
 

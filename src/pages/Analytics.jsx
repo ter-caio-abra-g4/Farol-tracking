@@ -12,7 +12,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { TrendingUp, ArrowRightLeft, BarChart2, LineChart as LineChartIcon, Download } from 'lucide-react'
+import { TrendingUp, ArrowRightLeft, BarChart2, LineChart as LineChartIcon, Download, AlertTriangle } from 'lucide-react'
 import DarkTooltip, { TT } from '../components/ui/DarkTooltip'
 
 // ─── Paleta ──────────────────────────────────────────────────────────────────
@@ -49,9 +49,10 @@ function MockBadge() {
 
 // ─── Sistema de abas ──────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'trend',   label: 'Tendência',  icon: LineChartIcon },
-  { id: 'journey', label: 'Jornada',    icon: ArrowRightLeft },
-  { id: 'media',   label: 'Mídia Paga', icon: BarChart2 },
+  { id: 'trend',       label: 'Tendência',    icon: LineChartIcon },
+  { id: 'journey',     label: 'Jornada',      icon: ArrowRightLeft },
+  { id: 'media',       label: 'Mídia Paga',   icon: BarChart2 },
+  { id: 'discrepancy', label: 'Discrepância', icon: AlertTriangle },
 ]
 
 function TabBar({ active, onChange }) {
@@ -85,15 +86,17 @@ function TabBar({ active, onChange }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function Analytics() {
-  const { selectedDays, setSelectedDays } = useTracking()
+  const { selectedDays, setSelectedDays, selectedGA4 } = useTracking()
   const [tab, setTab]             = useState('trend')
   const [days, setDays]           = useState(selectedDays >= 30 ? selectedDays : 30)
   function changeDays(d) { setDays(d); setSelectedDays(d) }
   const [trendData, setTrendData] = useState(null)
   const [journeyData, setJourneyData] = useState(null)
   const [mediaData, setMediaData] = useState(null)
+  const [discData, setDiscData]   = useState(null)
   const [loading, setLoading]     = useState(true)
   const [fromCache, setFromCache] = useState(false)
+  const propertyId = selectedGA4 || '381992026'
 
   const CACHE_TTL = 10
   function readLocalCache(key) {
@@ -129,7 +132,7 @@ export default function Analytics() {
     const cacheKey = `analytics-${days}`
     const cached = readLocalCache(cacheKey)
     if (cached) {
-      setTrendData(cached.trend); setJourneyData(cached.journey); setMediaData(cached.media)
+      setTrendData(cached.trend); setJourneyData(cached.journey); setMediaData(cached.media); setDiscData(cached.disc || null)
       setFromCache(true); setLoading(false)
       return
     }
@@ -139,10 +142,11 @@ export default function Analytics() {
       api.analyticsGetTrend(days),
       api.analyticsGetJourney(days),
       api.analyticsGetMedia(days),
-    ]).then(([trend, journey, media]) => {
-      setTrendData(trend); setJourneyData(journey); setMediaData(media)
+      api.analyticsGetDiscrepancy(propertyId, days, 'generate_lead'),
+    ]).then(([trend, journey, media, disc]) => {
+      setTrendData(trend); setJourneyData(journey); setMediaData(media); setDiscData(disc)
       setLoading(false)
-      writeLocalCache(cacheKey, { trend, journey, media })
+      writeLocalCache(cacheKey, { trend, journey, media, disc })
     })
   }, [days])
 
@@ -189,9 +193,10 @@ export default function Analytics() {
           </div>
         ) : (
           <>
-            {tab === 'trend'   && <TabTrend   data={trendData} />}
-            {tab === 'journey' && <TabJourney data={journeyData} />}
-            {tab === 'media'   && <TabMedia   data={mediaData} />}
+            {tab === 'trend'       && <TabTrend       data={trendData} />}
+            {tab === 'journey'     && <TabJourney     data={journeyData} />}
+            {tab === 'media'       && <TabMedia       data={mediaData} />}
+            {tab === 'discrepancy' && <TabDiscrepancy data={discData} />}
           </>
         )}
       </div>
@@ -683,6 +688,160 @@ function InsightBox({ journeys, totals }) {
         Melhor conversão: <strong style={{ color: '#F5F4F3' }}>{best.canal_entrada} → {best.canal_fechamento}</strong> via <strong style={{ color: '#F5F4F3' }}>{best.fonte_entrada}</strong> ({fmtPct(best.conv_pct)}).
         {mainFlow && <> Fluxo mais frequente: <strong style={{ color: '#F5F4F3' }}>{mainFlow[0]}</strong> com {fmtNum(mainFlow[1])} conversões.</>}
       </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ABA 4 — DISCREPÂNCIA GA4 vs DATABRICKS
+// ══════════════════════════════════════════════════════════════════════════════
+function TabDiscrepancy({ data }) {
+  if (!data) return (
+    <div style={{ textAlign: 'center', color: '#6B7280', fontSize: 12, padding: '60px 0' }}>
+      Carregando dados de discrepância…
+    </div>
+  )
+
+  const { series = [], summary = {} } = data
+  const { totalGa4 = 0, totalDb = 0, avgDivPct, worstDay } = summary
+
+  // Classifica severidade da divergência
+  function severity(pct) {
+    if (pct === null) return { color: '#6B7280', label: '—' }
+    if (pct <= 5)  return { color: '#22C55E', label: 'OK' }
+    if (pct <= 15) return { color: '#F59E0B', label: 'Moderada' }
+    return { color: '#EF4444', label: 'Alta' }
+  }
+
+  const sev = severity(avgDivPct)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {data.mock && <MockBadge />}
+
+      {/* KPIs sumário */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+        {[
+          { label: `GA4 · "${data.event || 'generate_lead'}" (${data.days}d)`, value: fmtNum(totalGa4), color: '#6366F1' },
+          { label: 'Databricks · MQL (mesmo período)',                          value: fmtNum(totalDb),  color: '#F59E0B' },
+          { label: 'Divergência média',
+            value: avgDivPct !== null ? `${avgDivPct}%` : '—',
+            color: sev.color },
+          { label: 'Pior dia',
+            value: worstDay ? worstDay.dia : '—',
+            color: worstDay && (worstDay.pct_divergencia ?? 0) > 15 ? '#EF4444' : '#8A9BAA' },
+        ].map(k => (
+          <div key={k.label} style={{
+            background: 'rgba(255,255,255,0.03)', border: `1px solid ${k.color}22`, borderRadius: 8, padding: '14px 16px',
+          }}>
+            <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 4 }}>{k.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Interpretação */}
+      <div style={{
+        background: `${sev.color}11`, border: `1px solid ${sev.color}33`,
+        borderRadius: 8, padding: '10px 16px', fontSize: 12, color: '#9CA3AF', lineHeight: 1.6,
+      }}>
+        <strong style={{ color: sev.color }}>Divergência {sev.label}</strong>
+        {avgDivPct !== null && (
+          <> — {avgDivPct <= 5
+            ? 'GA4 e Databricks estão alinhados. A instrumentação está saudável.'
+            : avgDivPct <= 15
+              ? 'Divergência dentro da margem esperada de latência de pipeline. Monitore tendência.'
+              : 'Divergência alta. Verifique: (1) filtros de bot/spam no GA4, (2) latência do ETL Databricks, (3) deduplicação de eventos.'}
+          </>
+        )}
+        {worstDay && (worstDay.pct_divergencia ?? 0) > 20 && (
+          <> Dia mais crítico: <strong style={{ color: '#F5F4F3' }}>{worstDay.dia}</strong> com {worstDay.pct_divergencia}% de divergência (GA4: {fmtNum(worstDay.ga4)} · DB: {fmtNum(worstDay.db)}).</>
+        )}
+      </div>
+
+      {/* Gráfico linha dupla GA4 vs Databricks */}
+      {series.length >= 2 && (
+        <Card>
+          <CardHeader
+            title={`GA4 vs Databricks — série diária · evento "${data.event || 'generate_lead'}"`}
+            subtitle="Comparação de contagem de eventos. Divergência = GA4 − DB"
+          />
+          <CardBody>
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={series} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradGa4Disc" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#6366F1" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#6366F1" stopOpacity={0}    />
+                  </linearGradient>
+                  <linearGradient id="gradDbDisc" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#F59E0B" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#F59E0B" stopOpacity={0}    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                <XAxis dataKey="dia" tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(series.length / 8) - 1)} />
+                <YAxis yAxisId="left"  tick={{ fill: '#6B7280', fontSize: 10 }} axisLine={false} tickLine={false} width={36} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fill: '#EF4444', fontSize: 10 }} axisLine={false} tickLine={false} width={36} unit="%" />
+                <Tooltip content={<DarkTooltip />} cursor={{ stroke: 'rgba(185,145,91,0.25)', strokeWidth: 1 }} />
+                <Legend wrapperStyle={{ fontSize: 11, color: '#8A9BAA', paddingTop: 8 }} iconType="circle" iconSize={8} />
+                <Area yAxisId="left" type="monotone" dataKey="ga4" name="GA4"        stroke="#6366F1" fill="url(#gradGa4Disc)" strokeWidth={2} dot={false} />
+                <Area yAxisId="left" type="monotone" dataKey="db"  name="Databricks" stroke="#F59E0B" fill="url(#gradDbDisc)"  strokeWidth={2} dot={false} strokeDasharray="5 3" />
+                <Line  yAxisId="right" type="monotone" dataKey="pct_divergencia" name="Divergência %" stroke="#EF4444" strokeWidth={1.5} dot={false} strokeDasharray="3 3" connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Tabela de dias com divergência alta */}
+      {series.length > 0 && (
+        <Card>
+          <CardHeader title="Detalhe diário — divergência" subtitle="Dias ordenados por maior % de divergência" />
+          <CardBody style={{ padding: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr 1fr 80px', gap: 8, padding: '6px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              {[
+                { label: 'Dia',        color: '#6B7280' },
+                { label: 'GA4',        color: '#6366F1' },
+                { label: 'Databricks', color: '#F59E0B' },
+                { label: 'Diff (GA4−DB)', color: '#8A9BAA' },
+                { label: 'Divergência', color: '#EF4444' },
+              ].map((h, i) => (
+                <div key={i} style={{ fontSize: 10, color: h.color, fontWeight: 700, textAlign: i > 0 ? 'right' : 'left' }}>{h.label}</div>
+              ))}
+            </div>
+            <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+              {[...series]
+                .sort((a, b) => (b.pct_divergencia ?? 0) - (a.pct_divergencia ?? 0))
+                .map((r, i) => {
+                  const sv = severity(r.pct_divergencia)
+                  return (
+                    <div key={i} style={{
+                      display: 'grid', gridTemplateColumns: '80px 1fr 1fr 1fr 80px', gap: 8,
+                      padding: '6px 16px', borderBottom: '1px solid rgba(255,255,255,0.03)',
+                      background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                    }}>
+                      <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' }}>{r.dia}</div>
+                      <div style={{ textAlign: 'right', fontSize: 11, color: '#6366F1', fontWeight: 600 }}>{fmtNum(r.ga4)}</div>
+                      <div style={{ textAlign: 'right', fontSize: 11, color: '#F59E0B', fontWeight: 600 }}>{fmtNum(r.db)}</div>
+                      <div style={{ textAlign: 'right', fontSize: 11, color: r.diff >= 0 ? '#22C55E' : '#EF4444', fontWeight: 600 }}>
+                        {r.diff >= 0 ? '+' : ''}{fmtNum(r.diff)}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        {r.pct_divergencia !== null
+                          ? <span style={{ fontSize: 11, fontWeight: 700, color: sv.color, background: sv.color + '20', borderRadius: 4, padding: '1px 6px' }}>
+                              {r.pct_divergencia}%
+                            </span>
+                          : <span style={{ fontSize: 11, color: '#6B7280' }}>—</span>
+                        }
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </CardBody>
+        </Card>
+      )}
     </div>
   )
 }

@@ -480,6 +480,65 @@ app.get('/api/databricks/closing-cohort', async (req, res) => {
   catch (err) { res.status(500).json({ mock: true, error: err.message, cohort: [] }) }
 })
 
+// ─── Discrepância GA4 vs Databricks ─────────────────────────────────────────
+// Série diária: GA4 event count vs Databricks MQL count, divergência %
+app.get('/api/analytics/discrepancy', async (req, res) => {
+  const days       = parseInt(req.query.days) || 30
+  const propertyId = req.query.propertyId     || null
+  const event      = req.query.event          || 'generate_lead'
+  if (!propertyId) return res.status(400).json({ error: 'propertyId obrigatório' })
+  try {
+    const [ga4Raw, dbRaw] = await Promise.all([
+      ga4Service.runReport(propertyId, days),
+      databricksService.getFunnelTrend(days),
+    ])
+    const isMock = (ga4Raw.mock ?? true) || (dbRaw.mock ?? true)
+
+    // GA4: filtra pelo evento e agrupa por dia (YYYYMMDD → count)
+    const ga4ByDay = {}
+    ;(ga4Raw.rows || []).filter(r => r.event === event).forEach(r => {
+      ga4ByDay[r.date] = (ga4ByDay[r.date] || 0) + r.count
+    })
+
+    // Databricks: usa MQLs do funil como proxy de generate_lead
+    const dbByDay = {}
+    ;(dbRaw.trend || []).forEach(r => {
+      const d = (r.dia || '').replace(/-/g, '')
+      dbByDay[d] = r.mqls || 0
+    })
+
+    const allDays = [...new Set([...Object.keys(ga4ByDay), ...Object.keys(dbByDay)])].sort()
+    const series = allDays.map(d => {
+      const ga4  = ga4ByDay[d] || 0
+      const db   = dbByDay[d]  || 0
+      const diff = ga4 - db
+      const pct  = ga4 > 0 ? parseFloat(((Math.abs(diff) / ga4) * 100).toFixed(1)) : null
+      const label = d.length === 8 ? `${d.slice(6)}/${d.slice(4,6)}` : d
+      return { dia: label, ga4, db, diff, pct_divergencia: pct }
+    })
+
+    const totalGa4 = series.reduce((s, r) => s + r.ga4, 0)
+    const totalDb  = series.reduce((s, r) => s + r.db,  0)
+    const avgDivPct = totalGa4 > 0
+      ? parseFloat(((Math.abs(totalGa4 - totalDb) / totalGa4) * 100).toFixed(1))
+      : null
+    const worstDay = series.length
+      ? series.reduce((w, r) => (r.pct_divergencia ?? 0) > (w.pct_divergencia ?? 0) ? r : w, series[0])
+      : null
+
+    res.json({ mock: isMock, days, event, series, summary: { totalGa4, totalDb, avgDivPct, worstDay } })
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, series: [], summary: {} })
+  }
+})
+
+// ─── Qualificação histórica por campanha ─────────────────────────────────────
+app.get('/api/databricks/funnel/qual-by-campaign', async (req, res) => {
+  const days = parseInt(req.query.days) || 30
+  try { res.json(await databricksService.getQualByCampaign(days)) }
+  catch (err) { res.status(500).json({ mock: true, error: err.message, campaigns: [], weeks: [] }) }
+})
+
 // ─── Start ─────────────────────────────────────────────────────────────────
 // ─── Search Console ────────────────────────────────────────────────────────
 app.get('/api/searchconsole/sites', async (req, res) => {

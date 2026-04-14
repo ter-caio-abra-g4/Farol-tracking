@@ -3,9 +3,23 @@ import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import StatusBadge from '../components/ui/StatusBadge'
 import Spinner from '../components/ui/Spinner'
-import { Tag, Zap, Variable, ChevronDown, ChevronRight, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Tag, Zap, Variable, ChevronDown, ChevronRight, AlertTriangle, RefreshCw, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { api } from '../services/api'
 import { useTracking } from '../context/TrackingContext'
+
+// Eventos esperados em um container de tracking saudável
+const EXPECTED_EVENTS = [
+  { key: 'page_view',       label: 'Page View',        group: 'GA4',       critical: true  },
+  { key: 'generate_lead',   label: 'Generate Lead',    group: 'GA4',       critical: true  },
+  { key: 'purchase',        label: 'Purchase',         group: 'GA4',       critical: true  },
+  { key: 'begin_checkout',  label: 'Begin Checkout',   group: 'GA4',       critical: false },
+  { key: 'view_item',       label: 'View Item',        group: 'GA4',       critical: false },
+  { key: 'pageview_meta',   label: 'PageView (Meta)',  group: 'Meta Pixel', critical: true  },
+  { key: 'lead_meta',       label: 'Lead (Meta)',      group: 'Meta Pixel', critical: true  },
+  { key: 'purchase_meta',   label: 'Purchase (Meta)',  group: 'Meta Pixel', critical: false },
+  { key: 'conv_linker',     label: 'Conversion Linker', group: 'Google Ads', critical: false },
+  { key: 'adwords_conv',    label: 'Ads Conversion',   group: 'Google Ads', critical: false },
+]
 
 export default function GTMPage() {
   const { gtmContainers: ctxContainers } = useTracking()
@@ -19,11 +33,14 @@ export default function GTMPage() {
   const [expandedTag, setExpandedTag]   = useState(null)
   const [lastUpdated, setLastUpdated]   = useState(null)
   const [containersLoading, setContainersLoading] = useState(true)
+  const [healthData, setHealthData]               = useState(null)
+  const [healthLoading, setHealthLoading]         = useState(true)
 
   // Carrega lista de containers
   useEffect(() => {
     loadContainers()
     loadSilentTags()
+    loadHealth()
   }, [])
 
   // Quando seleciona container, carrega detalhes
@@ -67,9 +84,17 @@ export default function GTMPage() {
     setSilentLoading(false)
   }
 
+  async function loadHealth() {
+    setHealthLoading(true)
+    const r = await api.gtmHealth()
+    setHealthData(r)
+    setHealthLoading(false)
+  }
+
   function handleRefresh() {
     loadContainers()
     loadSilentTags()
+    loadHealth()
     if (selectedId) {
       setContainerData(prev => { const n = { ...prev }; delete n[selectedId]; return n })
     }
@@ -232,6 +257,170 @@ export default function GTMPage() {
             </div>
           )}
         </Card>
+
+        {/* ── Mapa de Cobertura GTM ── */}
+        {(() => {
+          // Detecta quais eventos esperados têm tag ativa no container selecionado
+          const allTagNames = tags.map(t => (t.name || '').toLowerCase())
+          const connections = healthData?.connections || []
+
+          // Mapa de cobertura: cruza tags do container + conexões do health check
+          const coverage = EXPECTED_EVENTS.map(ev => {
+            // Tenta detectar pela name da tag (busca substring)
+            const found = allTagNames.some(n =>
+              n.includes(ev.key.replace('_', '')) ||
+              n.includes(ev.key) ||
+              n.replace(/[^a-z0-9]/g, '').includes(ev.key.replace(/_/g, ''))
+            )
+            // Para checks de infra (conv_linker, pageview_meta), complementa com health
+            let status = found ? 'ok' : 'missing'
+            if (ev.key === 'conv_linker') {
+              const linker = connections.find(c => c.key === 'gtm_linker')
+              if (linker?.ok) status = 'ok'
+            }
+            if (ev.key === 'pageview_meta') {
+              const meta = connections.find(c => c.key === 'gtm_meta')
+              if (meta?.ok) status = 'ok'
+            }
+            if (ev.key === 'page_view') {
+              const ga4 = connections.find(c => c.key === 'gtm_ga4')
+              if (ga4?.ok) status = 'ok'
+            }
+            return { ...ev, status }
+          })
+
+          const okCount       = coverage.filter(c => c.status === 'ok').length
+          const missingCrit   = coverage.filter(c => c.status === 'missing' && c.critical)
+          const missingOpt    = coverage.filter(c => c.status === 'missing' && !c.critical)
+          const coveragePct   = Math.round((okCount / coverage.length) * 100)
+          const groups        = [...new Set(EXPECTED_EVENTS.map(e => e.group))]
+
+          return (
+            <Card style={{ marginBottom: 20 }}>
+              <CardHeader
+                title="Mapa de Cobertura"
+                action={
+                  healthLoading ? null : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {healthData?.mock && <span style={{ fontSize: 10, color: '#F59E0B' }}>mock</span>}
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        color: coveragePct >= 80 ? '#22C55E' : coveragePct >= 60 ? '#F59E0B' : '#EF4444',
+                      }}>
+                        {okCount}/{coverage.length} · {coveragePct}%
+                      </span>
+                    </div>
+                  )
+                }
+              />
+              <CardBody>
+                {healthLoading ? (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: 20 }}>
+                    <RefreshCw size={16} color="#6B7280" style={{ animation: 'spin 1s linear infinite' }} />
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </div>
+                ) : (
+                  <>
+                    {/* Barra de progresso geral */}
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, color: '#8A9BAA' }}>Cobertura de eventos esperados</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: coveragePct >= 80 ? '#22C55E' : '#F59E0B' }}>{coveragePct}%</span>
+                      </div>
+                      <div style={{ height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{
+                          height: '100%', borderRadius: 4, transition: 'width 0.6s ease',
+                          width: `${coveragePct}%`,
+                          background: coveragePct >= 80 ? '#22C55E' : coveragePct >= 60 ? '#F59E0B' : '#EF4444',
+                        }} />
+                      </div>
+                    </div>
+
+                    {/* Grid por grupo */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, marginBottom: 12 }}>
+                      {groups.map(grp => {
+                        const grpItems = coverage.filter(c => c.group === grp)
+                        const grpOk    = grpItems.filter(c => c.status === 'ok').length
+                        const grpColor = grpOk === grpItems.length ? '#22C55E' : grpOk > 0 ? '#F59E0B' : '#EF4444'
+                        return (
+                          <div key={grp} style={{
+                            background: '#0D1B26', border: `1px solid ${grpColor}22`, borderRadius: 8, padding: '10px 14px',
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: grpColor }}>{grp}</span>
+                              <span style={{ fontSize: 10, color: '#6B7280' }}>{grpOk}/{grpItems.length}</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                              {grpItems.map(ev => (
+                                <div key={ev.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  {ev.status === 'ok'
+                                    ? <ShieldCheck size={13} color="#22C55E" />
+                                    : <ShieldAlert size={13} color={ev.critical ? '#EF4444' : '#F59E0B'} />
+                                  }
+                                  <span style={{
+                                    fontSize: 12, color: ev.status === 'ok' ? '#F5F4F3' : ev.critical ? '#EF4444' : '#F59E0B',
+                                    fontWeight: ev.critical ? 600 : 400,
+                                  }}>
+                                    {ev.label}
+                                  </span>
+                                  {ev.critical && ev.status === 'missing' && (
+                                    <span style={{ fontSize: 9, color: '#EF4444', background: 'rgba(239,68,68,0.1)', padding: '1px 5px', borderRadius: 3, marginLeft: 'auto' }}>crítico</span>
+                                  )}
+                                  {ev.status === 'ok' && (
+                                    <span style={{ fontSize: 9, color: '#22C55E', marginLeft: 'auto' }}>ativo</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Conexões de infra */}
+                    {connections.length > 0 && (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Conexões de infraestrutura
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {connections.map(conn => (
+                            <div key={conn.key} style={{
+                              display: 'flex', alignItems: 'center', gap: 6,
+                              background: conn.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                              border: `1px solid ${conn.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                              borderRadius: 6, padding: '4px 10px',
+                            }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: conn.ok ? '#22C55E' : '#EF4444', flexShrink: 0 }} />
+                              <span style={{ fontSize: 11, color: conn.ok ? '#86EFAC' : '#FCA5A5', fontWeight: 600 }}>{conn.label}</span>
+                              <span style={{ fontSize: 10, color: '#6B7280' }}>{conn.detail}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Alertas críticos */}
+                    {missingCrit.length > 0 && (
+                      <div style={{
+                        background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)',
+                        borderRadius: 7, padding: '8px 12px', fontSize: 11, color: '#FCA5A5',
+                        display: 'flex', alignItems: 'flex-start', gap: 8,
+                      }}>
+                        <AlertTriangle size={13} color="#EF4444" style={{ flexShrink: 0, marginTop: 1 }} />
+                        <span>
+                          <strong>Eventos críticos ausentes:</strong>{' '}
+                          {missingCrit.map(c => c.label).join(', ')}.
+                          {' '}Verifique se as tags foram pausadas ou removidas.
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardBody>
+            </Card>
+          )
+        })()}
 
         {/* Detail do container selecionado */}
         {selectedContainer && (

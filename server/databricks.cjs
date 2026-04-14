@@ -1819,6 +1819,113 @@ function getMockFirstClickFunnel() {
   ]
 }
 
+// ─── Qualificação histórica por campanha ─────────────────────────────────────
+async function getQualByCampaign(days = 30) {
+  const { host, token } = getCredentials()
+  if (!host || !token) return { mock: true, campaigns: getMockQualCampaigns(), weeks: getMockQualWeeks() }
+
+  try {
+    // Query 1: totais por campanha
+    const totalsData = await executeStatement(`
+      SELECT
+        COALESCE(utm_campaign, '(sem campanha)') AS campanha,
+        COUNT(DISTINCT deal_id) AS leads,
+        SUM(CASE WHEN event = 'MQL' THEN 1 ELSE 0 END) AS mqls,
+        SUM(CASE WHEN event = 'Ganho' THEN 1 ELSE 0 END) AS ganhos
+      FROM production.diamond.funil_comercial
+      WHERE event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
+        AND event IN ('Lead', 'MQL', 'Ganho')
+      GROUP BY utm_campaign
+      ORDER BY leads DESC
+      LIMIT 10
+    `, 60)
+
+    // Query 2: tendência semanal — top 5 campanhas por qualificação
+    const weeklyData = await executeStatement(`
+      WITH top_camps AS (
+        SELECT COALESCE(utm_campaign, '(sem campanha)') AS campanha, COUNT(*) AS n
+        FROM production.diamond.funil_comercial
+        WHERE event = 'MQL'
+          AND event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
+        GROUP BY utm_campaign
+        ORDER BY n DESC
+        LIMIT 5
+      )
+      SELECT
+        DATE_TRUNC('week', fc.event_timestamp) AS semana,
+        COALESCE(fc.utm_campaign, '(sem campanha)') AS campanha,
+        SUM(CASE WHEN fc.event = 'MQL'   THEN 1 ELSE 0 END) AS mqls,
+        SUM(CASE WHEN fc.event = 'Lead'  THEN 1 ELSE 0 END) AS leads,
+        SUM(CASE WHEN fc.event = 'Ganho' THEN 1 ELSE 0 END) AS ganhos
+      FROM production.diamond.funil_comercial fc
+      INNER JOIN top_camps tc ON COALESCE(fc.utm_campaign, '(sem campanha)') = tc.campanha
+      WHERE fc.event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
+        AND fc.event IN ('Lead', 'MQL', 'Ganho')
+      GROUP BY semana, fc.utm_campaign
+      ORDER BY semana ASC
+    `, 200)
+
+    const { rows: tRows } = parseResult(totalsData)
+    const { rows: wRows } = parseResult(weeklyData)
+
+    const campaigns = tRows.map(r => {
+      const leads = parseInt(r.leads) || 0
+      const mqls  = parseInt(r.mqls)  || 0
+      const ganhos = parseInt(r.ganhos) || 0
+      return {
+        campanha: r.campanha,
+        leads,
+        mqls,
+        ganhos,
+        qual_pct:  leads  > 0 ? parseFloat(((mqls  / leads)  * 100).toFixed(1)) : 0,
+        conv_pct:  mqls   > 0 ? parseFloat(((ganhos / mqls)  * 100).toFixed(1)) : 0,
+      }
+    })
+
+    // Converte semanas para série por campanha
+    const weekMap = {}
+    wRows.forEach(r => {
+      const sem = (r.semana || '').slice(0, 10)
+      if (!weekMap[sem]) weekMap[sem] = { semana: sem }
+      const campKey = (r.campanha || '').slice(0, 20).replace(/[^a-z0-9_]/gi, '_')
+      weekMap[sem][campKey + '_mqls']  = parseInt(r.mqls) || 0
+      weekMap[sem][campKey + '_leads'] = parseInt(r.leads) || 0
+    })
+    const weeks = Object.values(weekMap).sort((a, b) => a.semana.localeCompare(b.semana))
+    const topCampKeys = [...new Set(wRows.map(r => (r.campanha || '').slice(0, 20).replace(/[^a-z0-9_]/gi, '_')))]
+
+    return { mock: false, days, campaigns, weeks, topCampKeys }
+  } catch (err) {
+    return { mock: true, error: err.message, campaigns: getMockQualCampaigns(), weeks: getMockQualWeeks() }
+  }
+}
+
+function getMockQualCampaigns() {
+  return [
+    { campanha: 'always-on',           leads: 3200, mqls: 1280, ganhos: 128, qual_pct: 40.0, conv_pct: 10.0 },
+    { campanha: 'g4_traction_bofu',    leads: 1800, mqls: 900,  ganhos: 90,  qual_pct: 50.0, conv_pct: 10.0 },
+    { campanha: 'remarketing_club',    leads: 960,  mqls: 384,  ganhos: 57,  qual_pct: 40.0, conv_pct: 14.8 },
+    { campanha: 'prospecção_gestores', leads: 720,  mqls: 180,  ganhos: 18,  qual_pct: 25.0, conv_pct: 10.0 },
+    { campanha: '(sem campanha)',       leads: 540,  mqls: 108,  ganhos: 8,   qual_pct: 20.0, conv_pct: 7.4  },
+  ]
+}
+
+function getMockQualWeeks() {
+  const weeks = []
+  for (let i = 3; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i * 7)
+    const sem = d.toISOString().slice(0, 10)
+    weeks.push({
+      semana: sem,
+      always_on_mqls: 320 + Math.round(Math.random() * 40),
+      always_on_leads: 800 + Math.round(Math.random() * 80),
+      g4_traction_bofu_mqls: 225 + Math.round(Math.random() * 30),
+      g4_traction_bofu_leads: 450 + Math.round(Math.random() * 50),
+    })
+  }
+  return weeks
+}
+
 // Chaves determinísticas por função + parâmetros relevantes
 const cached = {
   getStatus:              ()       => withCache('status',              getStatus),
@@ -1843,6 +1950,7 @@ const cached = {
   getAnomalyAlerts:        ()       => withCache('anomaly-alerts',       getAnomalyAlerts),
   getSalWonTrend:          (d)      => withCache(`sal-won-trend:${d}`,   () => getSalWonTrend(d)),
   getClosingCohort:        (d)      => withCache(`closing-cohort:${d}`,  () => getClosingCohort(d)),
+  getQualByCampaign:       (d)      => withCache(`qual-campaign:${d}`,   () => getQualByCampaign(d)),
 }
 
 // ─── Live query — sem cache, últimos N minutos ────────────────────────────────
@@ -1991,6 +2099,7 @@ module.exports = {
   getAnomalyAlerts:        cached.getAnomalyAlerts,
   getSalWonTrend:          cached.getSalWonTrend,
   getClosingCohort:        cached.getClosingCohort,
+  getQualByCampaign:       cached.getQualByCampaign,
   // Sem cache (listagem/preview sempre frescos)
   listTables, previewTable,
   // Live monitor — sem cache, sempre fresco
