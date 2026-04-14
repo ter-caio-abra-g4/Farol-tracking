@@ -122,6 +122,33 @@ export default function DatabricksPage() {
           </div>
         )}
 
+        {/* Alerta: conectado mas catálogo sem schemas/tabelas */}
+        {!isMock && !loading && status?.connected && tables.length === 0 && (
+          <div style={{
+            padding: '10px 16px',
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 8, fontSize: 12, color: '#EF4444',
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>
+              Conectado, mas catálogo "{status.catalog}" não retornou tabelas.
+            </div>
+            <div style={{ color: '#8A9BAA', lineHeight: 1.5 }}>
+              {status.availableCatalogs?.length > 0
+                ? <>Catálogos disponíveis: <strong style={{ color: '#F5F4F3' }}>{status.availableCatalogs.join(', ')}</strong>. Ajuste o catálogo nas configurações.</>
+                : <>Verifique se o catálogo e schema estão corretos. O Databricks Unity Catalog normalmente usa um nome personalizado (não "hive_metastore").</>
+              }
+              {' '}
+              <button
+                onClick={() => setShowModal(true)}
+                style={{ fontSize: 11, color: '#EF4444', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontFamily: 'Manrope, sans-serif' }}
+              >
+                Corrigir configurações
+              </button>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner /></div>
         ) : (
@@ -312,7 +339,13 @@ function DatabricksConfigModal({ currentConfig, onClose, onSaved }) {
     const result = await api.databricksStatus()
     setTesting(false)
     if (!result?.mock) {
-      setTestResult({ ok: true, detail: `Conectado — ${result.warehouseId ?? 'warehouse'} · ${result.tables ?? 0} tabela(s)` })
+      let detail = `Conectado — ${result.warehouseId ?? 'warehouse'} · ${result.tables ?? 0} tabela(s)`
+      if (result.tables === 0 && result.availableCatalogs?.length > 0) {
+        detail += `. Catálogos disponíveis: ${result.availableCatalogs.join(', ')}`
+      } else if (result.tables === 0 && result.availableSchemas?.length === 0) {
+        detail += '. Catálogo pode estar errado — tente outro nome (ex: "main")'
+      }
+      setTestResult({ ok: true, detail })
     } else {
       setTestResult({ ok: false, detail: result.error ?? 'Falha na conexão. Verifique as credenciais.' })
     }

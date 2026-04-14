@@ -102,9 +102,10 @@ async function getStatus() {
     const data = await executeStatement('SELECT 1 AS ok', 10)
     const warehouseId = httpPath.split('/warehouses/')[1]
 
-    // Conta tabelas e lista schemas disponíveis
+    // Conta tabelas, lista schemas e catálogos disponíveis
     let tableCount = 0
     let schemas = []
+    let catalogs = []
     try {
       if (schema) {
         const tablesData = await executeStatement(`SHOW TABLES IN SCHEMA ${catalog}.${schema}`, 15)
@@ -115,6 +116,14 @@ async function getStatus() {
       const { rows: schemaRows } = parseResult(schemasData)
       schemas = schemaRows.map(r => r.databaseName ?? r.namespace ?? Object.values(r)[0])
     } catch (_) {}
+    // Tenta listar catálogos disponíveis (útil quando schemas está vazio)
+    if (schemas.length === 0) {
+      try {
+        const catData = await executeStatement('SHOW CATALOGS', 15)
+        const { rows: catRows } = parseResult(catData)
+        catalogs = catRows.map(r => Object.values(r)[0]).filter(Boolean)
+      } catch (_) {}
+    }
 
     return {
       mock: false,
@@ -125,11 +134,44 @@ async function getStatus() {
       schema,
       tables: tableCount,
       availableSchemas: schemas,
+      availableCatalogs: catalogs,
     }
   } catch (err) {
     console.error('[Databricks] getStatus error:', err.message)
     return { mock: true, error: err.message, ...getMockStatus() }
   }
+}
+
+// ─── Diagnóstico: lista catálogos, schemas e tabelas disponíveis ──────────────
+async function diagnose() {
+  const { host, token, catalog, schema } = getCredentials()
+  if (!host || !token) return { error: 'Credenciais não configuradas' }
+
+  const result = { catalog, schema, catalogs: [], schemas: [], tables: [], rawErrors: [] }
+
+  try {
+    const catData = await executeStatement('SHOW CATALOGS', 15)
+    const { rows: catRows } = parseResult(catData)
+    result.catalogs = catRows.map(r => Object.values(r)[0])
+  } catch (e) { result.rawErrors.push(`SHOW CATALOGS: ${e.message}`) }
+
+  try {
+    const schData = await executeStatement(`SHOW SCHEMAS IN ${catalog}`, 15)
+    const { rows: schRows } = parseResult(schData)
+    result.schemas = schRows.map(r => r.databaseName ?? r.namespace ?? Object.values(r)[0])
+  } catch (e) { result.rawErrors.push(`SHOW SCHEMAS IN ${catalog}: ${e.message}`) }
+
+  if (result.schemas.length > 0) {
+    const firstSchema = result.schemas[0]
+    try {
+      const tblData = await executeStatement(`SHOW TABLES IN SCHEMA ${catalog}.${firstSchema}`, 20)
+      const { rows } = parseResult(tblData)
+      result.tables = rows.map(r => r.tableName ?? r.table_name ?? Object.values(r)[1])
+      result.sampleSchema = firstSchema
+    } catch (e) { result.rawErrors.push(`SHOW TABLES IN ${catalog}.${firstSchema}: ${e.message}`) }
+  }
+
+  return result
 }
 
 // ─── Lista de tabelas ─────────────────────────────────────────────────────────
@@ -2100,8 +2142,8 @@ module.exports = {
   getSalWonTrend:          cached.getSalWonTrend,
   getClosingCohort:        cached.getClosingCohort,
   getQualByCampaign:       cached.getQualByCampaign,
-  // Sem cache (listagem/preview sempre frescos)
-  listTables, previewTable,
+  // Sem cache (listagem/preview/diagnose sempre frescos)
+  listTables, previewTable, diagnose,
   // Live monitor — sem cache, sempre fresco
   runLiveQuery: (eventName) => runLiveQuery(eventName),
   runLiveCRM:   (utmCampaign) => runLiveCRM(utmCampaign),

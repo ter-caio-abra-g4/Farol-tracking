@@ -328,6 +328,15 @@ app.get('/api/databricks/tables', async (req, res) => {
   }
 })
 
+app.get('/api/databricks/diagnose', async (req, res) => {
+  try {
+    const result = await databricksService.diagnose()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 app.get('/api/databricks/preview', async (req, res) => {
   const tableName = req.query.table
   try {
