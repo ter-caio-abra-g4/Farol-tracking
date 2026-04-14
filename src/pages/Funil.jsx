@@ -2,15 +2,18 @@ import { useState, useEffect } from 'react'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import Spinner from '../components/ui/Spinner'
+import { useTracking } from '../context/TrackingContext'
 import { api } from '../services/api'
+import { useLocalCache } from '../hooks/useLocalCache'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, FunnelChart, Funnel, LabelList, Legend, Cell,
   AreaChart, Area,
 } from 'recharts'
-import { TrendingUp, TrendingDown, ShoppingBag, Users, Target, DollarSign } from 'lucide-react'
+import { TrendingUp, TrendingDown, ShoppingBag, Users, Target, DollarSign, Download } from 'lucide-react'
 import PeriodSelect from '../components/ui/PeriodSelect'
 import { fmtNum, fmtMoney } from '../utils/format'
+import { downloadCsv } from '../utils/export'
 
 // ─── Paleta ─────────────────────────────────────────────────────────────────
 const STAGE_COLORS = {
@@ -91,7 +94,9 @@ function sourceColor(fonte) {
 }
 
 export default function FunilPage() {
-  const [days, setDays]               = useState(1)
+  const { selectedDays, setSelectedDays } = useTracking()
+  const [days, setDays]               = useState(selectedDays)
+  function changeDays(d) { setDays(d); setSelectedDays(d) }
   const [stages, setStages]           = useState(null)
   const [lostReasons, setLostReasons] = useState(null)
   const [products, setProducts]       = useState(null)
@@ -101,9 +106,53 @@ export default function FunilPage() {
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [isMock, setIsMock]           = useState(false)
+  const [fromCache, setFromCache]     = useState(false)
+
+  const CACHE_TTL = 10 // minutos
+  function readLocalCache(key) {
+    try {
+      const raw = localStorage.getItem('farol_cache_' + key)
+      if (!raw) return null
+      const { data, ts, ttl } = JSON.parse(raw)
+      if ((Date.now() - ts) / 60_000 > ttl) return null
+      return data
+    } catch { return null }
+  }
+  function writeLocalCache(key, data) {
+    try { localStorage.setItem('farol_cache_' + key, JSON.stringify({ data, ts: Date.now(), ttl: CACHE_TTL })) } catch { /* ok */ }
+  }
+
+  function handleExport() {
+    const stagesRows = (stages?.stages || []).map(s => ({ etapa: s.name, total: s.total }))
+    const productsRows = (products?.products || []).map(p => ({ produto: p.produto, bu: p.bu, deals: p.deals, receita: p.receita }))
+    const trendRows = (trend?.trend || []).map(r => ({ dia: r.dia, mqls: r.mqls, ganhos: r.ganhos, perdidos: r.perdidos }))
+    const lostRows = (lostReasons?.reasons || []).map(r => ({ motivo: r.reason, total: r.total }))
+
+    const date = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')
+    if (stagesRows.length) downloadCsv(`funil-etapas-${days}d-${date}.csv`, stagesRows)
+    if (productsRows.length) downloadCsv(`funil-produtos-${days}d-${date}.csv`, productsRows)
+    if (trendRows.length) downloadCsv(`funil-tendencia-${days}d-${date}.csv`, trendRows)
+    if (lostRows.length) downloadCsv(`funil-motivos-perda-${days}d-${date}.csv`, lostRows)
+  }
 
   async function loadAll(d, forceRefresh = false) {
-    if (forceRefresh) await api.databricksCacheClear()
+    const cacheKey = `funil-${d}`
+    if (forceRefresh) {
+      try { localStorage.removeItem('farol_cache_' + cacheKey) } catch { /* ok */ }
+      await api.databricksCacheClear()
+    } else {
+      const cached = readLocalCache(cacheKey)
+      if (cached) {
+        setStages(cached.s); setLostReasons(cached.l); setProducts(cached.p)
+        setTrend(cached.t); setOvp(cached.o); setSalWon(cached.sw)
+        setIsMock(!!(cached.s?.mock || cached.p?.mock))
+        setLastUpdated(new Date(cached.savedAt))
+        setFromCache(true)
+        setLoading(false)
+        return
+      }
+    }
+    setFromCache(false)
     setLoading(true)
     const [s, l, p, t, o, sw] = await Promise.all([
       api.databricksFunnelStages(d),
@@ -113,15 +162,12 @@ export default function FunilPage() {
       api.databricksFunnelOrganicVsPaid(d),
       api.databricksSalWonTrend(d),
     ])
-    setStages(s)
-    setLostReasons(l)
-    setProducts(p)
-    setTrend(t)
-    setOvp(o)
-    setSalWon(sw)
+    setStages(s); setLostReasons(l); setProducts(p); setTrend(t); setOvp(o); setSalWon(sw)
     setIsMock(!!(s?.mock || p?.mock))
-    setLastUpdated(new Date())
+    const now = new Date()
+    setLastUpdated(now)
     setLoading(false)
+    writeLocalCache(cacheKey, { s, l, p, t, o, sw, savedAt: now.toISOString() })
   }
 
   useEffect(() => { loadAll(days) }, [days])
@@ -174,7 +220,28 @@ export default function FunilPage() {
         lastUpdated={lastUpdated}
         action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <PeriodSelect value={days} onChange={setDays} options={PERIOD_OPTIONS} />
+            <PeriodSelect value={days} onChange={changeDays} options={PERIOD_OPTIONS} />
+            {!loading && fromCache && (
+              <span title="Dados em cache — clique em Atualizar para buscar novos dados" style={{
+                fontSize: 10, color: '#B9915B', background: 'rgba(185,145,91,0.1)',
+                border: '1px solid rgba(185,145,91,0.25)', borderRadius: 5, padding: '2px 8px', fontWeight: 700,
+              }}>CACHE</span>
+            )}
+            {!loading && !isMock && (
+              <button
+                onClick={handleExport}
+                title="Exportar CSVs (etapas, produtos, tendência, motivos de perda)"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                  border: '1px solid rgba(34,197,94,0.3)',
+                  background: 'rgba(34,197,94,0.07)', color: '#22C55E',
+                  fontSize: 11, fontWeight: 700, fontFamily: 'Manrope, sans-serif',
+                }}
+              >
+                <Download size={11} /> CSV
+              </button>
+            )}
             {isMock && (
               <span style={{
                 background: 'rgba(245,158,11,0.15)', color: '#F59E0B',

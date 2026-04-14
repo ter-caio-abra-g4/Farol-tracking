@@ -1,6 +1,8 @@
 /**
- * TrackingContext — seleção global de container GTM e propriedade GA4.
+ * TrackingContext — seleção global de container GTM, propriedade GA4 e período.
  * Todas as páginas leem daqui. O Header atualiza via setSelectedGTM / setSelectedGA4.
+ * selectedDays persiste o último período escolhido enquanto o app está aberto —
+ * ao navegar entre páginas, o seletor de período lembra o último valor usado.
  */
 
 import { createContext, useContext, useState, useEffect } from 'react'
@@ -23,6 +25,10 @@ export function TrackingProvider({ children }) {
     { id: '525799105', name: 'g4tools - plataforma' },
   ])
   const [selectedGA4, setSelectedGA4] = useState('521780491')
+
+  // Período global — compartilhado entre GA4, Funil, Comparação, Analytics
+  // Páginas usam esse valor como initial state; ao trocar localmente, sincronizam de volta.
+  const [selectedDays, setSelectedDays] = useState(30)
 
   const [loadingContainers, setLoadingContainers] = useState(true)
 
@@ -65,6 +71,8 @@ export function TrackingProvider({ children }) {
       selectedGA4,
       setSelectedGA4: changeGA4,
       loadingContainers,
+      selectedDays,
+      setSelectedDays,
     }}>
       {children}
     </TrackingContext.Provider>

@@ -509,15 +509,180 @@ app.get('/api/searchconsole/performance', async (req, res) => {
   }
 })
 
-function startServer() {
+// ─── Live Monitor ───────────────────────────────────────────────────────────
+
+// GA4 Realtime — últimos 30 min (~1 min latência)
+app.get('/api/live/ga4', async (req, res) => {
+  const { propertyId, event } = req.query
+  if (!propertyId) return res.status(400).json({ error: 'propertyId obrigatório' })
+  try {
+    res.json(await ga4Service.getRealtimeReport(propertyId, event || null))
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
+// Meta hoje — spend + leads do dia (~15 min latência)
+app.get('/api/live/meta', async (req, res) => {
+  try {
+    const aud = await metaService.getAudienceInsights(1)   // days=1 = hoje
+    const cre = await metaService.getAdCreativeInsights(1)
+    const ageRows   = aud.ageRows   || []
+    const ads       = cre.ads       || []
+    const totalSpend = ageRows.reduce((s, r) => s + r.spend, 0)
+    const totalLeads = ageRows.reduce((s, r) => s + r.leads, 0)
+    res.json({
+      mock: aud.mock || cre.mock,
+      capturedAt: new Date().toISOString(),
+      latencyNote: '~15 min de atraso (limite da API Meta)',
+      totalSpend,
+      totalLeads,
+      cpl: totalLeads > 0 ? Math.round(totalSpend / totalLeads) : null,
+      topAds: ads.slice(0, 5).map(a => ({
+        name:     a.name,
+        campaign: a.campaign,
+        spend:    a.spend,
+        leads:    a.leads,
+        cpl:      a.cpl,
+      })),
+    })
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message })
+  }
+})
+
+// Databricks — eventos recentes (latência depende do pipeline ETL)
+app.get('/api/live/databricks', async (req, res) => {
+  const { event } = req.query
+  try {
+    const eventName = event || 'generate_lead'
+    const data = await databricksService.runLiveQuery(eventName)
+    res.json(data)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, latencyNote: 'Pipeline ETL — latência variável' })
+  }
+})
+
+// CRM ao vivo — leads + qualificados de hoje por campanha
+app.get('/api/live/crm', async (req, res) => {
+  try {
+    const { campaign } = req.query
+    const data = await databricksService.runLiveCRM(campaign || null)
+    res.json(data)
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, latencyNote: 'CRM via Databricks — latência pipeline 5-30 min' })
+  }
+})
+
+// ─── Live History ────────────────────────────────────────────────────────────
+// Persiste sessões de monitoramento em live-sessions.json no userData
+const fs = require('fs')
+const USER_DATA = process.env.FAROL_USER_DATA || path.join(__dirname, '..')
+const LIVE_SESSIONS_PATH = path.join(USER_DATA, 'live-sessions.json')
+
+function readSessions() {
+  try {
+    if (!fs.existsSync(LIVE_SESSIONS_PATH)) return {}
+    return JSON.parse(fs.readFileSync(LIVE_SESSIONS_PATH, 'utf8'))
+  } catch { return {} }
+}
+
+function writeSessions(data) {
+  try { fs.writeFileSync(LIVE_SESSIONS_PATH, JSON.stringify(data, null, 2), 'utf8') } catch (_) {}
+}
+
+// POST /api/live/history/point — salva um ponto na sessão ativa
+app.post('/api/live/history/point', (req, res) => {
+  const { sessionId, point } = req.body
+  if (!sessionId || !point) return res.status(400).json({ error: 'sessionId e point obrigatórios' })
+  const sessions = readSessions()
+  if (!sessions[sessionId]) {
+    sessions[sessionId] = {
+      id: sessionId,
+      createdAt: new Date().toISOString(),
+      eventFilter: point.eventFilter || '',
+      points: [],
+    }
+  }
+  sessions[sessionId].points.push({ ...point, savedAt: new Date().toISOString() })
+  sessions[sessionId].updatedAt = new Date().toISOString()
+  // Mantém no máximo 1440 pontos por sessão (~12h em polling de 30s)
+  if (sessions[sessionId].points.length > 1440) {
+    sessions[sessionId].points = sessions[sessionId].points.slice(-1440)
+  }
+  writeSessions(sessions)
+  res.json({ ok: true, total: sessions[sessionId].points.length })
+})
+
+// GET /api/live/history/sessions — lista todas as sessões (metadados, sem points)
+app.get('/api/live/history/sessions', (req, res) => {
+  const sessions = readSessions()
+  const list = Object.values(sessions)
+    .map(({ id, createdAt, updatedAt, eventFilter, points }) => ({
+      id, createdAt, updatedAt, eventFilter,
+      pointCount: points?.length || 0,
+      firstPoint: points?.[0]?.time || null,
+      lastPoint:  points?.[points.length - 1]?.time || null,
+    }))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+  res.json({ sessions: list })
+})
+
+// GET /api/live/history/session/:id — retorna todos os points de uma sessão
+app.get('/api/live/history/session/:id', (req, res) => {
+  const sessions = readSessions()
+  const session = sessions[req.params.id]
+  if (!session) return res.status(404).json({ error: 'Sessão não encontrada' })
+  res.json(session)
+})
+
+// DELETE /api/live/history/session/:id — remove uma sessão
+app.delete('/api/live/history/session/:id', (req, res) => {
+  const sessions = readSessions()
+  if (!sessions[req.params.id]) return res.status(404).json({ error: 'Sessão não encontrada' })
+  delete sessions[req.params.id]
+  writeSessions(sessions)
+  res.json({ ok: true })
+})
+
+// ─── Error handler global ───────────────────────────────────────────────────
+// Captura qualquer erro não tratado nas rotas e devolve JSON em vez de crash
+app.use((err, req, res, _next) => {
+  console.error(`[Farol API] Erro não tratado em ${req.method} ${req.path}:`, err.message)
+  res.status(500).json({ mock: true, error: err.message || 'Erro interno do servidor' })
+})
+
+// Handler para rotas não encontradas
+app.use((req, res) => {
+  res.status(404).json({ error: `Rota não encontrada: ${req.method} ${req.path}` })
+})
+
+function startServer(port = PORT, attempt = 0) {
   return new Promise((resolve, reject) => {
-    const server = app.listen(PORT, '127.0.0.1', () => {
-      console.log(`[Farol API] Rodando em http://127.0.0.1:${PORT}`)
+    if (attempt > 4) {
+      return reject(new Error(`Não foi possível encontrar uma porta livre após ${attempt} tentativas (${PORT}–${PORT + attempt - 1})`))
+    }
+    const server = app.listen(port, '127.0.0.1', () => {
+      if (port !== PORT) {
+        console.warn(`[Farol API] Porta ${PORT} ocupada — usando ${port}`)
+      } else {
+        console.log(`[Farol API] Rodando em http://127.0.0.1:${port}`)
+      }
+      // Informa o renderer qual porta foi usada (via env, lida pelo api.js)
+      process.env.FAROL_PORT = String(port)
       // Auto-importar credenciais do G4 OS na primeira vez
       try { importFromG4OS() } catch (_) {}
       resolve(server)
     })
-    server.on('error', reject)
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        // Porta ocupada — tenta a próxima
+        server.close()
+        startServer(port + 1, attempt + 1).then(resolve).catch(reject)
+      } else {
+        reject(err)
+      }
+    })
   })
 }
 

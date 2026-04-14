@@ -8,7 +8,10 @@ const fs = require('fs')
 const path = require('path')
 const os = require('os')
 
-const CONFIG_PATH = path.join(__dirname, '..', 'farol.config.json')
+// Em produção (Electron empacotado), salva em userData (%APPDATA%\farol-tracking\)
+// Em dev, salva na raiz do projeto para facilitar iteração
+const USER_DATA = process.env.FAROL_USER_DATA || path.join(__dirname, '..')
+const CONFIG_PATH = path.join(USER_DATA, 'farol.config.json')
 
 const G4OS_PATHS = {
   ga4ServiceAccount: path.join(

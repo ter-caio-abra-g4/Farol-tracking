@@ -1845,6 +1845,128 @@ const cached = {
   getClosingCohort:        (d)      => withCache(`closing-cohort:${d}`,  () => getClosingCohort(d)),
 }
 
+// ─── Live query — sem cache, últimos N minutos ────────────────────────────────
+async function runLiveQuery(eventName = 'generate_lead') {
+  const { host, token, catalog, schema } = getCredentials()
+  if (!host || !token) {
+    return { mock: true, ...getMockLive(eventName) }
+  }
+
+  try {
+    const tbl = schema ? `${catalog}.${schema}.events` : `${catalog}.events`
+    const sql = `
+      SELECT
+        event_name,
+        COUNT(*) AS total,
+        COUNT(DISTINCT user_pseudo_id) AS unique_users,
+        MAX(event_timestamp) AS last_seen_ts,
+        MIN(event_timestamp) AS first_seen_ts
+      FROM ${tbl}
+      WHERE event_name = '${eventName}'
+        AND event_date = CURRENT_DATE()
+      GROUP BY event_name
+      LIMIT 1
+    `
+    const data = await executeStatement(sql, 20)
+    const { rows } = parseResult(data)
+    const row = rows[0] || {}
+
+    return {
+      mock: false,
+      capturedAt: new Date().toISOString(),
+      latencyNote: 'Latência depende do pipeline ETL (tipicamente 5–30 min)',
+      eventName,
+      total:       parseInt(row.total)        || 0,
+      uniqueUsers: parseInt(row.unique_users) || 0,
+      lastSeenTs:  row.last_seen_ts           || null,
+      firstSeenTs: row.first_seen_ts          || null,
+    }
+  } catch (err) {
+    console.error('[Databricks] runLiveQuery error:', err.message)
+    return { mock: true, ...getMockLive(eventName), error: err.message }
+  }
+}
+
+// ─── Live CRM — leads e qualificados do dia por campanha ─────────────────────
+async function runLiveCRM(utmCampaign = null) {
+  const { host, token, warehouseId, catalog, schema } = getCredentials()
+  if (!host || !token) return { mock: true, ...getMockLiveCRM(utmCampaign) }
+
+  const campaignFilter = utmCampaign
+    ? `AND LOWER(utm_campaign) LIKE LOWER('%${utmCampaign.replace(/'/g, "''")}%')`
+    : ''
+
+  const sql = `
+    SELECT
+      COUNT(*)                                                          AS total_leads,
+      COUNT(CASE WHEN stage_name IN ('Agendamento','Entrevista Agendada','Conectados') THEN 1 END)
+                                                                        AS qualificados,
+      COUNT(CASE WHEN stage_name IN ('Ganho') THEN 1 END)              AS ganhos,
+      COUNT(CASE WHEN status_do_deal = 'lost' THEN 1 END)              AS perdidos,
+      utm_campaign,
+      pipeline_name
+    FROM ${catalog}.gold.deals_fct
+    WHERE DATE(created_at) = CURRENT_DATE()
+      ${campaignFilter}
+    GROUP BY utm_campaign, pipeline_name
+    ORDER BY total_leads DESC
+    LIMIT 20
+  `
+
+  try {
+    const rows = await executeSQL(sql, warehouseId, host, token)
+    const totalLeads     = rows.reduce((s, r) => s + (Number(r[0]) || 0), 0)
+    const qualificados   = rows.reduce((s, r) => s + (Number(r[1]) || 0), 0)
+    const ganhos         = rows.reduce((s, r) => s + (Number(r[2]) || 0), 0)
+    const topCampaigns   = rows
+      .filter(r => r[4])
+      .map(r => ({ campaign: r[4], pipeline: r[5], leads: Number(r[0]) || 0, qualificados: Number(r[1]) || 0 }))
+      .slice(0, 5)
+
+    return {
+      mock: false,
+      capturedAt: new Date().toISOString(),
+      latencyNote: 'CRM via Databricks — latência pipeline 5-30 min',
+      utmCampaign: utmCampaign || null,
+      totalLeads,
+      qualificados,
+      ganhos,
+      topCampaigns,
+    }
+  } catch (err) {
+    console.error('[Databricks] runLiveCRM error:', err.message)
+    return { mock: true, ...getMockLiveCRM(utmCampaign), error: err.message }
+  }
+}
+
+function getMockLiveCRM(utmCampaign = null) {
+  return {
+    capturedAt: new Date().toISOString(),
+    latencyNote: 'MOCK — Databricks não configurado',
+    utmCampaign,
+    totalLeads: 47,
+    qualificados: 12,
+    ganhos: 3,
+    topCampaigns: [
+      { campaign: 'lp_produto_x_abr26', pipeline: 'Comercial', leads: 18, qualificados: 5 },
+      { campaign: 'retargeting_abr26',  pipeline: 'Comercial', leads: 15, qualificados: 4 },
+      { campaign: 'topo_funil_abr26',   pipeline: '[ON] Inside Sales', leads: 14, qualificados: 3 },
+    ],
+  }
+}
+
+function getMockLive(eventName = 'generate_lead') {
+  return {
+    capturedAt: new Date().toISOString(),
+    latencyNote: 'MOCK — Databricks não configurado',
+    eventName,
+    total: 38,
+    uniqueUsers: 35,
+    lastSeenTs: String(Date.now() - 4 * 60 * 1000),
+    firstSeenTs: String(Date.now() - 110 * 60 * 1000),
+  }
+}
+
 module.exports = {
   // Versões cacheadas (uso normal)
   getStatus:              cached.getStatus,
@@ -1871,6 +1993,9 @@ module.exports = {
   getClosingCohort:        cached.getClosingCohort,
   // Sem cache (listagem/preview sempre frescos)
   listTables, previewTable,
+  // Live monitor — sem cache, sempre fresco
+  runLiveQuery: (eventName) => runLiveQuery(eventName),
+  runLiveCRM:   (utmCampaign) => runLiveCRM(utmCampaign),
   // Utilitário para invalidação forçada
   clearCache: (key) => cacheClear(key),
 }

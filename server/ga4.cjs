@@ -514,4 +514,114 @@ function getMockExitPages() {
   ]
 }
 
-module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport, getExitPages }
+// ─── Realtime Report — últimos 30 minutos ────────────────────────────────────
+async function getRealtimeReport(propertyId, eventFilter = null) {
+  const auth = await getAuthClient()
+  if (!auth) return { mock: true, ...getMockRealtime() }
+
+  try {
+    const analyticsData = google.analyticsdata({ version: 'v1beta', auth })
+
+    const dimensions = [
+      { name: 'eventName' },
+      { name: 'unifiedScreenName' },
+      { name: 'firstSessionDate' },
+    ]
+    const metrics = [
+      { name: 'eventCount' },
+      { name: 'activeUsers' },
+    ]
+
+    const requestBody = { dimensions, metrics, limit: 50 }
+
+    // Filtra por evento específico se passado
+    if (eventFilter) {
+      requestBody.dimensionFilter = {
+        filter: {
+          fieldName: 'eventName',
+          stringFilter: { matchType: 'EXACT', value: eventFilter },
+        },
+      }
+    }
+
+    const res = await analyticsData.properties.runRealtimeReport({
+      property: `properties/${propertyId}`,
+      requestBody,
+    })
+
+    const rows = (res.data.rows || []).map(row => ({
+      event:  row.dimensionValues[0].value,
+      page:   row.dimensionValues[1].value,
+      count:  parseInt(row.metricValues[0].value, 10),
+      users:  parseInt(row.metricValues[1].value, 10),
+    }))
+
+    // Agrega totais
+    const totalEvents = rows.reduce((s, r) => s + r.count, 0)
+    const activeUsers = rows.reduce((s, r) => s + r.users, 0)
+
+    // Top eventos
+    const byEvent = {}
+    for (const r of rows) {
+      if (!byEvent[r.event]) byEvent[r.event] = { event: r.event, count: 0, users: 0 }
+      byEvent[r.event].count += r.count
+      byEvent[r.event].users += r.users
+    }
+    const topEvents = Object.values(byEvent)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+
+    // Top páginas por page_view (agrega unifiedScreenName apenas para page_view)
+    const byPage = {}
+    for (const r of rows) {
+      if (r.event !== 'page_view') continue
+      const page = r.page || '(unknown)'
+      if (!byPage[page]) byPage[page] = { page, views: 0, users: 0 }
+      byPage[page].views += r.count
+      byPage[page].users += r.users
+    }
+    const topPages = Object.values(byPage)
+      .sort((a, b) => b.views - a.views)
+      .slice(0, 5)
+
+    return {
+      mock: false,
+      propertyId,
+      capturedAt: new Date().toISOString(),
+      activeUsers,
+      totalEvents,
+      topEvents,
+      topPages,
+      rows,
+    }
+  } catch (err) {
+    console.error('[GA4] getRealtimeReport error:', err.message)
+    return { mock: true, ...getMockRealtime(), error: err.message }
+  }
+}
+
+function getMockRealtime() {
+  return {
+    capturedAt: new Date().toISOString(),
+    activeUsers: 47,
+    totalEvents: 312,
+    topEvents: [
+      { event: 'page_view',          count: 184, users: 47 },
+      { event: 'scroll',             count: 62,  users: 31 },
+      { event: 'click',              count: 38,  users: 22 },
+      { event: 'generate_lead',      count: 14,  users: 14 },
+      { event: 'begin_checkout',     count: 8,   users: 8  },
+      { event: 'purchase',           count: 6,   users: 6  },
+    ],
+    topPages: [
+      { page: '/programas/presencial',       views: 58, users: 31 },
+      { page: '/g4-summit-2026',             views: 41, users: 24 },
+      { page: '/',                           views: 35, users: 28 },
+      { page: '/mentoria-executiva',         views: 27, users: 18 },
+      { page: '/capacitacao-online',         views: 19, users: 13 },
+    ],
+    rows: [],
+  }
+}
+
+module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport, getExitPages, getRealtimeReport }

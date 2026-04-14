@@ -16,14 +16,16 @@ import {
   LineChart,
   Sprout,
   DollarSign,
+  Radio,
 } from 'lucide-react'
 
 // ── Estrutura de navegação agrupada ──────────────────────────────────────────
 const navGroups = [
   {
-    // Sem label — Dashboard isolado no topo
+    // Sem label — Dashboard + Monitor ao vivo no topo
     items: [
-      { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/',     icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/live', icon: Radio,           label: 'Ao Vivo'   },
     ],
   },
   {

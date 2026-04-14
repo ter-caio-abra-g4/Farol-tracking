@@ -13,6 +13,7 @@ import ComparacaoPage from './pages/Comparacao'
 import AnalyticsPage from './pages/Analytics'
 import SEOPage from './pages/SEO'
 import PaidPage from './pages/Paid'
+import LiveMonitorPage from './pages/LiveMonitor'
 import SettingsPage from './pages/Settings'
 import SetupWizard from './pages/Setup'
 import { TrackingProvider } from './context/TrackingContext'
@@ -102,6 +103,7 @@ export default function App() {
                 <Route path="/analytics" element={<AnalyticsPage />} />
                 <Route path="/seo" element={<SEOPage />} />
                 <Route path="/paid" element={<PaidPage />} />
+                <Route path="/live" element={<LiveMonitorPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Routes>
             </main>

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, screen } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, screen, dialog } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -11,11 +11,17 @@ let apiServer = null
 // Inicia o servidor Express local
 async function startApiServer() {
   try {
+    process.env.FAROL_USER_DATA = app.getPath('userData')
     const { startServer } = require(path.join(__dirname, '..', 'server', 'index.cjs'))
     apiServer = await startServer()
     console.log('[Farol] API server iniciado')
   } catch (err) {
     console.error('[Farol] Falha ao iniciar API server:', err.message)
+    // Notifica o usuário em vez de abrir com tela branca silenciosa
+    dialog.showErrorBox(
+      'Farol Tracking — Erro ao iniciar',
+      `O servidor interno não conseguiu subir.\n\nMotivo: ${err.message}\n\nTente fechar outros aplicativos que usem a porta 3001 e abra o Farol novamente.`
+    )
   }
 }
 
@@ -105,18 +111,80 @@ ipcMain.on('window-maximize', () => {
 })
 ipcMain.on('window-close', () => mainWindow?.close())
 
+// IPC: file picker para service account JSON
+ipcMain.handle('pick-service-account', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Selecionar Google Service Account',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+    properties: ['openFile'],
+  })
+  if (canceled || !filePaths.length) return null
+  const fs = require('fs')
+  try {
+    const content = fs.readFileSync(filePaths[0], 'utf8')
+    const parsed = JSON.parse(content)
+    // Valida que é um service account real
+    if (!parsed.client_email || !parsed.private_key) return { error: 'Arquivo não parece ser um Service Account válido' }
+    // Copia para userData para que o caminho seja estável
+    const dest = require('path').join(app.getPath('userData'), 'service-account.json')
+    fs.writeFileSync(dest, content, 'utf8')
+    return { path: dest, client_email: parsed.client_email }
+  } catch (e) {
+    return { error: e.message }
+  }
+})
+
+// IPC: Notificação nativa do sistema operacional
+ipcMain.handle('show-notification', (_event, { title, body, urgency = 'normal' }) => {
+  try {
+    const { Notification } = require('electron')
+    if (!Notification.isSupported()) return { ok: false, reason: 'not-supported' }
+    const n = new Notification({
+      title: title || 'Farol Tracking',
+      body: body || '',
+      icon: require('path').join(__dirname, '..', 'src', 'assets', 'icon.png'),
+      urgency, // 'normal' | 'critical' | 'low'
+      silent: urgency === 'low',
+    })
+    n.on('click', () => mainWindow?.focus())
+    n.show()
+    return { ok: true }
+  } catch (e) {
+    console.warn('[Farol] Notification error:', e.message)
+    return { ok: false, reason: e.message }
+  }
+})
+
 // IPC: Python bridge
 ipcMain.handle('python-call', async (event, { script, args }) => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const pythonPath = path.join(__dirname, '..', 'python', script)
-    const proc = spawn('python', [pythonPath, ...args])
+    let proc
+    try {
+      proc = spawn('python', [pythonPath, ...args])
+    } catch (spawnErr) {
+      // Python não instalado ou não está no PATH
+      console.warn('[Farol] Python não disponível:', spawnErr.message)
+      return resolve({ ok: false, error: 'Python não encontrado. Instale Python e adicione ao PATH.' })
+    }
     let stdout = ''
     let stderr = ''
     proc.stdout.on('data', (d) => (stdout += d.toString()))
     proc.stderr.on('data', (d) => (stderr += d.toString()))
+    proc.on('error', (err) => {
+      console.warn('[Farol] Python spawn error:', err.message)
+      resolve({ ok: false, error: err.message })
+    })
     proc.on('close', (code) => {
-      if (code === 0) resolve(JSON.parse(stdout || '{}'))
-      else reject(new Error(stderr))
+      if (code === 0) {
+        try {
+          resolve(JSON.parse(stdout || '{}'))
+        } catch {
+          resolve({ ok: false, error: 'Saída do script não é JSON válido', raw: stdout })
+        }
+      } else {
+        resolve({ ok: false, error: stderr || `Processo encerrou com código ${code}` })
+      }
     })
   })
 })

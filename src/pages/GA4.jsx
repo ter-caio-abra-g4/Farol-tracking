@@ -13,7 +13,7 @@ import { ChevronDown, ChevronRight, TrendingDown } from 'lucide-react'
 import PeriodSelect from '../components/ui/PeriodSelect'
 
 export default function GA4Page() {
-  const { ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
+  const { ga4Properties, selectedGA4, setSelectedGA4, selectedDays, setSelectedDays } = useTracking()
 
   const [report, setReport]           = useState(null)
   const [events, setEvents]           = useState(null)
@@ -23,7 +23,9 @@ export default function GA4Page() {
   const [exitPages, setExitPages]     = useState(null)
   const [loading, setLoading]         = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
-  const [days, setDays]               = useState(1)
+  const [days, setDays]               = useState(selectedDays)
+
+  function changeDays(d) { setDays(d); setSelectedDays(d) }
 
   async function loadData(propId, d) {
     setLoading(true)
@@ -85,7 +87,7 @@ export default function GA4Page() {
         subtitle="Eventos e métricas das propriedades"
         onRefresh={() => loadData(selectedGA4, days)}
         lastUpdated={lastUpdated}
-        action={<PeriodSelect value={days} onChange={setDays} />}
+        action={<PeriodSelect value={days} onChange={changeDays} />}
         showGA4
       />
 

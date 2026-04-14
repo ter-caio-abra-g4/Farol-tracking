@@ -3,14 +3,16 @@ import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import Spinner from '../components/ui/Spinner'
 import PeriodSelect from '../components/ui/PeriodSelect'
+import { useTracking } from '../context/TrackingContext'
 import { api } from '../services/api'
+import { downloadCsv } from '../utils/export'
 import { fmtNum, fmtMoney, fmtPct } from '../utils/format'
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { TrendingUp, ArrowRightLeft, BarChart2, LineChart as LineChartIcon } from 'lucide-react'
+import { TrendingUp, ArrowRightLeft, BarChart2, LineChart as LineChartIcon, Download } from 'lucide-react'
 import DarkTooltip, { TT } from '../components/ui/DarkTooltip'
 
 // ─── Paleta ──────────────────────────────────────────────────────────────────
@@ -83,12 +85,29 @@ function TabBar({ active, onChange }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function Analytics() {
+  const { selectedDays, setSelectedDays } = useTracking()
   const [tab, setTab]             = useState('trend')
-  const [days, setDays]           = useState(30)
+  const [days, setDays]           = useState(selectedDays >= 30 ? selectedDays : 30)
+  function changeDays(d) { setDays(d); setSelectedDays(d) }
   const [trendData, setTrendData] = useState(null)
   const [journeyData, setJourneyData] = useState(null)
   const [mediaData, setMediaData] = useState(null)
   const [loading, setLoading]     = useState(true)
+  const [fromCache, setFromCache] = useState(false)
+
+  const CACHE_TTL = 10
+  function readLocalCache(key) {
+    try {
+      const raw = localStorage.getItem('farol_cache_' + key)
+      if (!raw) return null
+      const { data, ts, ttl } = JSON.parse(raw)
+      if ((Date.now() - ts) / 60_000 > ttl) return null
+      return data
+    } catch { return null }
+  }
+  function writeLocalCache(key, data) {
+    try { localStorage.setItem('farol_cache_' + key, JSON.stringify({ data, ts: Date.now(), ttl: CACHE_TTL })) } catch { /* ok */ }
+  }
 
   const trendOptions = [
     { label: '30d', days: 30 },
@@ -96,17 +115,34 @@ export default function Analytics() {
     { label: '90d', days: 90 },
   ]
 
+  function handleExport() {
+    const date = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')
+    const trendRows = (trendData?.trend || []).map(r => ({ dia: r.dia, mqls: r.mqls, ganhos: r.ganhos, perdidos: r.perdidos, receita: r.receita }))
+    const mediaRows = (mediaData?.media || []).map(m => ({ plataforma: m.plataforma, mqls: m.mqls, ganhos: m.ganhos, gasto: m.gasto, cpl: m.cpl, roi: m.roi }))
+    const journeyRows = (journeyData?.journeys || journeyData?.rows || []).map(j => ({ canal_entrada: j.canal_entrada, canal_fechamento: j.canal_fechamento, fonte: j.fonte_entrada || j.fonte, total: j.total || j.count, conv_pct: j.conv_pct }))
+    if (trendRows.length)   downloadCsv(`analytics-tendencia-${days}d-${date}.csv`, trendRows)
+    if (mediaRows.length)   downloadCsv(`analytics-midia-${days}d-${date}.csv`, mediaRows)
+    if (journeyRows.length) downloadCsv(`analytics-jornada-${days}d-${date}.csv`, journeyRows)
+  }
+
   useEffect(() => {
+    const cacheKey = `analytics-${days}`
+    const cached = readLocalCache(cacheKey)
+    if (cached) {
+      setTrendData(cached.trend); setJourneyData(cached.journey); setMediaData(cached.media)
+      setFromCache(true); setLoading(false)
+      return
+    }
+    setFromCache(false)
     setLoading(true)
     Promise.all([
       api.analyticsGetTrend(days),
       api.analyticsGetJourney(days),
       api.analyticsGetMedia(days),
     ]).then(([trend, journey, media]) => {
-      setTrendData(trend)
-      setJourneyData(journey)
-      setMediaData(media)
+      setTrendData(trend); setJourneyData(journey); setMediaData(media)
       setLoading(false)
+      writeLocalCache(cacheKey, { trend, journey, media })
     })
   }, [days])
 
@@ -116,7 +152,32 @@ export default function Analytics() {
         title="Analytics"
         subtitle="Padrões, tendências e performance de mídia"
         icon={<TrendingUp size={18} />}
-        action={<PeriodSelect value={days} onChange={setDays} options={trendOptions} />}
+        action={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <PeriodSelect value={days} onChange={changeDays} options={trendOptions} />
+            {!loading && fromCache && (
+              <span title="Dados em cache — troque o período ou aguarde 10min para refresh" style={{
+                fontSize: 10, color: '#B9915B', background: 'rgba(185,145,91,0.1)',
+                border: '1px solid rgba(185,145,91,0.25)', borderRadius: 5, padding: '2px 8px', fontWeight: 700,
+              }}>CACHE</span>
+            )}
+            {!loading && (
+              <button
+                onClick={handleExport}
+                title="Exportar CSVs (tendência, mídia, jornada)"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                  border: '1px solid rgba(34,197,94,0.3)',
+                  background: 'rgba(34,197,94,0.07)', color: '#22C55E',
+                  fontSize: 11, fontWeight: 700, fontFamily: 'Manrope, sans-serif',
+                }}
+              >
+                <Download size={11} /> CSV
+              </button>
+            )}
+          </div>
+        }
       />
 
       <TabBar active={tab} onChange={setTab} />

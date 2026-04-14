@@ -2,14 +2,16 @@ import { useState, useEffect } from 'react'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
 import Spinner from '../components/ui/Spinner'
+import { useTracking } from '../context/TrackingContext'
 import { api } from '../services/api'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis,
 } from 'recharts'
-import { DollarSign, Target, Users, TrendingUp, Zap, FileText } from 'lucide-react'
+import { DollarSign, Target, Users, TrendingUp, Zap, FileText, Download } from 'lucide-react'
 import PeriodSelect from '../components/ui/PeriodSelect'
 import { fmtNum, fmtMoney } from '../utils/format'
+import { downloadCsv } from '../utils/export'
 
 // ─── Paleta ──────────────────────────────────────────────────────────────────
 const CANAL_COLORS = {
@@ -197,7 +199,9 @@ function FormAttributionTable({ rows }) {
 
 // ─── Componente principal ────────────────────────────────────────────────────
 export default function ComparacaoPage() {
-  const [days, setDays]           = useState(30)
+  const { selectedDays, setSelectedDays } = useTracking()
+  const [days, setDays]           = useState(selectedDays)
+  function changeDays(d) { setDays(d); setSelectedDays(d) }
   const [channels, setChannels]         = useState(null)
   const [mediaROI, setMediaROI]         = useState(null)
   const [revenue, setRevenue]           = useState(null)
@@ -208,9 +212,55 @@ export default function ComparacaoPage() {
   const [loading, setLoading]           = useState(true)
   const [lastUpdated, setLastUpdated]   = useState(null)
   const [isMock, setIsMock]             = useState(false)
+  const [fromCache, setFromCache]       = useState(false)
+
+  const CACHE_TTL = 10
+  function readLocalCache(key) {
+    try {
+      const raw = localStorage.getItem('farol_cache_' + key)
+      if (!raw) return null
+      const { data, ts, ttl } = JSON.parse(raw)
+      if ((Date.now() - ts) / 60_000 > ttl) return null
+      return data
+    } catch { return null }
+  }
+  function writeLocalCache(key, data) {
+    try { localStorage.setItem('farol_cache_' + key, JSON.stringify({ data, ts: Date.now(), ttl: CACHE_TTL })) } catch { /* ok */ }
+  }
+
+  function handleExport() {
+    const date = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')
+    const channelRows = (channels?.channels || []).map(c => ({ canal: c.canal, mqls: c.mqls, sals: c.sals, opps: c.opps, ganhos: c.ganhos }))
+    const mediaRows   = (mediaROI?.media || []).map(m => ({ plataforma: m.plataforma, gasto: m.gasto, leads: m.leads, cpl: m.cpl, roi: m.roi }))
+    const revenueRows = (revenue?.channels || []).map(c => ({ fonte: c.utm_source || c.canal, receita: c.receita, deals: c.deals }))
+    const campaignRows = (campaigns?.campaigns || []).map(c => ({ campanha: c.campaign, mqls: c.mqls, ganhos: c.ganhos, conv_pct: c.conv_pct }))
+    const profileRows  = (profiles?.profiles || []).map(p => ({ perfil: p.perfil, mqls: p.mqls, ganhos: p.ganhos, conv_pct: p.conv_pct }))
+
+    if (channelRows.length)  downloadCsv(`comparacao-canais-${days}d-${date}.csv`, channelRows)
+    if (mediaRows.length)    downloadCsv(`comparacao-midia-roi-${days}d-${date}.csv`, mediaRows)
+    if (revenueRows.length)  downloadCsv(`comparacao-receita-${days}d-${date}.csv`, revenueRows)
+    if (campaignRows.length) downloadCsv(`comparacao-campanhas-${days}d-${date}.csv`, campaignRows)
+    if (profileRows.length)  downloadCsv(`comparacao-perfis-${days}d-${date}.csv`, profileRows)
+  }
 
   async function loadAll(d, forceRefresh = false) {
-    if (forceRefresh) await api.databricksCacheClear()
+    const cacheKey = `comparacao-${d}`
+    if (forceRefresh) {
+      try { localStorage.removeItem('farol_cache_' + cacheKey) } catch { /* ok */ }
+      await api.databricksCacheClear()
+    } else {
+      const cached = readLocalCache(cacheKey)
+      if (cached) {
+        setChannels(cached.ch); setMediaROI(cached.mr); setRevenue(cached.rv)
+        setProfiles(cached.pr); setCampaigns(cached.ca); setFormAttrib(cached.fa); setCohort(cached.co)
+        setIsMock(!!(cached.ch?.mock || cached.mr?.mock))
+        setLastUpdated(new Date(cached.savedAt))
+        setFromCache(true)
+        setLoading(false)
+        return
+      }
+    }
+    setFromCache(false)
     setLoading(true)
     const [ch, mr, rv, pr, ca, fa, co] = await Promise.all([
       api.databricksCompareChannels(d),
@@ -221,16 +271,13 @@ export default function ComparacaoPage() {
       api.databricksFormAttribution(d),
       api.databricksClosingCohort(Math.max(d, 90)),
     ])
-    setChannels(ch)
-    setMediaROI(mr)
-    setRevenue(rv)
-    setProfiles(pr)
-    setCampaigns(ca)
-    setFormAttrib(fa)
-    setCohort(co)
+    setChannels(ch); setMediaROI(mr); setRevenue(rv); setProfiles(pr)
+    setCampaigns(ca); setFormAttrib(fa); setCohort(co)
     setIsMock(!!(ch?.mock || mr?.mock))
-    setLastUpdated(new Date())
+    const now = new Date()
+    setLastUpdated(now)
     setLoading(false)
+    writeLocalCache(cacheKey, { ch, mr, rv, pr, ca, fa, co, savedAt: now.toISOString() })
   }
 
   useEffect(() => { loadAll(days) }, [days])
@@ -289,7 +336,28 @@ export default function ComparacaoPage() {
         lastUpdated={lastUpdated}
         action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <PeriodSelect value={days} onChange={setDays} options={PERIOD_OPTIONS} />
+            <PeriodSelect value={days} onChange={changeDays} options={PERIOD_OPTIONS} />
+            {!loading && fromCache && (
+              <span title="Dados em cache — clique em Atualizar para buscar novos dados" style={{
+                fontSize: 10, color: '#B9915B', background: 'rgba(185,145,91,0.1)',
+                border: '1px solid rgba(185,145,91,0.25)', borderRadius: 5, padding: '2px 8px', fontWeight: 700,
+              }}>CACHE</span>
+            )}
+            {!loading && !isMock && (
+              <button
+                onClick={handleExport}
+                title="Exportar CSVs (canais, mídia ROI, receita, campanhas, perfis)"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                  border: '1px solid rgba(34,197,94,0.3)',
+                  background: 'rgba(34,197,94,0.07)', color: '#22C55E',
+                  fontSize: 11, fontWeight: 700, fontFamily: 'Manrope, sans-serif',
+                }}
+              >
+                <Download size={11} /> CSV
+              </button>
+            )}
             {isMock && (
               <span style={{
                 background: 'rgba(245,158,11,0.15)', color: '#F59E0B',

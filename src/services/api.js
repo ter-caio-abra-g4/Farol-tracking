@@ -4,22 +4,34 @@
  * Todas as chamadas passam por aqui — nunca direto para APIs externas do React.
  */
 
-const BASE = 'http://127.0.0.1:3001'
+// Porta dinâmica: o servidor pode ter subido em 3001–3005 se houve conflito
+// window.__FAROL_PORT é injetado pelo preload se disponível, senão usa 3001
+function getBase() {
+  const port = window.__FAROL_PORT || 3001
+  return `http://127.0.0.1:${port}`
+}
 
-async function get(path, fallback = null) {
-  try {
-    const res = await fetch(`${BASE}${path}`)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return await res.json()
-  } catch (err) {
-    console.warn(`[API] GET ${path} falhou:`, err.message)
-    return fallback
+async function get(path, fallback = null, { retries = 1, retryDelay = 800 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${getBase()}${path}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return await res.json()
+    } catch (err) {
+      const isLast = attempt === retries
+      if (!isLast) {
+        await new Promise((r) => setTimeout(r, retryDelay))
+        continue
+      }
+      console.warn(`[API] GET ${path} falhou após ${attempt + 1} tentativa(s):`, err.message)
+      return fallback
+    }
   }
 }
 
 async function post(path, body) {
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${getBase()}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -100,4 +112,20 @@ export const api = {
   metaSetPixel: (pixel_id, pixel_ids) => post('/api/meta/pixel', { pixel_id, pixel_ids }),
   metaAudience: (days = 30) => get(`/api/meta/audience?days=${days}`, { mock: true }),
   metaCreatives: (days = 30) => get(`/api/meta/creatives?days=${days}`, { mock: true, ads: [] }),
+
+  // Live Monitor
+  liveGa4:        (propertyId, event = '') => get(`/api/live/ga4?propertyId=${propertyId}${event ? `&event=${encodeURIComponent(event)}` : ''}`, { mock: true }),
+  liveMeta:       ()                       => get('/api/live/meta', { mock: true }),
+  liveDatabricks: (event = 'generate_lead') => get(`/api/live/databricks?event=${encodeURIComponent(event)}`, { mock: true }),
+  liveCrm:        (campaign = '')           => get(`/api/live/crm${campaign ? `?campaign=${encodeURIComponent(campaign)}` : ''}`, { mock: true }),
+
+  // Live History — persistência de sessões entre trocas de tela e reinicializações
+  liveSavePoint:   (sessionId, point)  => post('/api/live/history/point', { sessionId, point }),
+  liveSessions:    ()                  => get('/api/live/history/sessions', { sessions: [] }),
+  liveSession:     (id)                => get(`/api/live/history/session/${encodeURIComponent(id)}`, null),
+  liveDeleteSession: (id)              => {
+    // DELETE não tem helper — usa fetch direto
+    return fetch(`${getBase()}/api/live/history/session/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .then(r => r.json()).catch(() => null)
+  },
 }

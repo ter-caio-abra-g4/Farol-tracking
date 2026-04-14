@@ -50,7 +50,9 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "server/**/*",
+      "python/**/*"
     ],
     "win": {
       "target": "nsis",
