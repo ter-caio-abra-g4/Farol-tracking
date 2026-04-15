@@ -129,8 +129,26 @@ async function listContainersWithStats() {
 
 async function getContainerDetails(publicId) {
   const auth = await getAuthClient()
-  const accountId = CONTAINER_ACCOUNT_MAP[publicId]
-  const containerId = CONTAINER_ID_MAP[publicId]
+  let accountId = CONTAINER_ACCOUNT_MAP[publicId]
+  let containerId = CONTAINER_ID_MAP[publicId]
+
+  // Se não está no mapa estático, tenta descobrir via API
+  if (auth && (!accountId || !containerId)) {
+    try {
+      const gtm = getTagManger(auth)
+      const accountsRes = await gtm.accounts.list()
+      outer: for (const acc of accountsRes.data.account || []) {
+        const res = await gtm.accounts.containers.list({ parent: acc.path })
+        for (const c of res.data.container || []) {
+          if (c.publicId === publicId) {
+            accountId = acc.accountId
+            containerId = c.containerId
+            break outer
+          }
+        }
+      }
+    } catch (_) {}
+  }
 
   if (!auth || !accountId || !containerId) {
     return { mock: true, tags: [], triggers: [], variables: [] }

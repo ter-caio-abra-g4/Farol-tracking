@@ -18,6 +18,8 @@ import {
   Sprout,
   DollarSign,
   Radio,
+  AlertTriangle,
+  Users2,
 } from 'lucide-react'
 
 // ── Estrutura de navegação agrupada ──────────────────────────────────────────
@@ -55,6 +57,14 @@ const navGroups = [
     items: [
       { to: '/explorer',   icon: Database, label: 'Explorador' },
       { to: '/databricks', icon: Layers,   label: 'Databricks' },
+    ],
+  },
+  {
+    label: 'Inteligência',
+    defaultOpen: false,
+    items: [
+      { to: '/anomaly', icon: AlertTriangle, label: 'Anomalias' },
+      { to: '/cohort',  icon: Users2,        label: 'Cohort'    },
     ],
   },
 ]

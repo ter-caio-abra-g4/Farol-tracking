@@ -1,6 +1,6 @@
 {
   "ga4": {
-    "service_account_path": "C:\\Users\\terc.caio.abra_g4edu\\.g4os-public\\workspaces\\my-workspace\\sources\\ga4\\service-account.json",
+    "service_account_path": "C:\\Users\\terc.caio.abra_g4edu\\.g4os\\workspaces\\my-workspace\\sources\\ga4\\service-account.json",
     "client_email": "g4analyticsca@security-logs-438613.iam.gserviceaccount.com",
     "property_id": "521780491"
   },
@@ -17,6 +17,11 @@
     "pixel_id": "702432142505333",
     "pixel_ids": [
       "702432142505333"
+    ],
+    "ad_accounts": [
+      "act_942577509469439",
+      "act_584341142722462",
+      "act_324663872349737"
     ]
   },
   "gtm": {},

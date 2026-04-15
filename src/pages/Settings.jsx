@@ -120,6 +120,11 @@ export default function SettingsPage() {
   const [savingSc, setSavingSc] = useState(false)
   const [scSaved, setScSaved] = useState(false)
 
+  // Meta — Ad Accounts
+  const [adAccountsInput, setAdAccountsInput] = useState('')
+  const [savingAdAccounts, setSavingAdAccounts] = useState(false)
+  const [adAccountsSaved, setAdAccountsSaved] = useState(false)
+
   // Meta config
   const [metaToken, setMetaToken] = useState('')
   const [metaTokenVisible, setMetaTokenVisible] = useState(false)
@@ -149,6 +154,7 @@ export default function SettingsPage() {
     })
     // Carrega config atual do Meta + Databricks
     api.getConfig().then((cfg) => {
+      if (cfg?.meta?.ad_accounts?.length > 0) setAdAccountsInput(cfg.meta.ad_accounts.join('\n'))
       if (cfg?.meta?.pixel_id) setActivePixelId(cfg.meta.pixel_id)
       if (cfg?.meta?.pixel_ids?.length > 0) setSelectedPixelIds(cfg.meta.pixel_ids)
       if (cfg?.meta?.pixel_ids?.length > 1) setMetaPixelMode('unified')
@@ -168,6 +174,20 @@ export default function SettingsPage() {
       setMetaPixels(res.pixels)
       if (!activePixelId && res.pixels[0]) setActivePixelId(res.pixels[0].id)
     }
+  }
+
+  async function handleSaveAdAccounts() {
+    const accounts = adAccountsInput
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(s => s.startsWith('act_'))
+    if (accounts.length === 0) return
+    setSavingAdAccounts(true)
+    setAdAccountsSaved(false)
+    await api.saveConfig({ meta: { ad_accounts: accounts } })
+    setSavingAdAccounts(false)
+    setAdAccountsSaved(true)
+    setTimeout(() => setAdAccountsSaved(false), 3000)
   }
 
   async function handleSaveMetaToken() {
@@ -876,6 +896,57 @@ export default function SettingsPage() {
               </div>
             )}
 
+          </CardBody>
+        </Card>
+
+        {/* Meta — Ad Accounts */}
+        <Card style={{ marginBottom: 20 }}>
+          <CardHeader title="Meta Ads — Ad Accounts" />
+          <CardBody>
+            <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 10 }}>
+              IDs das contas de anúncios usadas nos relatórios de Audiência e Criativos.
+              Um por linha ou separados por vírgula. Formato: <code style={{ color: '#B9915B', fontSize: 11 }}>act_XXXXXXXXXXXXXXXXX</code>
+            </div>
+            <textarea
+              rows={4}
+              value={adAccountsInput}
+              onChange={e => setAdAccountsInput(e.target.value)}
+              placeholder={'act_942577509469439\nact_584341142722462\nact_324663872349737'}
+              style={{
+                width: '100%', padding: '9px 12px',
+                background: '#031A26', border: '1px solid rgba(185,145,91,0.35)',
+                borderRadius: 6, color: '#F5F4F3', fontSize: 12,
+                outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box',
+                resize: 'vertical', lineHeight: 1.6,
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+              <div style={{ fontSize: 11, color: '#6B7280' }}>
+                {adAccountsInput.split(/[\n,]+/).filter(s => s.trim().startsWith('act_')).length} conta(s) configurada(s)
+              </div>
+              <button
+                onClick={handleSaveAdAccounts}
+                disabled={savingAdAccounts}
+                style={{
+                  padding: '8px 18px',
+                  background: adAccountsSaved ? 'rgba(34,197,94,0.15)' : 'rgba(185,145,91,0.12)',
+                  border: `1px solid ${adAccountsSaved ? 'rgba(34,197,94,0.4)' : 'rgba(185,145,91,0.35)'}`,
+                  borderRadius: 6,
+                  color: adAccountsSaved ? '#22C55E' : '#B9915B',
+                  cursor: savingAdAccounts ? 'not-allowed' : 'pointer',
+                  fontSize: 12, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  fontFamily: 'Manrope, sans-serif', transition: 'all 0.2s',
+                }}
+              >
+                {savingAdAccounts
+                  ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Salvando</>
+                  : adAccountsSaved
+                    ? <><CheckCircle size={12} /> Salvo</>
+                    : <><Save size={12} /> Salvar</>
+                }
+              </button>
+            </div>
           </CardBody>
         </Card>
 

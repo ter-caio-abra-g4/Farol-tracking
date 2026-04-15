@@ -16,6 +16,8 @@ import PaidPage from './pages/Paid'
 import LiveMonitorPage from './pages/LiveMonitor'
 import SettingsPage from './pages/Settings'
 import SetupWizard from './pages/Setup'
+import AnomalyDetectionPage from './pages/AnomalyDetection'
+import ClosingCohortPage from './pages/ClosingCohort'
 import { TrackingProvider } from './context/TrackingContext'
 import { api } from './services/api'
 
@@ -105,6 +107,8 @@ export default function App() {
                 <Route path="/paid" element={<PaidPage />} />
                 <Route path="/live" element={<LiveMonitorPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/anomaly" element={<AnomalyDetectionPage />} />
+                <Route path="/cohort"  element={<ClosingCohortPage />} />
               </Routes>
             </main>
           </div>

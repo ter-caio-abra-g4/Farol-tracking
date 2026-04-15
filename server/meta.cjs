@@ -215,11 +215,10 @@ async function getEventVolume(days = 7) {
       }
     }
 
-    // Sem breakdown CAPI vs Browser disponível na agregação por evento — usa heurística
+    // G4 não usa CAPI — todos os eventos chegam via browser pixel
     const rows = Object.values(byDay).map(r => ({
       ...r,
-      capi: Math.round(r.total * 0.62),
-      pixel: Math.round(r.total * 0.38),
+      browserPixelOnly: true,
     }))
 
     return { mock: false, rows }
@@ -328,19 +327,27 @@ function getMockVolume(days = 7) {
     rows.push({
       date: label,
       total: base,
-      capi: Math.round(base * 0.62),
-      pixel: Math.round(base * 0.38),
+      browserPixelOnly: true,
     })
   }
   return rows
 }
 
-// ─── Ad Accounts da G4 (fixo + detectável) ───────────────────────────────────
-const G4_AD_ACCOUNTS = [
+// ─── Ad Accounts configuráveis ────────────────────────────────────────────────
+// Lê de cfg.meta.ad_accounts; fallback para contas G4 hardcoded.
+// Edite em Configurações → Meta Ads — Ad Accounts.
+const DEFAULT_AD_ACCOUNTS = [
   'act_942577509469439', // G4 Educação - LGEN
   'act_584341142722462', // G4 Educação - SOCIAL
   'act_324663872349737', // G4 Educação - SELFCHECKOUT
 ]
+
+function getAdAccounts() {
+  const cfg = loadConfig()
+  const fromConfig = cfg.meta?.ad_accounts
+  if (Array.isArray(fromConfig) && fromConfig.length > 0) return fromConfig
+  return DEFAULT_AD_ACCOUNTS
+}
 
 // Action types de lead/conversão que queremos contabilizar
 const LEAD_ACTIONS = new Set([
@@ -371,8 +378,9 @@ async function getAudienceInsights(days = 30) {
 
   try {
     // Roda em paralelo: age/gender + publisher_platform — para todas as contas
+    const adAccounts = getAdAccounts()
     const ageGenderResults = await Promise.all(
-      G4_AD_ACCOUNTS.map(acc =>
+      adAccounts.map(acc =>
         metaGet(`${acc}/insights`, {
           fields: 'spend,impressions,clicks,reach,cpm,cpc,ctr,actions',
           breakdowns: 'age,gender',
@@ -382,7 +390,7 @@ async function getAudienceInsights(days = 30) {
       )
     )
     const platformResults = await Promise.all(
-      G4_AD_ACCOUNTS.map(acc =>
+      adAccounts.map(acc =>
         metaGet(`${acc}/insights`, {
           fields: 'spend,impressions,clicks,reach,cpm,cpc,ctr,actions',
           breakdowns: 'publisher_platform',
@@ -454,7 +462,7 @@ async function getAdCreativeInsights(days = 30) {
 
   try {
     const results = await Promise.all(
-      G4_AD_ACCOUNTS.map(acc =>
+      getAdAccounts().map(acc =>
         metaGet(`${acc}/insights`, {
           fields: 'ad_id,ad_name,adset_name,campaign_name,spend,impressions,clicks,ctr,cpm,cpc,reach,frequency,actions',
           level: 'ad',
