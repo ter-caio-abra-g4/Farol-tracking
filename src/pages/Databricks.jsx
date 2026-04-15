@@ -57,6 +57,7 @@ export default function DatabricksPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
         title="Databricks"
+        isMock={isMock}
         subtitle={`${host !== '—' ? host.replace('https://', '') : 'não configurado'} · ${catalog}.${schema}`}
         onRefresh={loadData}
         lastUpdated={lastUpdated}

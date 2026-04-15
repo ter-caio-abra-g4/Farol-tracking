@@ -171,6 +171,7 @@ export default function PaidPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
         title="Paid Media"
+        isMock={isMock}
         subtitle="Visão consolidada de mídia paga · Meta Ads"
         action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

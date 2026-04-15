@@ -147,6 +147,7 @@ export default function Explorer() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
         title="Explorador"
+        isMock={isMock}
         subtitle="Eventos GA4 e tags GTM em tempo real"
         onRefresh={handleRefresh}
         lastUpdated={lastUpdated}

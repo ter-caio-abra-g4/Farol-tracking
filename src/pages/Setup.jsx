@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import { CheckCircle, AlertTriangle, Key, ArrowRight, Download, Zap, Loader, XCircle, FolderOpen, ChevronDown, Upload, Link, RefreshCw, Shield } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Key, ArrowRight, Download, Zap, Loader, XCircle, FolderOpen, ChevronDown, Upload, Link, RefreshCw, Shield, Server, Eye, EyeOff } from 'lucide-react'
 
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState('detect') // detect | manual | review | done
@@ -16,6 +16,15 @@ export default function SetupWizard({ onComplete }) {
   const [testResults, setTestResults] = useState(null)
   const [testing, setTesting] = useState(false)
   const [showCredentialsModal, setShowCredentialsModal] = useState(false)
+
+  // Databricks — configuração no setup
+  const [dbHost, setDbHost]         = useState('')
+  const [dbHttpPath, setDbHttpPath] = useState('')
+  const [dbToken, setDbToken]       = useState('')
+  const [dbTokenVisible, setDbTokenVisible] = useState(false)
+  const [dbCatalog, setDbCatalog]   = useState('production')
+  const [dbSchema, setDbSchema]     = useState('diamond')
+  const [showDbStep, setShowDbStep] = useState(false)
 
   useEffect(() => {
     api.detectG4OS().then((result) => {
@@ -102,8 +111,18 @@ export default function SetupWizard({ onComplete }) {
   async function handleSave() {
     setSaving(true)
     const cfg = {}
-    if (metaToken) cfg.meta = { access_token: metaToken, pixel_id: '702432142505333' }
+    if (metaToken) cfg.meta = { access_token: metaToken }
     if (ga4PropId) cfg.ga4 = { ...(serviceAccountPath ? { service_account_path: serviceAccountPath } : {}), property_id: ga4PropId }
+    if (dbHost.trim() && dbHttpPath.trim() && dbToken.trim()) {
+      cfg.databricks = {
+        host: dbHost.trim().replace(/\/$/, ''),
+        http_path: dbHttpPath.trim(),
+        token: dbToken.trim(),
+        catalog: dbCatalog.trim() || 'production',
+        schema: dbSchema.trim() || 'diamond',
+        token_created_at: new Date().toISOString(),
+      }
+    }
     await api.saveConfig(cfg)
     setSaving(false)
     onComplete()
@@ -271,6 +290,47 @@ export default function SetupWizard({ onComplete }) {
           <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 8 }}>{testResults.error}</div>
         )}
 
+        {/* Databricks — opcional no step review também */}
+        <div style={{ width: '100%', maxWidth: 400, marginBottom: 4 }}>
+          <button
+            type="button"
+            onClick={() => setShowDbStep(v => !v)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '9px 14px', background: 'rgba(185,145,91,0.06)',
+              border: '1px solid rgba(185,145,91,0.25)', borderRadius: 6,
+              color: dbHost ? '#22C55E' : '#B9915B', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Server size={13} />
+              Databricks SQL {dbHost ? '✓ configurado' : '(opcional)'}
+            </span>
+            <ChevronDown size={13} style={{ transition: 'transform 0.2s', transform: showDbStep ? 'rotate(180deg)' : 'none' }} />
+          </button>
+          {showDbStep && (
+            <div style={{ border: '1px solid rgba(185,145,91,0.2)', borderTop: 'none', borderRadius: '0 0 6px 6px', padding: '14px 14px 10px', display: 'flex', flexDirection: 'column', gap: 10, background: 'rgba(185,145,91,0.02)' }}>
+              <input type="text" placeholder="https://dbc-xxxxx.cloud.databricks.com" value={dbHost}
+                onChange={e => setDbHost(e.target.value)} style={{ ...inputStyle, fontSize: 12 }} />
+              <input type="text" placeholder="/sql/1.0/warehouses/xxxxxxxx" value={dbHttpPath}
+                onChange={e => setDbHttpPath(e.target.value)} style={{ ...inputStyle, fontSize: 12 }} />
+              <div style={{ position: 'relative' }}>
+                <input type={dbTokenVisible ? 'text' : 'password'} placeholder="dapi..." value={dbToken}
+                  onChange={e => setDbToken(e.target.value)} style={{ ...inputStyle, fontSize: 12, paddingRight: 36 }} />
+                <button type="button" onClick={() => setDbTokenVisible(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', padding: 0 }}>
+                  {dbTokenVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input type="text" placeholder="Catalog" value={dbCatalog} onChange={e => setDbCatalog(e.target.value)} style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
+                <input type="text" placeholder="Schema" value={dbSchema} onChange={e => setDbSchema(e.target.value)} style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
+              </div>
+            </div>
+          )}
+        </div>
+
         <button onClick={handleSave} disabled={saving} style={btnStyle}>
           {saving ? 'Configurando...' : <><Download size={15} /> Importar e continuar</>}
         </button>
@@ -319,6 +379,50 @@ export default function SetupWizard({ onComplete }) {
           <input type="password" placeholder="EAAxxxxxxx..." value={metaToken}
             onChange={(e) => setMetaToken(e.target.value)} style={inputStyle} />
         </div>
+      </div>
+
+      {/* Databricks — opcional, expansível */}
+      <div style={{ width: '100%', maxWidth: 400 }}>
+        <button
+          type="button"
+          onClick={() => setShowDbStep(v => !v)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '9px 14px', background: 'rgba(185,145,91,0.06)',
+            border: '1px solid rgba(185,145,91,0.25)', borderRadius: 6,
+            color: dbHost ? '#22C55E' : '#B9915B', fontSize: 12, fontWeight: 600,
+            cursor: 'pointer', fontFamily: 'Manrope, sans-serif',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Server size={13} />
+            Databricks SQL {dbHost ? '✓ configurado' : '(opcional)'}
+          </span>
+          <ChevronDown size={13} style={{ transition: 'transform 0.2s', transform: showDbStep ? 'rotate(180deg)' : 'none' }} />
+        </button>
+        {showDbStep && (
+          <div style={{ border: '1px solid rgba(185,145,91,0.2)', borderTop: 'none', borderRadius: '0 0 6px 6px', padding: '14px 14px 10px', display: 'flex', flexDirection: 'column', gap: 10, background: 'rgba(185,145,91,0.02)' }}>
+            <div style={{ fontSize: 11, color: '#8A9BAA' }}>Necessário para análises de funil comercial, cohort e anomalias.</div>
+            <input type="text" placeholder="https://dbc-xxxxx.cloud.databricks.com" value={dbHost}
+              onChange={e => setDbHost(e.target.value)} style={{ ...inputStyle, fontSize: 12 }} />
+            <input type="text" placeholder="/sql/1.0/warehouses/xxxxxxxx" value={dbHttpPath}
+              onChange={e => setDbHttpPath(e.target.value)} style={{ ...inputStyle, fontSize: 12 }} />
+            <div style={{ position: 'relative' }}>
+              <input type={dbTokenVisible ? 'text' : 'password'} placeholder="dapi..." value={dbToken}
+                onChange={e => setDbToken(e.target.value)} style={{ ...inputStyle, fontSize: 12, paddingRight: 36 }} />
+              <button type="button" onClick={() => setDbTokenVisible(v => !v)}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#8A9BAA', padding: 0 }}>
+                {dbTokenVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input type="text" placeholder="Catalog (ex: production)" value={dbCatalog}
+                onChange={e => setDbCatalog(e.target.value)} style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
+              <input type="text" placeholder="Schema (ex: diamond)" value={dbSchema}
+                onChange={e => setDbSchema(e.target.value)} style={{ ...inputStyle, fontSize: 12, flex: 1 }} />
+            </div>
+          </div>
+        )}
       </div>
 
       <button onClick={handleTestConnections} disabled={testing}

@@ -331,6 +331,7 @@ export default function ComparacaoPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Header
         title="Comparação de Fontes"
+        isMock={isMock}
         subtitle="GA4 · Meta Ads · CRM — dados reais Databricks"
         onRefresh={() => loadAll(days, true)}
         lastUpdated={lastUpdated}

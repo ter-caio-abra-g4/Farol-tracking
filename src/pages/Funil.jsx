@@ -223,6 +223,7 @@ export default function FunilPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Header
         title="Funil Comercial"
+        isMock={isMock}
         subtitle="Funil comercial — MQL → Ganho"
         onRefresh={() => loadAll(days, true)}
         lastUpdated={lastUpdated}

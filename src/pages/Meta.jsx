@@ -879,6 +879,7 @@ export default function MetaPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
         title="Meta Ads"
+        isMock={isMock}
         subtitle={`Pixel ${pixelId} · 3 contas G4`}
         onRefresh={loadData}
         lastUpdated={lastUpdated}

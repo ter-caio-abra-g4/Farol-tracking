@@ -1,4 +1,4 @@
-import { RefreshCw, Clock } from 'lucide-react'
+import { RefreshCw, Clock, AlertTriangle } from 'lucide-react'
 import { useState } from 'react'
 import { useTracking } from '../../context/TrackingContext'
 
@@ -21,8 +21,9 @@ const SELECT_STYLE = {
 }
 
 // showGTM / showGA4: controla quais seletores globais aparecem por tela.
+// isMock: quando true, exibe banner ⚠️ Dados simulados abaixo do header.
 // Padrão false — cada página declara explicitamente o que precisa.
-export default function Header({ title, subtitle, onRefresh, lastUpdated, select, action, showGTM = false, showGA4 = false }) {
+export default function Header({ title, subtitle, onRefresh, lastUpdated, select, action, showGTM = false, showGA4 = false, isMock = false }) {
   const [spinning, setSpinning] = useState(false)
   const { gtmContainers, selectedGTM, setSelectedGTM, ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
 
@@ -174,6 +175,23 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
           </button>
         </div>
       </div>}
+
+      {/* ── Badge: Dados simulados ── */}
+      {isMock && (
+        <div style={{
+          padding: '6px 28px',
+          background: 'rgba(245,158,11,0.07)',
+          borderTop: '1px solid rgba(245,158,11,0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}>
+          <AlertTriangle size={12} color="#F59E0B" />
+          <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500 }}>
+            Dados simulados — conecte as APIs em Configurações para dados reais
+          </span>
+        </div>
+      )}
 
     </div>
   )
