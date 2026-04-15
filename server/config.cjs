@@ -86,17 +86,17 @@ function syncCredentialsIfNewer() {
 const G4OS_PATHS = {
   ga4ServiceAccount: path.join(
     os.homedir(),
-    '.g4os-public', 'workspaces', 'my-workspace',
+    '.g4os', 'workspaces', 'my-workspace',
     'sources', 'ga4', 'service-account.json'
   ),
   metaConfig: path.join(
     os.homedir(),
-    '.g4os-public', 'workspaces', 'my-workspace',
+    '.g4os', 'workspaces', 'my-workspace',
     'sources', 'meta', 'config.json'
   ),
   gtmConfig: path.join(
     os.homedir(),
-    '.g4os-public', 'workspaces', 'my-workspace',
+    '.g4os', 'workspaces', 'my-workspace',
     'sources', 'gtm', 'config.json'
   ),
 }

@@ -1,11 +1,9 @@
 const { app, BrowserWindow, shell, ipcMain, screen, dialog } = require('electron')
 const path = require('path')
-const { spawn } = require('child_process')
 
 const isDev = !app.isPackaged
 
 let mainWindow
-let pythonProcess
 let apiServer = null
 
 // Inicia o servidor Express local
@@ -155,39 +153,6 @@ ipcMain.handle('show-notification', (_event, { title, body, urgency = 'normal' }
   }
 })
 
-// IPC: Python bridge
-ipcMain.handle('python-call', async (event, { script, args }) => {
-  return new Promise((resolve) => {
-    const pythonPath = path.join(__dirname, '..', 'python', script)
-    let proc
-    try {
-      proc = spawn('python', [pythonPath, ...args])
-    } catch (spawnErr) {
-      // Python não instalado ou não está no PATH
-      console.warn('[Farol] Python não disponível:', spawnErr.message)
-      return resolve({ ok: false, error: 'Python não encontrado. Instale Python e adicione ao PATH.' })
-    }
-    let stdout = ''
-    let stderr = ''
-    proc.stdout.on('data', (d) => (stdout += d.toString()))
-    proc.stderr.on('data', (d) => (stderr += d.toString()))
-    proc.on('error', (err) => {
-      console.warn('[Farol] Python spawn error:', err.message)
-      resolve({ ok: false, error: err.message })
-    })
-    proc.on('close', (code) => {
-      if (code === 0) {
-        try {
-          resolve(JSON.parse(stdout || '{}'))
-        } catch {
-          resolve({ ok: false, error: 'Saída do script não é JSON válido', raw: stdout })
-        }
-      } else {
-        resolve({ ok: false, error: stderr || `Processo encerrou com código ${code}` })
-      }
-    })
-  })
-})
 
 app.whenReady().then(async () => {
   await startApiServer()
@@ -199,7 +164,6 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    if (pythonProcess) pythonProcess.kill()
     if (apiServer) apiServer.close()
     app.quit()
   }

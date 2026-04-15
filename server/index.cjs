@@ -730,6 +730,8 @@ const fs = require('fs')
 const USER_DATA = process.env.FAROL_USER_DATA || path.join(__dirname, '..')
 const LIVE_SESSIONS_PATH = path.join(USER_DATA, 'live-sessions.json')
 
+const LIVE_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 dias
+
 function readSessions() {
   try {
     if (!fs.existsSync(LIVE_SESSIONS_PATH)) return {}
@@ -739,6 +741,16 @@ function readSessions() {
 
 function writeSessions(data) {
   try { fs.writeFileSync(LIVE_SESSIONS_PATH, JSON.stringify(data, null, 2), 'utf8') } catch (_) {}
+}
+
+// Remove sessões mais antigas que 30 dias (chamado a cada gravação)
+function pruneOldSessions(sessions) {
+  const cutoff = Date.now() - LIVE_SESSION_TTL_MS
+  for (const id of Object.keys(sessions)) {
+    const created = new Date(sessions[id].createdAt).getTime()
+    if (created < cutoff) delete sessions[id]
+  }
+  return sessions
 }
 
 // POST /api/live/history/point — salva um ponto na sessão ativa
@@ -760,7 +772,7 @@ app.post('/api/live/history/point', (req, res) => {
   if (sessions[sessionId].points.length > 1440) {
     sessions[sessionId].points = sessions[sessionId].points.slice(-1440)
   }
-  writeSessions(sessions)
+  writeSessions(pruneOldSessions(sessions))
   res.json({ ok: true, total: sessions[sessionId].points.length })
 })
 

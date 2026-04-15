@@ -45,6 +45,22 @@ function getCredentials() {
   }
 }
 
+// Retorna os nomes de tabela configurados, com fallback para os padrões G4
+function getTableNames() {
+  const cfg = loadConfig()
+  const t = cfg.databricks?.tables ?? {}
+  const cat = cfg.databricks?.catalog || 'production'
+  const sch = cfg.databricks?.schema || 'diamond'
+  const prefix = `${cat}.${sch}`
+  return {
+    funilComercial:  t.funil_comercial   || `${prefix}.funil_comercial`,
+    funilMarketing:  t.funil_marketing   || `${prefix}.funil_marketing`,
+    customerSales:   t.customer_sales    || `${prefix}.customer_360_sales_table`,
+    formAtrib:       t.form_attribution  || `${prefix}.form_attribution`,
+    mediaRoi:        t.media_roi         || `${prefix}.media_performance_roi`,
+  }
+}
+
 // Executa uma query SQL via Databricks SQL REST API (Statement Execution)
 async function executeStatement(sql, timeoutSecs = 30) {
   const { host, token, httpPath, catalog, schema } = getCredentials()
@@ -284,12 +300,13 @@ function getMockPreview(tableName) {
 // Retorna contagem de leads por etapa do funil nos últimos N dias
 async function getFunnelStages(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, stages: getMockFunnelStages() }
 
   try {
     const data = await executeStatement(
       `SELECT event, COUNT(*) as total
-       FROM production.diamond.funil_comercial
+       FROM ${funilComercial}
        WHERE event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND event IN ('MQL','SAL','Oportunidade','Conectado','Agendado','Negociação','Ganho','Perdido')
        GROUP BY event`,
@@ -313,12 +330,13 @@ async function getFunnelStages(days = 30) {
 // Motivos de perda agregados nos últimos N dias
 async function getLostReasons(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, reasons: getMockLostReasons() }
 
   try {
     const data = await executeStatement(
       `SELECT motivo_lost, COUNT(*) as total
-       FROM production.diamond.funil_comercial
+       FROM ${funilComercial}
        WHERE event = 'Perdido'
          AND event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND motivo_lost IS NOT NULL AND motivo_lost != ''
@@ -339,12 +357,13 @@ async function getLostReasons(days = 30) {
 // Top produtos vendidos (Ganho) nos últimos N dias
 async function getTopProducts(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, products: getMockProducts() }
 
   try {
     const data = await executeStatement(
       `SELECT produto, bu, COUNT(*) as deals, SUM(valor) as receita
-       FROM production.diamond.customer_360_sales_table
+       FROM ${customerSales}
        WHERE event = 'Ganho'
          AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
          AND produto IS NOT NULL AND produto != ''
@@ -370,12 +389,13 @@ async function getTopProducts(days = 30) {
 // Funil de marketing: leads por camada + UTM sources
 async function getMarketingFunnel(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, layers: getMockMarketingLayers() }
 
   try {
     const data = await executeStatement(
       `SELECT camada_funil, event, COUNT(*) as total
-       FROM production.diamond.funil_marketing
+       FROM ${funilMarketing}
        WHERE event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND camada_funil IN ('negociacao_deal','paid_media')
          AND event IN ('mql','sal','opp','won','lost',
@@ -396,6 +416,7 @@ async function getMarketingFunnel(days = 30) {
 // Tendência diária de Ganhos e Perdidos nos últimos N dias
 async function getFunnelTrend(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, trend: getMockTrend() }
 
   try {
@@ -404,7 +425,7 @@ async function getFunnelTrend(days = 30) {
               SUM(CASE WHEN event = 'Ganho' THEN 1 ELSE 0 END) as ganhos,
               SUM(CASE WHEN event = 'Perdido' THEN 1 ELSE 0 END) as perdidos,
               SUM(CASE WHEN event = 'MQL' THEN 1 ELSE 0 END) as mqls
-       FROM production.diamond.funil_comercial
+       FROM ${funilComercial}
        WHERE event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND event IN ('Ganho','Perdido','MQL')
        GROUP BY DATE(event_timestamp)
@@ -480,6 +501,7 @@ function getMockTrend() {
 // Funil por canal de marketing (Paid/Social/CRM/Orgânico)
 async function getCompareByChannel(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, channels: getMockChannels() }
   try {
     const data = await executeStatement(
@@ -495,7 +517,7 @@ async function getCompareByChannel(days = 30) {
          SUM(CASE WHEN event = 'opp'  THEN 1 ELSE 0 END) as opps,
          SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) as ganhos,
          SUM(CASE WHEN event = 'lost' THEN 1 ELSE 0 END) as perdidos
-       FROM production.diamond.funil_marketing
+       FROM ${funilMarketing}
        WHERE camada_funil = 'negociacao_deal'
          AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND event IN ('mql','sal','opp','won','lost')
@@ -521,6 +543,7 @@ async function getCompareByChannel(days = 30) {
 // Investimento mídia paga × resultado no funil (Meta + Google)
 async function getMediaROI(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, media: getMockMediaROI() }
   try {
     const [spendData, resultData] = await Promise.all([
@@ -530,7 +553,7 @@ async function getMediaROI(days = 30) {
            SUM(CASE WHEN event IN ('facebook_spend','google_spend') THEN event_value ELSE 0 END) as gasto,
            SUM(CASE WHEN event IN ('facebook_clicks','google_clicks') THEN event_value ELSE 0 END) as cliques,
            SUM(CASE WHEN event IN ('facebook_impressions','google_impressions') THEN event_value ELSE 0 END) as impressoes
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE camada_funil = 'paid_media'
            AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
          GROUP BY 1`, 30
@@ -543,7 +566,7 @@ async function getMediaROI(days = 30) {
            END as plataforma,
            SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) as mqls,
            SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) as ganhos
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE camada_funil = 'negociacao_deal'
            AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
            AND utm_source IN ('facebook','instagram','google')
@@ -587,6 +610,7 @@ async function getMediaROI(days = 30) {
 // Receita real por canal (customer_360 × funil_marketing)
 async function getRevenueByChannel(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, channels: getMockRevenueChannels() }
   try {
     const data = await executeStatement(
@@ -599,8 +623,8 @@ async function getRevenueByChannel(days = 30) {
          s.utm_source,
          COUNT(DISTINCT c.deal_id) as deals,
          ROUND(SUM(c.valor), 0) as receita
-       FROM production.diamond.customer_360_sales_table c
-       LEFT JOIN production.diamond.funil_marketing s
+       FROM ${customerSales} c
+       LEFT JOIN ${funilMarketing} s
          ON c.deal_id = s.deal_id AND s.event = 'mql'
        WHERE c.event = 'Ganho'
          AND c.event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
@@ -625,6 +649,7 @@ async function getRevenueByChannel(days = 30) {
 // Conversão por perfil ICP
 async function getConversionByProfile(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, profiles: getMockProfiles() }
   try {
     const data = await executeStatement(
@@ -645,7 +670,7 @@ async function getConversionByProfile(days = 30) {
          SUM(CASE WHEN event = 'lost' THEN 1 ELSE 0 END) as perdidos,
          ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
            NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) as conv_pct
-       FROM production.diamond.funil_marketing
+       FROM ${funilMarketing}
        WHERE event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND event IN ('mql','won','lost')
        GROUP BY
@@ -680,6 +705,7 @@ async function getConversionByProfile(days = 30) {
 // Top campanhas Meta: MQL → Ganho
 async function getTopCampaigns(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, campaigns: getMockCampaigns() }
   try {
     const data = await executeStatement(
@@ -691,7 +717,7 @@ async function getTopCampaigns(days = 30) {
          SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) as ganhos,
          ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
            NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) as conv_pct
-       FROM production.diamond.funil_marketing
+       FROM ${funilMarketing}
        WHERE camada_funil = 'negociacao_deal'
          AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
          AND utm_source IN ('facebook','instagram','google')
@@ -720,6 +746,7 @@ async function getTopCampaigns(days = 30) {
 // ─── Resumo Executivo: KPIs do dia para o Dashboard ──────────────────────────
 async function getExecutiveSummary() {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, ...getMockExecutiveSummary() }
   try {
     const data = await executeStatement(
@@ -747,7 +774,7 @@ async function getExecutiveSummary() {
          ROUND(SUM(CASE WHEN event_at >= CAST(CURRENT_DATE - INTERVAL 14 DAYS AS STRING)
                          AND event_at <  CAST(CURRENT_DATE - INTERVAL 7  DAYS AS STRING)
                          AND event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END), 0) AS receita_semana_ant
-       FROM production.diamond.funil_marketing
+       FROM ${funilMarketing}
        WHERE event_at >= CAST(CURRENT_DATE - INTERVAL 14 DAYS AS STRING)
          AND event IN ('mql','won','lost')`, 35
     )
@@ -800,6 +827,7 @@ function getMockExecutiveSummary() {
 // ─── Orgânico vs Pago: funil completo por fonte ──────────────────────────────
 async function getOrganicVsPaid(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, sources: getMockOrganicVsPaid() }
   try {
     const data = await executeStatement(
@@ -817,7 +845,7 @@ async function getOrganicVsPaid(days = 30) {
          ROUND(SUM(CASE WHEN event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END), 0) AS receita,
          ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
            NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) AS conv_pct
-       FROM production.diamond.funil_marketing
+       FROM ${funilMarketing}
        WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
          AND event IN ('mql','won','lost')
        GROUP BY 1, 2
@@ -873,6 +901,7 @@ function getMockOrganicVsPaid() {
 // Funil completo de formulário até venda, com internal_ref quando disponível
 async function getFormAttribution(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, rows: getMockFormAttribution(), summary: getMockFormSummary() }
   try {
     // Query principal: funil form→lead→mql→venda por produto + fonte
@@ -888,9 +917,9 @@ async function getFormAttribution(days = 30) {
            COUNT(DISTINCT CASE WHEN c.event = 'Ganho' THEN c.deal_id END) as vendas,
            ROUND(SUM(CASE WHEN c.event = 'Ganho' THEN COALESCE(c.valor, 0) ELSE 0 END), 0) as receita
          FROM production.gold.forms_g4_events fe
-         LEFT JOIN production.diamond.funil_marketing fm
+         LEFT JOIN ${funilMarketing} fm
            ON fe.lead_id = fm.lead_id AND fm.event = 'mql'
-         LEFT JOIN production.diamond.customer_360_sales_table c
+         LEFT JOIN ${customerSales} c
            ON COALESCE(fe.deal_id, fm.deal_id) = c.deal_id
          WHERE fe.event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
            AND fe.product_slug IS NOT NULL AND fe.product_slug != ''
@@ -1016,6 +1045,7 @@ function getMockCampaigns() {
 // Retorna MQL/Ganho/Perdido diário por N dias + projeção para os próximos 14
 async function getAnalyticsTrend(days = 90) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, trend: getMockAnalyticsTrend(days), projection: getMockProjection() }
   try {
     const data = await executeStatement(
@@ -1023,7 +1053,7 @@ async function getAnalyticsTrend(days = 90) {
               SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) as mqls,
               SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) as ganhos,
               SUM(CASE WHEN event = 'lost' THEN 1 ELSE 0 END) as perdidos
-       FROM production.diamond.funil_marketing
+       FROM ${funilMarketing}
        WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
          AND event IN ('mql','won','lost')
        GROUP BY DATE(event_at)
@@ -1086,6 +1116,7 @@ function getMockProjection() {
 // ─── Analytics: Mídia Paga — ROAS, ROI, série semanal + projeção ─────────────
 async function getMediaPerformance(days = 90) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) {
     const mockWeekly = getMockMediaWeekly(days)
     const weeklyAgg = {}
@@ -1115,7 +1146,7 @@ async function getMediaPerformance(days = 90) {
            SUM(CASE WHEN event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END) AS receita,
            SUM(CASE WHEN event = 'mql'  THEN 1 ELSE 0 END) AS mqls,
            SUM(CASE WHEN event = 'won'  THEN 1 ELSE 0 END) AS ganhos
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
            AND (camada_funil = 'paid_media'
              OR (camada_funil = 'negociacao_deal' AND utm_source IN ('facebook','instagram','google')))
@@ -1130,7 +1161,7 @@ async function getMediaPerformance(days = 90) {
              SUM(CASE WHEN event IN ('facebook_spend','google_spend') THEN COALESCE(event_value,0) ELSE 0 END) AS gasto,
              SUM(CASE WHEN event IN ('facebook_clicks','google_clicks') THEN COALESCE(event_value,0) ELSE 0 END) AS cliques,
              SUM(CASE WHEN event IN ('facebook_impressions','google_impressions') THEN COALESCE(event_value,0) ELSE 0 END) AS impressoes
-           FROM production.diamond.funil_marketing
+           FROM ${funilMarketing}
            WHERE camada_funil = 'paid_media'
              AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
            GROUP BY 1
@@ -1145,7 +1176,7 @@ async function getMediaPerformance(days = 90) {
              SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END) AS mqls,
              SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) AS ganhos,
              SUM(CASE WHEN event = 'won' THEN COALESCE(revenue,0) ELSE 0 END) AS receita
-           FROM production.diamond.funil_marketing
+           FROM ${funilMarketing}
            WHERE utm_source IN ('facebook','instagram','google')
              AND event IN ('mql','won')
              AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
@@ -1172,7 +1203,7 @@ async function getMediaPerformance(days = 90) {
            SUM(CASE WHEN event = 'won'  THEN COALESCE(revenue, 0) ELSE 0 END) AS receita,
            ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
              NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) AS conv_pct
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE camada_funil = 'negociacao_deal'
            AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
            AND utm_source IN ('facebook','instagram','google')
@@ -1290,6 +1321,7 @@ function getMockMediaCampaigns() {
 // ─── Analytics: atribuição de jornada (primeiro toque × último toque) ────────
 async function getJourneyAttribution(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, journeys: getMockJourneys(), totals: getMockJourneyTotals() }
   try {
     // Agrega jornadas por canal de entrada e canal de fechamento
@@ -1302,7 +1334,7 @@ async function getJourneyAttribution(days = 30) {
              ELSE 'Orgânico'
            END AS canal_entrada,
            utm_source AS fonte_entrada
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE event = 'mql'
            AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
        ),
@@ -1314,7 +1346,7 @@ async function getJourneyAttribution(days = 30) {
              ELSE 'Orgânico'
            END AS canal_fechamento,
            utm_source AS fonte_fechamento
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE event = 'won'
            AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
        )
@@ -1377,6 +1409,7 @@ function getMockJourneyTotals() {
 // Aceleração de Funil (tempo MQL→Ganho), breakdown por fonte orgânica
 async function getOrganicAttribution(days = 90) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, ...getMockOrganicAttribution() }
 
   try {
@@ -1394,14 +1427,14 @@ async function getOrganicAttribution(days = 90) {
              END AS canal,
              event,
              COALESCE(revenue, 0) AS revenue
-           FROM production.diamond.funil_marketing
+           FROM ${funilMarketing}
            WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
              AND event IN ('mql','won')
          ),
          spend AS (
            SELECT
              SUM(CASE WHEN event IN ('facebook_spend','google_spend') THEN COALESCE(event_value,0) ELSE 0 END) AS total_gasto
-           FROM production.diamond.funil_marketing
+           FROM ${funilMarketing}
            WHERE camada_funil = 'paid_media'
              AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
          )
@@ -1427,7 +1460,7 @@ async function getOrganicAttribution(days = 90) {
            ROUND(SUM(CASE WHEN event = 'won' THEN COALESCE(revenue,0) ELSE 0 END), 0) AS receita,
            ROUND(100.0 * SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) /
              NULLIF(SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END), 0), 1) AS conv_pct
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
            AND event IN ('mql','won')
            AND (utm_medium IS NULL OR utm_medium != 'cpc')
@@ -1449,7 +1482,7 @@ async function getOrganicAttribution(days = 90) {
            SUM(CASE WHEN event = 'mql' THEN 1 ELSE 0 END) AS mqls,
            SUM(CASE WHEN event = 'won' THEN 1 ELSE 0 END) AS ganhos,
            ROUND(SUM(CASE WHEN event = 'won' THEN COALESCE(revenue,0) ELSE 0 END), 0) AS receita
-         FROM production.diamond.funil_marketing
+         FROM ${funilMarketing}
          WHERE event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
            AND event IN ('mql','won')
          GROUP BY 1, 2
@@ -1466,13 +1499,13 @@ async function getOrganicAttribution(days = 90) {
                WHEN utm_source IS NULL OR utm_source IN ('null','','(direct)') THEN 'Direto'
                ELSE 'Orgânico'
              END AS canal
-           FROM production.diamond.funil_marketing
+           FROM ${funilMarketing}
            WHERE event = 'mql'
              AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
          ),
          won_dates AS (
            SELECT deal_id, CAST(event_at AS DATE) AS dt_won
-           FROM production.diamond.funil_marketing
+           FROM ${funilMarketing}
            WHERE event = 'won'
              AND event_at >= CAST(CURRENT_DATE - INTERVAL ${days} DAYS AS STRING)
          )
@@ -1622,6 +1655,7 @@ function getMockOrganicAttribution() {
 // ─── Anomaly Alerts: variação semana a semana em MQLs, Ganhos, Receita ───────
 async function getAnomalyAlerts() {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, alerts: getMockAnomalyAlerts() }
 
   try {
@@ -1634,7 +1668,7 @@ async function getAnomalyAlerts() {
           SUM(CASE WHEN event = 'won' THEN COALESCE(revenue, 0) ELSE 0 END) AS receita,
           SUM(CASE WHEN event = 'mql' AND (utm_medium = 'cpc') THEN 1 ELSE 0 END) AS mqls_pago,
           SUM(CASE WHEN event = 'mql' AND (utm_medium != 'cpc' OR utm_medium IS NULL) THEN 1 ELSE 0 END) AS mqls_org
-        FROM production.diamond.funil_marketing
+        FROM ${funilMarketing}
         WHERE event_at >= CURRENT_DATE - INTERVAL 28 DAYS
         GROUP BY DATE_TRUNC('week', event_at)
         ORDER BY semana DESC
@@ -1686,6 +1720,7 @@ function getMockAnomalyAlerts() {
 // ─── SAL→WON por semana: tendência de conversão ───────────────────────────────
 async function getSalWonTrend(days = 90) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, semanas: getMockSalWonTrend() }
 
   try {
@@ -1694,12 +1729,12 @@ async function getSalWonTrend(days = 90) {
         SELECT deal_id,
           DATE_TRUNC('week', event_at) AS semana,
           CASE WHEN utm_medium = 'cpc' THEN 'Pago' ELSE 'Organico' END AS canal
-        FROM production.diamond.funil_marketing
+        FROM ${funilMarketing}
         WHERE event = 'sal'
           AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
       ),
       won_base AS (
-        SELECT DISTINCT deal_id FROM production.diamond.funil_marketing
+        SELECT DISTINCT deal_id FROM ${funilMarketing}
         WHERE event = 'won' AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
       )
       SELECT
@@ -1750,6 +1785,7 @@ function getMockSalWonTrend() {
 // ─── Cohort: tempo médio MQL→WON por canal e por mês de entrada ───────────────
 async function getClosingCohort(days = 180) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, cohort: getMockClosingCohort() }
 
   try {
@@ -1758,13 +1794,13 @@ async function getClosingCohort(days = 180) {
         SELECT deal_id, event_at AS mql_at,
           CASE WHEN utm_medium = 'cpc' THEN 'Pago' ELSE 'Organico' END AS canal,
           DATE_TRUNC('month', event_at) AS mes_entrada
-        FROM production.diamond.funil_marketing
+        FROM ${funilMarketing}
         WHERE event = 'mql'
           AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
       ),
       won_ts AS (
         SELECT deal_id, MIN(event_at) AS won_at
-        FROM production.diamond.funil_marketing
+        FROM ${funilMarketing}
         WHERE event = 'won'
           AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
         GROUP BY deal_id
@@ -1814,6 +1850,7 @@ function getMockClosingCohort() {
 // ─── First Click Funnel: MQL→SAL→WON por canal de entrada ────────────────────
 async function getFirstClickFunnel(days = 90) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, canais: getMockFirstClickFunnel() }
 
   try {
@@ -1825,16 +1862,16 @@ async function getFirstClickFunnel(days = 90) {
             WHEN utm_source IS NULL OR utm_source IN ('null','','(direct)') THEN 'Direto'
             ELSE 'Organico'
           END AS canal_first_click
-        FROM production.diamond.funil_marketing
+        FROM ${funilMarketing}
         WHERE event = 'mql'
           AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
       ),
       sal_deals AS (
-        SELECT DISTINCT deal_id FROM production.diamond.funil_marketing
+        SELECT DISTINCT deal_id FROM ${funilMarketing}
         WHERE event = 'sal' AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
       ),
       won_deals AS (
-        SELECT DISTINCT deal_id FROM production.diamond.funil_marketing
+        SELECT DISTINCT deal_id FROM ${funilMarketing}
         WHERE event = 'won' AND event_at >= CURRENT_DATE - INTERVAL ${days} DAYS
       )
       SELECT
@@ -1884,6 +1921,7 @@ function getMockFirstClickFunnel() {
 // ─── Qualificação histórica por campanha ─────────────────────────────────────
 async function getQualByCampaign(days = 30) {
   const { host, token } = getCredentials()
+  const { funilComercial, funilMarketing, customerSales, formAtrib, mediaRoi } = getTableNames()
   if (!host || !token) return { mock: true, campaigns: getMockQualCampaigns(), weeks: getMockQualWeeks() }
 
   try {
@@ -1894,7 +1932,7 @@ async function getQualByCampaign(days = 30) {
         COUNT(DISTINCT deal_id) AS leads,
         SUM(CASE WHEN event = 'MQL' THEN 1 ELSE 0 END) AS mqls,
         SUM(CASE WHEN event = 'Ganho' THEN 1 ELSE 0 END) AS ganhos
-      FROM production.diamond.funil_comercial
+      FROM ${funilComercial}
       WHERE event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
         AND event IN ('Lead', 'MQL', 'Ganho')
       GROUP BY utm_campaign
@@ -1906,7 +1944,7 @@ async function getQualByCampaign(days = 30) {
     const weeklyData = await executeStatement(`
       WITH top_camps AS (
         SELECT COALESCE(utm_campaign, '(sem campanha)') AS campanha, COUNT(*) AS n
-        FROM production.diamond.funil_comercial
+        FROM ${funilComercial}
         WHERE event = 'MQL'
           AND event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
         GROUP BY utm_campaign
@@ -1919,7 +1957,7 @@ async function getQualByCampaign(days = 30) {
         SUM(CASE WHEN fc.event = 'MQL'   THEN 1 ELSE 0 END) AS mqls,
         SUM(CASE WHEN fc.event = 'Lead'  THEN 1 ELSE 0 END) AS leads,
         SUM(CASE WHEN fc.event = 'Ganho' THEN 1 ELSE 0 END) AS ganhos
-      FROM production.diamond.funil_comercial fc
+      FROM ${funilComercial} fc
       INNER JOIN top_camps tc ON COALESCE(fc.utm_campaign, '(sem campanha)') = tc.campanha
       WHERE fc.event_timestamp >= CURRENT_DATE - INTERVAL ${days} DAYS
         AND fc.event IN ('Lead', 'MQL', 'Ganho')

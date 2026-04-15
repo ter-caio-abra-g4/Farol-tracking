@@ -12,7 +12,7 @@ const os   = require('os')
 
 const G4OS_SA_PATH = path.join(
   os.homedir(),
-  '.g4os-public', 'workspaces', 'my-workspace',
+  '.g4os', 'workspaces', 'my-workspace',
   'sources', 'ga4', 'service-account.json'
 )
 
