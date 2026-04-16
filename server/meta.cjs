@@ -8,6 +8,28 @@ const { loadConfig, saveConfig } = require('./config.cjs')
 
 const BASE_URL = 'https://graph.facebook.com/v19.0'
 
+// ─── Cache em memória ────────────────────────────────────────────────────────
+const CACHE_TTL_MS      = 5 * 60 * 1000   // 5 min
+const CACHE_TTL_QUAL_MS = 30 * 60 * 1000  // 30 min — qualidade muda pouco
+const _cache = new Map()
+
+function cacheGet(key) {
+  const entry = _cache.get(key)
+  if (!entry) return null
+  const ttl = key === 'quality' ? CACHE_TTL_QUAL_MS : CACHE_TTL_MS
+  if (Date.now() - entry.ts > ttl) { _cache.delete(key); return null }
+  return entry.value
+}
+function cacheSet(key, value) { _cache.set(key, { value, ts: Date.now() }) }
+function clearCache(key) { if (key) { _cache.delete(key) } else { _cache.clear() } }
+async function withCache(key, fn) {
+  const hit = cacheGet(key)
+  if (hit !== null) return hit
+  const result = await fn()
+  if (!result?.mock) cacheSet(key, result)
+  return result
+}
+
 function getToken() {
   const cfg = loadConfig()
   return cfg.meta?.access_token || null
@@ -95,6 +117,7 @@ async function listPixels() {
 
 // ─── Stats do pixel — funil + volume horário + tabela de eventos ──────────────
 async function getPixelStats() {
+  return withCache('pixelstats', async () => {
   const pixelId = getPixelId()
   if (!pixelId) return { mock: true, ...getMockMeta() }
 
@@ -187,10 +210,12 @@ async function getPixelStats() {
     console.error('[Meta] getPixelStats error:', err.message)
     return { mock: true, ...getMockMeta(), error: err.message }
   }
+  })
 }
 
 // ─── Volume diário (CAPI vs Pixel, últimos N dias) ───────────────────────────
 async function getEventVolume(days = 7) {
+  return withCache(`volume_${days}`, async () => {
   const pixelId = getPixelId()
   if (!pixelId) return { mock: true, rows: getMockVolume(days) }
 
@@ -226,12 +251,14 @@ async function getEventVolume(days = 7) {
     console.error('[Meta] getEventVolume error:', err.message)
     return { mock: true, rows: getMockVolume(days), error: err.message }
   }
+  })
 }
 
 // ─── Qualidade por evento ─────────────────────────────────────────────────────
 // Usa match_rate_approx do pixel (geral) + event_stats se disponível.
 // event_stats só existe em pixels com acesso Business Manager avançado.
 async function getEventQuality() {
+  return withCache('quality', async () => {
   const pixelId = getPixelId()
   if (!pixelId) return { mock: true, unavailable: false, events: [] }
 
@@ -260,6 +287,7 @@ async function getEventQuality() {
     // event_stats não suportado — tenta match_rate_approx geral
     return await getPixelMatchRate(pixelId)
   }
+  })
 }
 
 async function getPixelMatchRate(pixelId) {
@@ -371,6 +399,7 @@ function extractLeads(actions = []) {
 
 // ─── Audience Insights: age × gender e publisher_platform ────────────────────
 async function getAudienceInsights(days = 30) {
+  return withCache(`audience_${days}`, async () => {
   const token = getToken()
   if (!token) return { mock: true, ...getMockAudience() }
 
@@ -451,10 +480,12 @@ async function getAudienceInsights(days = 30) {
     console.error('[Meta] getAudienceInsights error:', err.message)
     return { mock: true, ...getMockAudience(), error: err.message }
   }
+  })
 }
 
 // ─── Creative Insights: top anúncios por spend ───────────────────────────────
 async function getAdCreativeInsights(days = 30) {
+  return withCache(`creatives_${days}`, async () => {
   const token = getToken()
   if (!token) return { mock: true, ads: getMockCreatives() }
 
@@ -506,6 +537,7 @@ async function getAdCreativeInsights(days = 30) {
     console.error('[Meta] getAdCreativeInsights error:', err.message)
     return { mock: true, ads: getMockCreatives(), error: err.message }
   }
+  })
 }
 
 // ─── Mock Audience ─────────────────────────────────────────────────────────────
@@ -538,4 +570,59 @@ function getMockCreatives() {
   ]
 }
 
-module.exports = { getPixelStats, getEventQuality, getEventVolume, listPixels, getMockMeta, getAudienceInsights, getAdCreativeInsights }
+// ─── Leads por dia — específico para triangulação GA4 × Meta × CRM ──────────
+// Filtra apenas eventos Lead/lead/initial_lead do pixel e agrega por dia.
+async function getLeadsByDay(days = 30) {
+  return withCache(`leads_by_day_${days}`, async () => {
+    const pixelId = getPixelId()
+    if (!pixelId) return { mock: true, rows: getMockLeadsByDay(days) }
+
+    try {
+      const since = Math.floor((Date.now() - days * 86400000) / 1000)
+      const until = Math.floor(Date.now() / 1000)
+
+      const data = await metaGet(`${pixelId}/stats`, {
+        aggregation: 'event',
+        since: since.toString(),
+        until: until.toString(),
+      })
+
+      const LEAD_EVENTS = new Set(['Lead', 'lead', 'initial_lead'])
+      const byDay = {}
+
+      for (const hourBlock of (data.data || [])) {
+        const d = new Date(hourBlock.start_time)
+        const label = d.toLocaleDateString('pt-BR', { month: '2-digit', day: '2-digit' })
+        if (!byDay[label]) byDay[label] = { date: label, leads: 0 }
+        for (const item of (hourBlock.data || [])) {
+          const name = item.value || item.event
+          if (LEAD_EVENTS.has(name)) byDay[label].leads += item.count || 0
+        }
+      }
+
+      const rows = Object.values(byDay).sort((a, b) => {
+        const [da, ma] = a.date.split('/')
+        const [db, mb] = b.date.split('/')
+        return new Date(new Date().getFullYear(), parseInt(ma)-1, parseInt(da))
+          - new Date(new Date().getFullYear(), parseInt(mb)-1, parseInt(db))
+      })
+
+      return { mock: false, rows }
+    } catch (err) {
+      console.error('[Meta] getLeadsByDay error:', err.message)
+      return { mock: true, rows: getMockLeadsByDay(days), error: err.message }
+    }
+  })
+}
+
+function getMockLeadsByDay(days = 30) {
+  const rows = []
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000)
+    const label = d.toLocaleDateString('pt-BR', { month: '2-digit', day: '2-digit' })
+    rows.push({ date: label, leads: 40 + Math.round(Math.random() * 80) })
+  }
+  return rows
+}
+
+module.exports = { getPixelStats, getEventQuality, getEventVolume, listPixels, getMockMeta, getAudienceInsights, getAdCreativeInsights, getLeadsByDay, clearCache }

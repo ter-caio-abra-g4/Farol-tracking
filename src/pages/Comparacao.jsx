@@ -7,8 +7,9 @@ import { api } from '../services/api'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis,
+  LineChart, Line,
 } from 'recharts'
-import { DollarSign, Target, Users, TrendingUp, Zap, FileText, Download } from 'lucide-react'
+import { DollarSign, Target, Users, TrendingUp, Zap, FileText, Download, Triangle, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
 import PeriodSelect from '../components/ui/PeriodSelect'
 import { fmtNum, fmtMoney } from '../utils/format'
 import { downloadCsv } from '../utils/export'
@@ -197,9 +198,146 @@ function FormAttributionTable({ rows }) {
   )
 }
 
+// ─── Triangulação GA4 × Meta × CRM ──────────────────────────────────────────
+const SCORE_CONFIG = {
+  ok:       { color: '#22C55E', bg: 'rgba(34,197,94,0.12)',   label: 'OK',      Icon: CheckCircle2 },
+  warning:  { color: '#F59E0B', bg: 'rgba(245,158,11,0.12)',  label: 'Atenção', Icon: AlertTriangle },
+  critical: { color: '#EF4444', bg: 'rgba(239,68,68,0.12)',   label: 'Crítico', Icon: XCircle },
+}
+
+function ScoreBadge({ score }) {
+  const { color, bg, label, Icon } = SCORE_CONFIG[score] || SCORE_CONFIG.ok
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: bg, color, borderRadius: 5, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+      <Icon size={11} /> {label}
+    </span>
+  )
+}
+
+function TriangulationCard({ data, days }) {
+  const { series = [], summary = {}, mock } = data
+
+  const healthColor = summary.healthScore >= 80 ? '#22C55E' : summary.healthScore >= 50 ? '#F59E0B' : '#EF4444'
+
+  // Usa últimos 14 dias para o gráfico (evita poluição visual)
+  const chartSeries = series.slice(-14)
+
+  return (
+    <div style={{ background: '#1A1B23', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '20px 24px' }}>
+      {/* Cabeçalho */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ background: 'rgba(99,102,241,0.15)', borderRadius: 8, padding: 8 }}>
+            <Triangle size={16} color="#818CF8" />
+          </div>
+          <div>
+            <div style={{ color: '#F9FAFB', fontWeight: 700, fontSize: 14 }}>Triangulação de Dados</div>
+            <div style={{ color: '#6B7280', fontSize: 11, marginTop: 2 }}>
+              GA4 generate_lead · Meta pixel Lead · Databricks MQL — últimos {days}d
+              {mock && <span style={{ marginLeft: 8, background: 'rgba(245,158,11,0.15)', color: '#F59E0B', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>MOCK</span>}
+            </div>
+          </div>
+        </div>
+        {/* Health Score */}
+        {summary.healthScore !== null && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ color: healthColor, fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{summary.healthScore}%</div>
+            <div style={{ color: '#6B7280', fontSize: 10, marginTop: 2 }}>dias sem divergência crítica</div>
+          </div>
+        )}
+      </div>
+
+      {/* Métricas de divergência média */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+        {[
+          { label: 'GA4 × Meta', value: summary.avgDivGa4Meta, desc: 'browser vs pixel' },
+          { label: 'GA4 × CRM',  value: summary.avgDivGa4Db,   desc: 'browser vs Databricks' },
+          { label: 'Meta × CRM', value: summary.avgDivMetaDb,  desc: 'pixel vs Databricks' },
+        ].map(({ label, value, desc }) => {
+          const color = value === null ? '#6B7280' : value < 20 ? '#22C55E' : value < 50 ? '#F59E0B' : '#EF4444'
+          return (
+            <div key={label} style={{ background: '#131420', borderRadius: 10, padding: '12px 14px' }}>
+              <div style={{ color: '#9CA3AF', fontSize: 11, marginBottom: 4 }}>{label}</div>
+              <div style={{ color, fontSize: 20, fontWeight: 700 }}>{value !== null ? `${value}%` : '—'}</div>
+              <div style={{ color: '#6B7280', fontSize: 10 }}>{desc}</div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Gráfico de linhas — últimos 14 dias */}
+      {chartSeries.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={chartSeries} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="dia" tick={{ fill: '#6B7280', fontSize: 10 }} tickLine={false} axisLine={false} interval={1} />
+              <YAxis tick={{ fill: '#6B7280', fontSize: 10 }} tickLine={false} axisLine={false} width={36} />
+              <Tooltip
+                contentStyle={{ background: '#1E1F2A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                labelStyle={{ color: '#9CA3AF' }}
+              />
+              <Legend iconSize={10} wrapperStyle={{ fontSize: 11, color: '#9CA3AF' }} />
+              <Line type="monotone" dataKey="ga4"  name="GA4"        stroke="#6366F1" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="meta" name="Meta Pixel" stroke="#3B82F6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="db"   name="CRM (MQL)"  stroke="#22C55E" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Tabela dos últimos 7 dias */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              {['Dia', 'GA4', 'Meta', 'CRM', 'Div GA4×Meta', 'Div GA4×CRM', 'Status'].map(h => (
+                <th key={h} style={{ color: '#6B7280', fontWeight: 600, padding: '5px 10px', textAlign: h === 'Dia' ? 'left' : 'right', whiteSpace: 'nowrap' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {series.slice(-7).reverse().map((row, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <td style={{ padding: '6px 10px', color: '#D1D5DB', fontWeight: 600 }}>{row.dia}</td>
+                <td style={{ padding: '6px 10px', textAlign: 'right', color: '#818CF8' }}>{fmtNum(row.ga4)}</td>
+                <td style={{ padding: '6px 10px', textAlign: 'right', color: '#3B82F6' }}>{fmtNum(row.meta)}</td>
+                <td style={{ padding: '6px 10px', textAlign: 'right', color: '#22C55E' }}>{fmtNum(row.db)}</td>
+                <td style={{ padding: '6px 10px', textAlign: 'right', color: row.divGa4Meta >= 50 ? '#EF4444' : row.divGa4Meta >= 20 ? '#F59E0B' : '#9CA3AF' }}>
+                  {row.divGa4Meta !== null ? `${row.divGa4Meta}%` : '—'}
+                </td>
+                <td style={{ padding: '6px 10px', textAlign: 'right', color: row.divGa4Db >= 50 ? '#EF4444' : row.divGa4Db >= 20 ? '#F59E0B' : '#9CA3AF' }}>
+                  {row.divGa4Db !== null ? `${row.divGa4Db}%` : '—'}
+                </td>
+                <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                  <ScoreBadge score={row.score} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Rodapé: contagem de dias por status */}
+      <div style={{ display: 'flex', gap: 16, marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        {[
+          { label: `${summary.okDays ?? 0} dias OK`,       color: '#22C55E' },
+          { label: `${summary.warnDays ?? 0} dias Atenção`, color: '#F59E0B' },
+          { label: `${summary.critDays ?? 0} dias Crítico`, color: '#EF4444' },
+        ].map(({ label, color }) => (
+          <span key={label} style={{ color, fontSize: 11, fontWeight: 600 }}>{label}</span>
+        ))}
+        <span style={{ color: '#4B5563', fontSize: 11, marginLeft: 'auto' }}>
+          Divergência &lt;20% = OK · &lt;50% = Atenção · ≥50% = Crítico
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 export default function ComparacaoPage() {
-  const { selectedDays, setSelectedDays } = useTracking()
+  const { selectedDays, setSelectedDays, selectedGA4 } = useTracking()
   const [days, setDays]           = useState(selectedDays)
   function changeDays(d) { setDays(d); setSelectedDays(d) }
   const [channels, setChannels]         = useState(null)
@@ -209,6 +347,7 @@ export default function ComparacaoPage() {
   const [campaigns, setCampaigns]       = useState(null)
   const [formAttrib, setFormAttrib]     = useState(null)
   const [cohort, setCohort]             = useState(null)
+  const [triangulation, setTriangulation] = useState(null)
   const [loading, setLoading]           = useState(true)
   const [lastUpdated, setLastUpdated]   = useState(null)
   const [isMock, setIsMock]             = useState(false)
@@ -253,6 +392,7 @@ export default function ComparacaoPage() {
       if (cached) {
         setChannels(cached.ch); setMediaROI(cached.mr); setRevenue(cached.rv)
         setProfiles(cached.pr); setCampaigns(cached.ca); setFormAttrib(cached.fa); setCohort(cached.co)
+        if (cached.tri) setTriangulation(cached.tri)
         setIsMock(!!(cached.ch?.mock || cached.mr?.mock))
         setLastUpdated(new Date(cached.savedAt))
         setFromCache(true)
@@ -262,7 +402,7 @@ export default function ComparacaoPage() {
     }
     setFromCache(false)
     setLoading(true)
-    const [ch, mr, rv, pr, ca, fa, co] = await Promise.all([
+    const [ch, mr, rv, pr, ca, fa, co, tri] = await Promise.all([
       api.databricksCompareChannels(d),
       api.databricksCompareMediaROI(d),
       api.databricksCompareRevenue(d),
@@ -270,14 +410,15 @@ export default function ComparacaoPage() {
       api.databricksCompareCampaigns(d),
       api.databricksFormAttribution(d),
       api.databricksClosingCohort(Math.max(d, 90)),
+      selectedGA4 ? api.analyticsTriangulation(selectedGA4, d) : Promise.resolve(null),
     ])
     setChannels(ch); setMediaROI(mr); setRevenue(rv); setProfiles(pr)
-    setCampaigns(ca); setFormAttrib(fa); setCohort(co)
+    setCampaigns(ca); setFormAttrib(fa); setCohort(co); setTriangulation(tri)
     setIsMock(!!(ch?.mock || mr?.mock))
     const now = new Date()
     setLastUpdated(now)
     setLoading(false)
-    writeLocalCache(cacheKey, { ch, mr, rv, pr, ca, fa, co, savedAt: now.toISOString() })
+    writeLocalCache(cacheKey, { ch, mr, rv, pr, ca, fa, co, tri, savedAt: now.toISOString() })
   }
 
   useEffect(() => { loadAll(days) }, [days])
@@ -383,6 +524,11 @@ export default function ComparacaoPage() {
               <KpiCard icon={Zap}        label={`Gasto mídia paga (${days}d)`} value={fmtMoney(totalGasto)} sub="Meta + Google"             color="#3B82F6" />
               <KpiCard icon={DollarSign} label={`Receita real (${days}d)`}   value={fmtMoney(totalReceita)} sub={`ROI ${roi}%`}            color="#F59E0B" />
             </div>
+
+            {/* ── Triangulação GA4 × Meta × CRM ──────────────────────── */}
+            {triangulation && (
+              <TriangulationCard data={triangulation} days={days} />
+            )}
 
             {/* ── Mídia paga: Meta vs Google ─────────────────────────── */}
             {mediaData.length > 0 && (

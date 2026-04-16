@@ -623,6 +623,90 @@ app.get('/api/analytics/discrepancy', async (req, res) => {
   }
 })
 
+// ─── Triangulação GA4 × Meta × CRM ────────────────────────────────────────────
+// Compara generate_lead (GA4) · Lead pixel (Meta) · MQL (Databricks) por dia.
+// Calcula divergência entre os 3 e emite um score de saúde por dia.
+app.get('/api/analytics/triangulation', async (req, res) => {
+  const days       = parseInt(req.query.days) || 30
+  const propertyId = req.query.propertyId     || null
+  const event      = req.query.event          || 'generate_lead'
+  if (!propertyId) return res.status(400).json({ error: 'propertyId obrigatório' })
+
+  try {
+    const [ga4Raw, metaRaw, dbRaw] = await Promise.all([
+      ga4Service.runReport(propertyId, days),
+      metaService.getLeadsByDay(days),
+      databricksService.getFunnelTrend(days),
+    ])
+    const isMock = (ga4Raw.mock ?? true) || (metaRaw.mock ?? true) || (dbRaw.mock ?? true)
+
+    // GA4: filtra pelo evento e agrupa por dia (YYYYMMDD → count)
+    const ga4ByDay = {}
+    ;(ga4Raw.rows || []).filter(r => r.event === event).forEach(r => {
+      ga4ByDay[r.date] = (ga4ByDay[r.date] || 0) + r.count
+    })
+
+    // Meta: leads por dia — converte DD/MM → YYYYMMDD para alinhar com GA4
+    const metaByDay = {}
+    const curYear = new Date().getFullYear()
+    ;(metaRaw.rows || []).forEach(r => {
+      const [dd, mm] = r.date.split('/')
+      const d = new Date(curYear, parseInt(mm) - 1, parseInt(dd))
+      const key = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`
+      metaByDay[key] = (r.leads || 0)
+    })
+
+    // Databricks: MQLs do funil por dia
+    const dbByDay = {}
+    ;(dbRaw.trend || []).forEach(r => {
+      const d = (r.dia || '').replace(/-/g, '')
+      dbByDay[d] = r.mqls || 0
+    })
+
+    const allDays = [...new Set([
+      ...Object.keys(ga4ByDay),
+      ...Object.keys(metaByDay),
+      ...Object.keys(dbByDay),
+    ])].sort()
+
+    const series = allDays.map(d => {
+      const ga4  = ga4ByDay[d]  || 0
+      const meta = metaByDay[d] || 0
+      const db   = dbByDay[d]   || 0
+      const label = d.length === 8 ? `${d.slice(6)}/${d.slice(4,6)}` : d
+
+      // Divergência % entre pares (base = ga4 ou meta para Meta×DB)
+      const divGa4Meta = ga4 > 0 ? parseFloat(((Math.abs(ga4 - meta) / ga4) * 100).toFixed(1)) : null
+      const divGa4Db   = ga4 > 0 ? parseFloat(((Math.abs(ga4 - db)   / ga4) * 100).toFixed(1)) : null
+      const divMetaDb  = meta > 0 ? parseFloat(((Math.abs(meta - db)  / meta) * 100).toFixed(1)) : null
+
+      // Score por dia: ok < 20% | warning < 50% | critical ≥ 50%
+      const maxDiv = Math.max(divGa4Meta ?? 0, divGa4Db ?? 0, divMetaDb ?? 0)
+      const score  = maxDiv < 20 ? 'ok' : maxDiv < 50 ? 'warning' : 'critical'
+
+      return { dia: label, ga4, meta, db, divGa4Meta, divGa4Db, divMetaDb, score }
+    })
+
+    // Resumo agregado
+    const avg = arr => arr.length ? parseFloat((arr.reduce((s,v) => s + v, 0) / arr.length).toFixed(1)) : null
+    const summary = {
+      avgDivGa4Meta: avg(series.filter(r => r.divGa4Meta !== null).map(r => r.divGa4Meta)),
+      avgDivGa4Db:   avg(series.filter(r => r.divGa4Db   !== null).map(r => r.divGa4Db)),
+      avgDivMetaDb:  avg(series.filter(r => r.divMetaDb  !== null).map(r => r.divMetaDb)),
+      okDays:       series.filter(r => r.score === 'ok').length,
+      warnDays:     series.filter(r => r.score === 'warning').length,
+      critDays:     series.filter(r => r.score === 'critical').length,
+      healthScore:  series.length > 0
+        ? Math.round((series.filter(r => r.score === 'ok').length / series.length) * 100)
+        : null,
+    }
+
+    res.json({ mock: isMock, days, event, series, summary })
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, series: [], summary: {} })
+  }
+})
+
 // ─── Qualificação histórica por campanha ─────────────────────────────────────
 app.get('/api/databricks/funnel/qual-by-campaign', async (req, res) => {
   const days = parseInt(req.query.days) || 30

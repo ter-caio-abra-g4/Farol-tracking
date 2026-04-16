@@ -6,6 +6,28 @@
 const { google } = require('googleapis')
 const { loadConfig } = require('./config.cjs')
 
+// ─── Cache em memória ────────────────────────────────────────────────────────
+const CACHE_TTL_MS      = 5 * 60 * 1000   // 5 min — reports
+const CACHE_TTL_PROPS   = 10 * 60 * 1000  // 10 min — properties (muda pouco)
+const _cache = new Map()
+
+function cacheGet(key) {
+  const entry = _cache.get(key)
+  if (!entry) return null
+  const ttl = key === 'properties' ? CACHE_TTL_PROPS : CACHE_TTL_MS
+  if (Date.now() - entry.ts > ttl) { _cache.delete(key); return null }
+  return entry.value
+}
+function cacheSet(key, value) { _cache.set(key, { value, ts: Date.now() }) }
+function clearCache(key) { if (key) { _cache.delete(key) } else { _cache.clear() } }
+async function withCache(key, fn) {
+  const hit = cacheGet(key)
+  if (hit !== null) return hit
+  const result = await fn()
+  if (!result?.mock) cacheSet(key, result)
+  return result
+}
+
 async function getAuthClient() {
   const cfg = loadConfig()
   const scopes = ['https://www.googleapis.com/auth/analytics.readonly']
@@ -37,41 +59,44 @@ async function getAuthClient() {
 }
 
 async function listProperties() {
-  const auth = await getAuthClient()
-  if (!auth) return { mock: true, properties: getMockProperties() }
+  return withCache('properties', async () => {
+    const auth = await getAuthClient()
+    if (!auth) return { mock: true, properties: getMockProperties() }
 
-  try {
-    const analyticsAdmin = google.analyticsadmin({ version: 'v1beta', auth })
+    try {
+      const analyticsAdmin = google.analyticsadmin({ version: 'v1beta', auth })
 
-    // Lista contas e depois propriedades de cada uma
-    const accountsRes = await analyticsAdmin.accounts.list()
-    const accounts = accountsRes.data.accounts || []
+      // Lista contas e depois propriedades em paralelo (Promise.all por conta)
+      const accountsRes = await analyticsAdmin.accounts.list()
+      const accounts = accountsRes.data.accounts || []
 
-    const allProps = []
-    for (const acc of accounts) {
-      const accId = acc.name.replace('accounts/', '')
-      try {
-        const propsRes = await analyticsAdmin.properties.list({
-          filter: `parent:accounts/${accId}`,
-          pageSize: 50,
+      const results = await Promise.all(
+        accounts.map(async (acc) => {
+          const accId = acc.name.replace('accounts/', '')
+          try {
+            const propsRes = await analyticsAdmin.properties.list({
+              filter: `parent:accounts/${accId}`,
+              pageSize: 50,
+            })
+            return (propsRes.data.properties || []).map((p) => ({
+              id: p.name.replace('properties/', ''),
+              name: p.displayName,
+              account: acc.displayName,
+            }))
+          } catch (_) { return [] }
         })
-        const props = (propsRes.data.properties || []).map((p) => ({
-          id: p.name.replace('properties/', ''),
-          name: p.displayName,
-          account: acc.displayName,
-        }))
-        allProps.push(...props)
-      } catch (_) {}
-    }
+      )
 
-    return { mock: false, properties: allProps }
-  } catch (err) {
-    console.error('[GA4] listProperties error:', err.message)
-    return { mock: true, properties: getMockProperties(), error: err.message }
-  }
+      return { mock: false, properties: results.flat() }
+    } catch (err) {
+      console.error('[GA4] listProperties error:', err.message)
+      return { mock: true, properties: getMockProperties(), error: err.message }
+    }
+  })
 }
 
 async function runReport(propertyId, days = 7) {
+  return withCache(`report_${propertyId}_${days}`, async () => {
   const auth = await getAuthClient()
   if (!auth) return { mock: true, data: getMockReport() }
 
@@ -103,9 +128,11 @@ async function runReport(propertyId, days = 7) {
     console.error('[GA4] runReport error:', err.message)
     return { mock: true, data: getMockReport(), error: err.message }
   }
+  })
 }
 
 async function getEventSummary(propertyId) {
+  return withCache(`events_${propertyId}`, async () => {
   const auth = await getAuthClient()
   if (!auth) return { mock: true, events: getMockEvents() }
 
@@ -135,9 +162,11 @@ async function getEventSummary(propertyId) {
     console.error('[GA4] getEventSummary error:', err.message)
     return { mock: true, events: getMockEvents(), error: err.message }
   }
+  })
 }
 
 async function getInternalRefReport(propertyId, days = 28) {
+  return withCache(`internalref_${propertyId}_${days}`, async () => {
   const auth = await getAuthClient()
   if (!auth) return { mock: true, rows: getMockInternalRef() }
 
@@ -187,9 +216,11 @@ async function getInternalRefReport(propertyId, days = 28) {
     console.error('[GA4] getInternalRefReport error:', err.message)
     return { mock: true, rows: getMockInternalRef(), error: err.message }
   }
+  })
 }
 
 async function getSourceMediumReport(propertyId, days = 28) {
+  return withCache(`sourcemedium_${propertyId}_${days}`, async () => {
   const auth = await getAuthClient()
   if (!auth) return { mock: true, rows: getMockSourceMedium() }
 
@@ -271,6 +302,7 @@ async function getSourceMediumReport(propertyId, days = 28) {
     console.error('[GA4] getSourceMediumReport error:', err.message)
     return { mock: true, rows: getMockSourceMedium(), error: err.message }
   }
+  })
 }
 
 function getMockDashboards() {
@@ -304,6 +336,7 @@ function getMockDashboards() {
 }
 
 async function getDashboards(propertyId, days = 28) {
+  return withCache(`dashboards_${propertyId}_${days}`, async () => {
   const auth = await getAuthClient()
   if (!auth) return { mock: true, ...getMockDashboards() }
 
@@ -413,6 +446,7 @@ async function getDashboards(propertyId, days = 28) {
     console.error('[GA4] getDashboards error:', err.message)
     return { mock: true, error: err.message, ...getMockDashboards() }
   }
+  })
 }
 
 function getMockProperties() {
@@ -462,6 +496,7 @@ function getMockEvents() {
 }
 
 async function getExitPages(propertyId, days = 28) {
+  return withCache(`exitpages_${propertyId}_${days}`, async () => {
   const auth = await getAuthClient()
   if (!auth) return { mock: true, pages: getMockExitPages() }
 
@@ -512,6 +547,7 @@ async function getExitPages(propertyId, days = 28) {
     console.error('[GA4] getExitPages error:', err.message)
     return { mock: true, pages: getMockExitPages(), error: err.message }
   }
+  })
 }
 
 function getMockExitPages() {
@@ -636,4 +672,4 @@ function getMockRealtime() {
   }
 }
 
-module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport, getExitPages, getRealtimeReport }
+module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport, getExitPages, getRealtimeReport, clearCache }

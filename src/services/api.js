@@ -106,6 +106,8 @@ export const api = {
   analyticsGetOrganic:      (days = 90) => get(`/api/databricks/analytics/organic?days=${days}`, { mock: true }),
   analyticsGetDiscrepancy:  (propertyId, days = 30, event = 'generate_lead') =>
     get(`/api/analytics/discrepancy?propertyId=${propertyId}&days=${days}&event=${encodeURIComponent(event)}`, { mock: true, series: [], summary: {} }),
+  analyticsTriangulation: (propertyId, days = 30, event = 'generate_lead') =>
+    get(`/api/analytics/triangulation?propertyId=${propertyId}&days=${days}&event=${encodeURIComponent(event)}`, { mock: true, series: [], summary: {} }),
   funnelQualByCampaign:     (days = 30) => get(`/api/databricks/funnel/qual-by-campaign?days=${days}`, { mock: true, campaigns: [], weeks: [], topCampKeys: [] }),
 
   // Search Console
