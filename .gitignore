@@ -33,6 +33,7 @@ release/
 .env
 .env.*
 *.env
+farol.config.json
 rais.config.json
 credentials*.json
 service-account*.json

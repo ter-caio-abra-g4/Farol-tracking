@@ -6,6 +6,7 @@ import Spinner from '../components/ui/Spinner'
 import { Tag, Zap, Variable, ChevronDown, ChevronRight, AlertTriangle, RefreshCw, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { api } from '../services/api'
 import { useTracking } from '../context/TrackingContext'
+import DataBadge from '../components/ui/DataBadge'
 
 // Eventos esperados em um container de tracking saudável
 const EXPECTED_EVENTS = [
@@ -127,6 +128,7 @@ export default function GTMPage() {
         subtitle="Containers, tags e triggers em tempo real"
         onRefresh={handleRefresh}
         lastUpdated={lastUpdated}
+        action={<DataBadge data={healthData} />}
         select={containers.length > 0 ? {
           label: 'Container:',
           value: selectedId ?? '',
@@ -302,7 +304,7 @@ export default function GTMPage() {
                 action={
                   healthLoading ? null : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {healthData?.mock && <span style={{ fontSize: 10, color: '#F59E0B' }}>mock</span>}
+                      <DataBadge data={healthData} />
                       <span style={{
                         fontSize: 11, fontWeight: 700,
                         color: coveragePct >= 80 ? '#22C55E' : coveragePct >= 60 ? '#F59E0B' : '#EF4444',

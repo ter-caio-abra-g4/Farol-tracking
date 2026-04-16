@@ -12,6 +12,7 @@ import PeriodSelect from '../components/ui/PeriodSelect'
 import { useNavigate } from 'react-router-dom'
 import { fmtNum, fmtMoney, fmtPct, fmtDays } from '../utils/format'
 import { TT } from '../components/ui/DarkTooltip'
+import DataBadge from '../components/ui/DataBadge'
 
 const CANAL_COLOR = {
   'Orgânico': '#22C55E',
@@ -185,8 +186,8 @@ export default function SEOPage() {
         action={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <PeriodSelect value={days} onChange={setDays} options={PERIOD_OPTIONS} />
-            {!data?.mock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>CRM LIVE</span>}
-            {scData && !scData?.mock && <span style={{ fontSize: 10, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 10px', borderRadius: 10, fontWeight: 700 }}>GSC LIVE</span>}
+            <DataBadge data={data} />
+            {scData && <DataBadge data={scData} />}
           </div>
         }
       />
