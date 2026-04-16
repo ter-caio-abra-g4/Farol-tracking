@@ -1,14 +1,18 @@
-import { Minus, Square, Minimize2, X } from 'lucide-react'
+import { Minus, Square, Minimize2, X, Download, RefreshCw } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
 export default function Titlebar() {
   const isElectron = typeof window !== 'undefined' && window.rais
   const [isMaximized, setIsMaximized] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState(null) // { status: 'available'|'downloaded', version }
 
   useEffect(() => {
     if (!isElectron) return
     window.rais.onWindowState((state) => {
       setIsMaximized(state === 'maximized')
+    })
+    window.rais.onUpdateStatus((info) => {
+      setUpdateInfo(info)
     })
   }, [isElectron])
 
@@ -61,9 +65,38 @@ export default function Titlebar() {
           lineHeight: 1,
           display: 'flex',
           alignItems: 'center',
+          gap: 12,
         }}
       >
         Farol — Tracking Intelligence
+
+        {/* Banner de atualização */}
+        {updateInfo?.status === 'downloaded' && (
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            fontSize: 10, fontWeight: 700, letterSpacing: '0.03em',
+            color: '#22C55E', background: 'rgba(34,197,94,0.1)',
+            border: '1px solid rgba(34,197,94,0.25)',
+            padding: '2px 10px', borderRadius: 10,
+            WebkitAppRegion: 'no-drag', cursor: 'pointer',
+          }}
+            onClick={() => window.rais.installUpdate()}
+            title="Clique para instalar e reiniciar agora"
+          >
+            <RefreshCw size={9} />
+            v{updateInfo.version} pronta — instalar agora
+          </span>
+        )}
+        {updateInfo?.status === 'available' && (
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            fontSize: 10, color: '#8A9BAA',
+            WebkitAppRegion: 'no-drag',
+          }}>
+            <Download size={9} />
+            Baixando v{updateInfo.version}…
+          </span>
+        )}
       </span>
 
       <div style={{ display: 'flex', WebkitAppRegion: 'no-drag' }}>

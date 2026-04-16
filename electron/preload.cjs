@@ -26,4 +26,10 @@ contextBridge.exposeInMainWorld('rais', {
   // Notificação nativa do SO
   notify: (title, body, urgency = 'normal') =>
     ipcRenderer.invoke('show-notification', { title, body, urgency }),
+
+  // Auto-updater
+  onUpdateStatus: (cb) => {
+    ipcRenderer.on('update-status', (_e, info) => cb(info))
+  },
+  installUpdate: () => ipcRenderer.send('update-install-now'),
 })

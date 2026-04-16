@@ -6,6 +6,47 @@ const isDev = !app.isPackaged
 let mainWindow
 let apiServer = null
 
+// ── Auto-updater ─────────────────────────────────────────────────────────────
+function setupAutoUpdater() {
+  if (isDev) return // não checa updates em modo dev
+
+  const { autoUpdater } = require('electron-updater')
+
+  autoUpdater.autoDownload    = true  // baixa em background sem perguntar
+  autoUpdater.autoInstallOnAppQuit = true  // instala na próxima vez que fechar
+
+  // Update disponível — notifica na UI
+  autoUpdater.on('update-available', (info) => {
+    console.log(`[Farol] Update disponível: v${info.version}`)
+    mainWindow?.webContents.send('update-status', {
+      status: 'available',
+      version: info.version,
+    })
+  })
+
+  // Download concluído — pergunta se quer instalar agora
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log(`[Farol] Update baixado: v${info.version}`)
+    mainWindow?.webContents.send('update-status', {
+      status: 'downloaded',
+      version: info.version,
+    })
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.warn('[Farol] Auto-updater erro:', err.message)
+  })
+
+  // Checa ao iniciar (com delay para janela já estar pronta)
+  setTimeout(() => autoUpdater.checkForUpdates(), 5000)
+}
+
+// IPC: instalar update imediatamente (chamado pelo renderer quando usuário confirma)
+ipcMain.on('update-install-now', () => {
+  const { autoUpdater } = require('electron-updater')
+  autoUpdater.quitAndInstall(false, true)
+})
+
 // Inicia o servidor Express local
 async function startApiServer() {
   try {
@@ -158,6 +199,7 @@ ipcMain.handle('show-notification', (_event, { title, body, urgency = 'normal' }
 app.whenReady().then(async () => {
   await startApiServer()
   createWindow()
+  setupAutoUpdater()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

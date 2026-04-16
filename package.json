@@ -16,6 +16,7 @@
   "dependencies": {
     "axios": "^1.14.0",
     "cors": "^2.8.6",
+    "electron-updater": "^6.8.3",
     "express": "^5.2.1",
     "googleapis": "^171.4.0",
     "lucide-react": "^1.7.0",
@@ -64,6 +65,11 @@
     },
     "linux": {
       "icon": "src/assets/icon.png"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ter-caio-abra-g4",
+      "repo": "Farol-tracking"
     }
   }
 }
