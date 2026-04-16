@@ -11,7 +11,9 @@ const BASE_URL = 'https://graph.facebook.com/v19.0'
 // ─── Cache em memória ────────────────────────────────────────────────────────
 const CACHE_TTL_MS      = 5 * 60 * 1000   // 5 min
 const CACHE_TTL_QUAL_MS = 30 * 60 * 1000  // 30 min — qualidade muda pouco
+const MAX_STALE_MS      = 60 * 60 * 1000  // 1 hora — máx para uso como stale fallback
 const _cache = new Map()
+const _stale = new Map()
 
 function cacheGet(key) {
   const entry = _cache.get(key)
@@ -20,14 +22,44 @@ function cacheGet(key) {
   if (Date.now() - entry.ts > ttl) { _cache.delete(key); return null }
   return entry.value
 }
-function cacheSet(key, value) { _cache.set(key, { value, ts: Date.now() }) }
-function clearCache(key) { if (key) { _cache.delete(key) } else { _cache.clear() } }
+function cacheSet(key, value) {
+  _cache.set(key, { value, ts: Date.now() })
+  _stale.set(key, { value, ts: Date.now() })
+}
+function getStale(key) {
+  const entry = _stale.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.ts > MAX_STALE_MS) { _stale.delete(key); return null }
+  return { ...entry.value, _stale: true, _stale_ts: entry.ts }
+}
+function clearCache(key) {
+  if (key) { _cache.delete(key); _stale.delete(key) }
+  else { _cache.clear(); _stale.clear() }
+}
+function isAuthError(msg = '') {
+  return /403|401|invalid.*token|unauthorized|access.*denied|OAuthException/i.test(String(msg))
+}
+
 async function withCache(key, fn) {
-  const hit = cacheGet(key)
-  if (hit !== null) return hit
-  const result = await fn()
-  if (!result?.mock) cacheSet(key, result)
-  return result
+  const fresh = cacheGet(key)
+  if (fresh !== null) return fresh
+
+  let lastResult = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const result = await fn()
+    if (!result?.mock) {
+      cacheSet(key, result)
+      return result
+    }
+    if (result?.error && isAuthError(result.error)) break
+    lastResult = result
+    if (attempt < 3) await new Promise(r => setTimeout(r, 800 * attempt))
+  }
+
+  const stale = getStale(key)
+  if (stale) return stale
+
+  return lastResult
 }
 
 function getToken() {

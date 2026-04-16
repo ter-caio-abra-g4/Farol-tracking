@@ -17,6 +17,30 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { fmtNum, fmtMoney } from '../utils/format'
+
+// DataBadge — exibe STALE (dado real desatualizado), MOCK (dado fabricado) ou nada
+function DataBadge({ data }) {
+  if (!data) return null
+  if (data._stale) {
+    const mins = Math.round((Date.now() - data._stale_ts) / 60000)
+    return (
+      <span title={`Último dado real obtido há ${mins} min — API indisponível, tentando de novo`} style={{
+        fontSize: 10, color: '#B9915B', background: 'rgba(185,145,91,0.12)',
+        border: '1px solid rgba(185,145,91,0.3)', padding: '2px 7px', borderRadius: 4, fontWeight: 700,
+      }}>STALE {mins}m</span>
+    )
+  }
+  if (data.mock) {
+    return (
+      <span style={{
+        fontSize: 10, color: '#F59E0B', background: 'rgba(245,158,11,0.1)',
+        border: '1px solid rgba(245,158,11,0.2)', padding: '2px 7px', borderRadius: 4, fontWeight: 700,
+      }}>MOCK</span>
+    )
+  }
+  return null
+}
+
 function DeltaBadge({ delta, suffix = '', inverse = false }) {
   if (delta === 0 || delta === null || delta === undefined)
     return <span style={{ color: '#6B7280', fontSize: 11 }}>= igual</span>
@@ -132,7 +156,7 @@ export default function Dashboard() {
   const ga4Rows = ga4Data?.rows ?? []
   const totalEvents = ga4Rows.reduce((s, r) => s + (r.count || 0), 0)
   const totalUsers = ga4Rows.reduce((s, r) => s + (r.users || 0), 0)
-  const ga4Status = ga4Loading ? 'loading' : ga4Data?.mock ? 'warn' : 'ok'
+  const ga4Status = ga4Loading ? 'loading' : ga4Data?._stale ? 'warn' : ga4Data?.mock ? 'warn' : 'ok'
 
   // Chart — agrupa por dia
   const chartData = (() => {
@@ -208,7 +232,7 @@ export default function Dashboard() {
               <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: kpi.color, borderRadius: '10px 0 0 10px' }} />
               <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                 {kpi.label}
-                {exec?.mock && <span style={{ color: '#F59E0B', marginLeft: 6, fontSize: 10 }}>mock</span>}
+                {exec && <span style={{ marginLeft: 6 }}><DataBadge data={exec} /></span>}
               </div>
               <div style={{ fontSize: 26, fontWeight: 700, color: kpi.color, lineHeight: 1.1 }}>
                 {kpi.value}
@@ -253,7 +277,8 @@ export default function Dashboard() {
               <Row label="Property" value={selectedGA4} />
               <Row label="Eventos (7d)" value={ga4Loading ? '…' : totalEvents.toLocaleString('pt-BR')} />
               <Row label="Usuários (7d)" value={ga4Loading ? '…' : totalUsers.toLocaleString('pt-BR')} />
-              {ga4Data?.mock && <WarnNote>Dados simulados — adicione o service account à conta GA4.</WarnNote>}
+              {ga4Data?._stale && <WarnNote>Usando último dado real ({Math.round((Date.now()-ga4Data._stale_ts)/60000)}min atrás) — API GA4 indisponível, tentando reconectar.</WarnNote>}
+              {ga4Data?.mock && !ga4Data?._stale && <WarnNote>Dados simulados — adicione o service account à conta GA4.</WarnNote>}
             </div>
           </ConnectionDropdown>
 
@@ -698,7 +723,7 @@ function AnomalyAlertsCard({ data, loading }) {
       <CardHeader
         title="Anomalias detectadas"
         subtitle={isMock ? 'Exemplo — conecte Databricks para dados reais' : `${alerts.length} métrica${alerts.length !== 1 ? 's' : ''} com variação ≥ 20% vs semana anterior`}
-        action={isMock ? <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(245,158,11,0.1)', color: '#F59E0B', fontWeight: 700 }}>MOCK</span> : null}
+        action={data && (data._stale || data.mock) ? <DataBadge data={data} /> : null}
       />
       <CardBody style={{ padding: '8px 16px 14px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

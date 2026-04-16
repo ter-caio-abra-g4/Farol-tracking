@@ -8,9 +8,11 @@ const fetch = require('node-fetch')
 const { loadConfig } = require('./config.cjs')
 
 // ─── Cache em memória ────────────────────────────────────────────────────────
-const CACHE_TTL_MS        = 5 * 60 * 1000   // 5 min — dados
+const CACHE_TTL_MS        = 5 * 60 * 1000   // 5 min — dados frescos
 const CACHE_TTL_STATUS_MS = 2 * 60 * 1000   // 2 min — status (reconecta mais rápido)
-const _cache = new Map()
+const MAX_STALE_MS        = 60 * 60 * 1000  // 1 hora — máx para uso como stale fallback
+const _cache = new Map()   // cache fresco (com TTL curto)
+const _stale = new Map()   // último resultado real (usado como fallback por até 1h)
 
 function cacheGet(key) {
   const entry = _cache.get(key)
@@ -19,18 +21,54 @@ function cacheGet(key) {
   if (Date.now() - entry.ts > ttl) { _cache.delete(key); return null }
   return entry.value
 }
-function cacheSet(key, value) { _cache.set(key, { value, ts: Date.now() }) }
-function cacheClear(key) {
-  if (key) { _cache.delete(key) } else { _cache.clear() }
+function cacheSet(key, value) {
+  _cache.set(key, { value, ts: Date.now() })
+  _stale.set(key, { value, ts: Date.now() })  // persiste como stale fallback
 }
-// Wrapper: se há cache válido retorna direto; senão executa fn() e armazena
-// Resultados mock (erro/não configurado) nunca ficam cacheados — próxima chamada tenta de novo
+function getStale(key) {
+  const entry = _stale.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.ts > MAX_STALE_MS) { _stale.delete(key); return null }
+  return { ...entry.value, _stale: true, _stale_ts: entry.ts }
+}
+function cacheClear(key) {
+  if (key) { _cache.delete(key); _stale.delete(key) }
+  else { _cache.clear(); _stale.clear() }
+}
+// Detecta erros de autenticação — não adianta tentar de novo
+function isAuthError(msg = '') {
+  return /403|401|invalid.*token|unauthorized|access.*denied|dapi/i.test(String(msg))
+}
+
+// Stale-while-revalidate:
+// 1. Cache fresco disponível → retorna imediatamente
+// 2. Cache expirado → tenta fn() até 3 vezes (backoff 800ms entre tentativas)
+// 3. Erro de auth → não retenta, pula para stale
+// 4. Se ainda mock após 3 tentativas → retorna último resultado real como _stale: true
+// 5. Sem stale disponível → retorna mock (comportamento anterior)
 async function withCache(key, fn) {
-  const hit = cacheGet(key)
-  if (hit !== null) return hit
-  const result = await fn()
-  if (!result?.mock) cacheSet(key, result)
-  return result
+  const fresh = cacheGet(key)
+  if (fresh !== null) return fresh
+
+  let lastResult = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const result = await fn()
+    if (!result?.mock) {
+      cacheSet(key, result)
+      return result
+    }
+    // Erro de autenticação — retry não vai resolver
+    if (result?.error && isAuthError(result.error)) break
+    lastResult = result
+    if (attempt < 3) await new Promise(r => setTimeout(r, 800 * attempt))
+  }
+
+  // Fallback: dado real anterior (pode estar desatualizado, mas é real)
+  const stale = getStale(key)
+  if (stale) return stale
+
+  // Sem histórico — retorna mock
+  return lastResult
 }
 
 function getCredentials() {
