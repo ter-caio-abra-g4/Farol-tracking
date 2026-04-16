@@ -11,7 +11,6 @@ import {
   Activity,
   Layers,
   TrendingUp,
-  GitCompare,
   ChevronLeft,
   ChevronDown,
   LineChart,
@@ -20,6 +19,7 @@ import {
   Radio,
   AlertTriangle,
   Users2,
+  Triangle,
 } from 'lucide-react'
 
 // ── Estrutura de navegação agrupada ──────────────────────────────────────────
@@ -35,20 +35,22 @@ const navGroups = [
     label: 'Canais',
     defaultOpen: false,
     items: [
-      { to: '/gtm',  icon: Tag,       label: 'GTM'      },
-      { to: '/ga4',  icon: BarChart2, label: 'GA4'      },
-      { to: '/meta', icon: Activity,  label: 'Meta Ads' },
-      { to: '/paid', icon: DollarSign, label: 'Paid'    },
-      { to: '/seo',  icon: Sprout,    label: 'Orgânico' },
+      { to: '/gtm',  icon: Tag,        label: 'GTM'      },
+      { to: '/ga4',  icon: BarChart2,  label: 'GA4'      },
+      { to: '/meta', icon: Activity,   label: 'Meta Ads' },
+      { to: '/paid', icon: DollarSign, label: 'Mídia Paga' },
+      { to: '/seo',  icon: Sprout,     label: 'Orgânico' },
     ],
   },
   {
     label: 'Análise',
     defaultOpen: false,
     items: [
-      { to: '/funil',      icon: TrendingUp, label: 'Funil'      },
-      { to: '/comparacao', icon: GitCompare, label: 'Comparação' },
-      { to: '/analytics',  icon: LineChart,  label: 'Analytics'  },
+      { to: '/funil',      icon: TrendingUp,   label: 'Funil'          },
+      { to: '/analytics',  icon: LineChart,    label: 'Analytics'      },
+      { to: '/comparacao', icon: Triangle,     label: 'Triangulação'   },
+      { to: '/anomaly',    icon: AlertTriangle, label: 'Anomalias', badge: 'beta' },
+      { to: '/cohort',     icon: Users2,        label: 'Cohort',    badge: 'beta' },
     ],
   },
   {
@@ -57,14 +59,6 @@ const navGroups = [
     items: [
       { to: '/explorer',   icon: Database, label: 'Explorador' },
       { to: '/databricks', icon: Layers,   label: 'Databricks' },
-    ],
-  },
-  {
-    label: 'Inteligência',
-    defaultOpen: false,
-    items: [
-      { to: '/anomaly', icon: AlertTriangle, label: 'Anomalias' },
-      { to: '/cohort',  icon: Users2,        label: 'Cohort'    },
     ],
   },
 ]
@@ -196,7 +190,7 @@ function NavGroup({ group, collapsed, isOpen, onToggle }) {
 }
 
 // ── NavItem ───────────────────────────────────────────────────────────────────
-function NavItem({ to, icon: Icon, label, collapsed }) {
+function NavItem({ to, icon: Icon, label, badge, collapsed }) {
   const [hovered, setHovered] = useState(false)
   const [tooltipTop, setTooltipTop] = useState(0)
   const ref = useRef(null)
@@ -226,6 +220,15 @@ function NavItem({ to, icon: Icon, label, collapsed }) {
           <Icon size={16} strokeWidth={1.8} />
         </span>
         <span className="sidebar__nav-label">{label}</span>
+        {badge && !collapsed && (
+          <span style={{
+            fontSize: 8, fontWeight: 700, letterSpacing: '0.04em',
+            padding: '1px 5px', borderRadius: 4,
+            background: 'rgba(99,102,241,0.15)', color: '#A5B4FC',
+            border: '1px solid rgba(99,102,241,0.25)', marginLeft: 'auto',
+            textTransform: 'uppercase', lineHeight: 1.6,
+          }}>{badge}</span>
+        )}
       </NavLink>
 
       {collapsed && hovered && (

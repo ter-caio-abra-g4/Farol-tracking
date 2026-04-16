@@ -170,9 +170,9 @@ export default function PaidPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       <Header
-        title="Paid Media"
+        title="Mídia Paga"
         isMock={isMock}
-        subtitle="Visão consolidada de mídia paga · Meta Ads"
+        subtitle="Performance de campanhas pagas · Meta Ads — spend, leads, CPL e criativos"
         action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <PeriodSelect options={PERIOD_OPTIONS} value={days} onChange={changeDays} />

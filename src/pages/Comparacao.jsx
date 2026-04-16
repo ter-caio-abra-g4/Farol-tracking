@@ -471,9 +471,9 @@ export default function ComparacaoPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Header
-        title="Comparação de Fontes"
+        title="Triangulação de Dados"
         isMock={isMock}
-        subtitle="GA4 · Meta Ads · CRM — dados reais Databricks"
+        subtitle="GA4 × Meta Ads × CRM — divergência, saúde dos dados e atribuição por canal"
         onRefresh={() => loadAll(days, true)}
         lastUpdated={lastUpdated}
         action={
