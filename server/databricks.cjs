@@ -118,8 +118,8 @@ async function getStatus() {
   }
 
   try {
-    // timeout generoso (60s) para aguentar cold start do warehouse após hibernação
-    const data = await executeStatement('SELECT 1 AS ok', 60)
+    // timeout máximo da API Databricks é 50s (0 desabilita, 5–50 são válidos)
+    const data = await executeStatement('SELECT 1 AS ok', 50)
     const warehouseId = httpPath.split('/warehouses/')[1]
 
     // Conta tabelas, lista schemas e catálogos disponíveis

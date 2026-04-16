@@ -18,20 +18,23 @@ const G4OS_SA_PATH = path.join(
 
 async function getAuthClient() {
   const cfg = loadConfig()
+  const scopes = ['https://www.googleapis.com/auth/webmasters.readonly']
+
+  // Preferência 1: chave inline (portátil — funciona em qualquer máquina)
+  if (cfg.ga4?.service_account_key?.private_key) {
+    try {
+      const auth = new google.auth.GoogleAuth({
+        credentials: cfg.ga4.service_account_key,
+        scopes,
+      })
+      return await auth.getClient()
+    } catch (_) {}
+  }
+
+  // Fallback: caminho físico
   const saPath = cfg.ga4?.service_account_path || G4OS_SA_PATH
-
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: saPath,
-      scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
-    })
-    return await auth.getClient()
-  } catch (_) {}
-
-  try {
-    const auth = new google.auth.GoogleAuth({
-      scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
-    })
+    const auth = new google.auth.GoogleAuth({ keyFile: saPath, scopes })
     return await auth.getClient()
   } catch (_) {}
 

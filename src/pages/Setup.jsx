@@ -66,8 +66,12 @@ export default function SetupWizard({ onComplete }) {
     }
     setServiceAccountEmail(result.client_email)
     setServiceAccountPath(result.path)
-    // Persiste caminho no config
-    await api.saveConfig({ ga4: { service_account_path: result.path, client_email: result.client_email } })
+    // Persiste caminho E conteúdo inline — portátil para outras máquinas
+    await api.saveConfig({ ga4: {
+      service_account_path: result.path,
+      client_email: result.client_email,
+      ...(result.key ? { service_account_key: result.key } : {}),
+    } })
     // Agora lista as propriedades automaticamente
     fetchProperties()
   }

@@ -126,7 +126,8 @@ ipcMain.handle('pick-service-account', async () => {
     // Copia para userData para que o caminho seja estável
     const dest = require('path').join(app.getPath('userData'), 'service-account.json')
     fs.writeFileSync(dest, content, 'utf8')
-    return { path: dest, client_email: parsed.client_email }
+    // Retorna também o conteúdo para salvar inline — elimina dependência de caminho físico
+    return { path: dest, client_email: parsed.client_email, key: parsed }
   } catch (e) {
     return { error: e.message }
   }

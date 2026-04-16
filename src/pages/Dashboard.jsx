@@ -136,13 +136,13 @@ export default function Dashboard() {
 
   // Chart — agrupa por dia
   const chartData = (() => {
-    if (!ga4Rows.length) return MOCK_CHART
+    if (!ga4Rows.length) return buildMockChart(days)
     const byDate = {}
     ga4Rows.forEach(r => {
       const d = r.date ? r.date.slice(4, 6) + '/' + r.date.slice(6, 8) : '?'
       byDate[d] = (byDate[d] || 0) + (r.count || 0)
     })
-    return Object.entries(byDate).map(([data, eventos]) => ({ data, eventos })).slice(-7)
+    return Object.entries(byDate).map(([data, eventos]) => ({ data, eventos })).slice(-days)
   })()
 
   const gtmHasReal = Object.values(gtmData).some(d => !d?.mock)
@@ -491,12 +491,17 @@ function WarnNote({ children }) {
 }
 
 // ── Gráfico ────────────────────────────────────────────────────────────────
-const MOCK_CHART = [
-  { data: '01/04', eventos: 1200 }, { data: '02/04', eventos: 800 },
-  { data: '03/04', eventos: 3400 }, { data: '04/04', eventos: 5200 },
-  { data: '05/04', eventos: 4800 }, { data: '06/04', eventos: 3100 },
-  { data: '07/04', eventos: 1900 },
-]
+function buildMockChart(days = 7) {
+  const counts = [1200, 800, 3400, 5200, 4800, 3100, 1900, 2600, 4100, 3700, 2900, 1500, 3800, 5100]
+  const result = []
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const label = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`
+    result.push({ data: label, eventos: counts[i % counts.length] })
+  }
+  return result
+}
 
 function EventsChartCard({ chartData, loading, days = 7 }) {
   return (

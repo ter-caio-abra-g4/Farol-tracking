@@ -8,18 +8,30 @@ const { loadConfig } = require('./config.cjs')
 
 async function getAuthClient() {
   const cfg = loadConfig()
-  const keyFile = cfg.ga4?.service_account_path
+  const scopes = ['https://www.googleapis.com/auth/analytics.readonly']
 
+  // Preferência 1: chave inline (portátil — funciona em qualquer máquina)
+  if (cfg.ga4?.service_account_key?.private_key) {
+    try {
+      const auth = new google.auth.GoogleAuth({
+        credentials: cfg.ga4.service_account_key,
+        scopes,
+      })
+      return await auth.getClient()
+    } catch (err) {
+      console.error('[GA4] Auth error (inline key):', err.message)
+    }
+  }
+
+  // Fallback: caminho físico do arquivo
+  const keyFile = cfg.ga4?.service_account_path
   if (!keyFile) return null
 
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile,
-      scopes: ['https://www.googleapis.com/auth/analytics.readonly'],
-    })
+    const auth = new google.auth.GoogleAuth({ keyFile, scopes })
     return await auth.getClient()
   } catch (err) {
-    console.error('[GA4] Auth error:', err.message)
+    console.error('[GA4] Auth error (keyFile):', err.message)
     return null
   }
 }

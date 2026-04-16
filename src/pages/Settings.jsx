@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
-import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server, Search, Shield } from 'lucide-react'
+import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server, Search, Shield, Download, Upload, Share2 } from 'lucide-react'
 import { CredentialsModal } from './Setup'
 import { api } from '../services/api'
 
@@ -146,6 +146,13 @@ export default function SettingsPage() {
   const [metaPixelMode, setMetaPixelMode] = useState('single') // 'single' | 'unified'
   const [showCredentialsModal, setShowCredentialsModal] = useState(false)
 
+  // Compartilhar configuração — export/import
+  const [exporting, setExporting] = useState(false)
+  const [exportDone, setExportDone] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState(null) // { ok, msg }
+  const [credSource, setCredSource] = useState(null)
+
   useEffect(() => {
     api.ga4Properties().then((res) => {
       if (res?.activePropertyId) setActivePropertyId(res.activePropertyId)
@@ -173,8 +180,55 @@ export default function SettingsPage() {
       if (cfg?.databricks?.tables?.funil_marketing) setDbTableFunilMarketing(cfg.databricks.tables.funil_marketing)
       if (cfg?.databricks?.tables?.customer_sales) setDbTableCustomerSales(cfg.databricks.tables.customer_sales)
       if (cfg?.searchconsole?.site_url) setScSiteUrl(cfg.searchconsole.site_url)
+      if (cfg?._credentials_source) setCredSource(cfg._credentials_source)
     })
   }, [])
+
+  async function handleExportCredentials() {
+    setExporting(true)
+    setExportDone(false)
+    try {
+      const res = await fetch('http://localhost:3001/api/setup/export-credentials')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'farol.credentials.json'
+      a.click()
+      URL.revokeObjectURL(url)
+      setExportDone(true)
+      setTimeout(() => setExportDone(false), 3000)
+    } catch (e) {
+      alert('Erro ao exportar: ' + e.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function handleImportCredentials(file) {
+    if (!file) return
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const text = await file.text()
+      const json = JSON.parse(text)
+      const res = await fetch('http://localhost:3001/api/setup/import-credentials-inline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(json),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setImportResult({ ok: true, msg: 'Credenciais importadas com sucesso. Reinicie o app para aplicar.' })
+      } else {
+        setImportResult({ ok: false, msg: data.error || 'Erro ao importar' })
+      }
+    } catch (e) {
+      setImportResult({ ok: false, msg: e.message })
+    } finally {
+      setImporting(false)
+    }
+  }
 
   async function handleFetchPixels() {
     setLoadingPixels(true)
@@ -1158,6 +1212,100 @@ export default function SettingsPage() {
                 }
               </button>
             </div>
+          </CardBody>
+        </Card>
+
+        {/* Compartilhar Configuração */}
+        <Card style={{ marginBottom: 20 }}>
+          <CardHeader title="Compartilhar Configuração" action={<Share2 size={14} color="#B9915B" style={{ opacity: 0.7 }} />} />
+          <CardBody>
+            <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 16, lineHeight: 1.6 }}>
+              Exporte todas as credenciais (GA4, Meta, Databricks) em um arquivo portátil.
+              Em outra máquina, instale o Farol e importe o arquivo para conectar imediatamente — sem reconfigurações manuais.
+            </div>
+
+            {/* Export */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Exportar</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  onClick={handleExportCredentials}
+                  disabled={exporting}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '8px 18px',
+                    background: exportDone ? 'rgba(34,197,94,0.12)' : 'rgba(185,145,91,0.12)',
+                    border: `1px solid ${exportDone ? 'rgba(34,197,94,0.4)' : 'rgba(185,145,91,0.35)'}`,
+                    borderRadius: 6, cursor: exporting ? 'not-allowed' : 'pointer',
+                    color: exportDone ? '#22C55E' : '#B9915B',
+                    fontSize: 12, fontWeight: 600,
+                    fontFamily: 'Manrope, sans-serif', transition: 'all 0.2s',
+                  }}
+                >
+                  {exporting
+                    ? <><Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> Exportando…</>
+                    : exportDone
+                      ? <><CheckCircle size={13} /> farol.credentials.json baixado</>
+                      : <><Download size={13} /> Baixar farol.credentials.json</>
+                  }
+                </button>
+                <span style={{ fontSize: 11, color: '#6B7280' }}>GA4 · Meta · Databricks · Search Console</span>
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid rgba(185,145,91,0.1)', marginBottom: 16 }} />
+
+            {/* Import */}
+            <div>
+              <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Importar</div>
+              <label
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 16px',
+                  background: 'rgba(185,145,91,0.05)',
+                  border: '1px dashed rgba(185,145,91,0.35)',
+                  borderRadius: 6, cursor: 'pointer',
+                  color: '#8A9BAA', fontSize: 12,
+                  transition: 'all 0.2s',
+                }}
+              >
+                <Upload size={14} color="#B9915B" />
+                {importing ? 'Importando…' : 'Selecionar farol.credentials.json'}
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={e => handleImportCredentials(e.target.files?.[0])}
+                />
+              </label>
+              {importResult && (
+                <div style={{
+                  marginTop: 8, padding: '8px 12px',
+                  background: importResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+                  border: `1px solid ${importResult.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                  borderRadius: 6, fontSize: 12,
+                  color: importResult.ok ? '#22C55E' : '#EF4444',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  {importResult.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
+                  {importResult.msg}
+                </div>
+              )}
+            </div>
+
+            {/* Fonte sincronizada */}
+            {credSource && (
+              <div style={{
+                marginTop: 14, padding: '8px 12px',
+                background: 'rgba(99,102,241,0.06)',
+                border: '1px solid rgba(99,102,241,0.2)',
+                borderRadius: 6, fontSize: 11, color: '#8A9BAA',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <RefreshCw size={11} color="#6366F1" />
+                <span>Sincronizado com: <code style={{ color: '#6366F1', fontSize: 10 }}>{credSource}</code></span>
+              </div>
+            )}
           </CardBody>
         </Card>
 

@@ -33,7 +33,14 @@ function exportCredentials(outputPath) {
     _updated_at: new Date().toISOString(),
   }
   for (const key of CREDENTIAL_KEYS) {
-    if (cfg[key]) creds[key] = cfg[key]
+    if (cfg[key]) creds[key] = { ...cfg[key] }
+  }
+  // Embute o conteúdo do service account JSON diretamente — elimina dependência de caminho físico
+  if (creds.ga4?.service_account_path && !creds.ga4?.service_account_key) {
+    try {
+      const saJson = JSON.parse(fs.readFileSync(creds.ga4.service_account_path, 'utf8'))
+      creds.ga4.service_account_key = saJson
+    } catch (_) {}
   }
   fs.writeFileSync(outputPath, JSON.stringify(creds, null, 2), 'utf8')
   return creds
