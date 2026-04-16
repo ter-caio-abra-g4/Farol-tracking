@@ -70,6 +70,8 @@
       "provider": "github",
       "owner": "ter-caio-abra-g4",
       "repo": "Farol-tracking"
-    }
+    },
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false
   }
 }
