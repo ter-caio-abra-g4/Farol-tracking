@@ -149,6 +149,7 @@ ipcMain.on('window-maximize', () => {
   }
 })
 ipcMain.on('window-close', () => mainWindow?.close())
+ipcMain.handle('get-window-state', () => mainWindow?.isMaximized() ? 'maximized' : 'normal')
 
 // IPC: file picker para service account JSON
 ipcMain.handle('pick-service-account', async () => {
@@ -195,6 +196,10 @@ ipcMain.handle('show-notification', (_event, { title, body, urgency = 'normal' }
   }
 })
 
+
+// Desabilita o tooltip de dimensões que aparece ao redimensionar/maximizar no Windows
+// (alternativa ao thickFrame:false que quebrava a taskbar auto-hide)
+app.commandLine.appendSwitch('disable-features', 'HWNDMessageHandler')
 
 app.whenReady().then(async () => {
   await startApiServer()

@@ -8,12 +8,10 @@ export default function Titlebar() {
 
   useEffect(() => {
     if (!isElectron) return
-    window.rais.onWindowState((state) => {
-      setIsMaximized(state === 'maximized')
-    })
-    window.rais.onUpdateStatus((info) => {
-      setUpdateInfo(info)
-    })
+    // Lê estado inicial da janela (app abre maximizado)
+    window.rais.getWindowState().then((state) => setIsMaximized(state === 'maximized'))
+    window.rais.onWindowState((state) => setIsMaximized(state === 'maximized'))
+    window.rais.onUpdateStatus((info) => setUpdateInfo(info))
   }, [isElectron])
 
   if (!isElectron) return null

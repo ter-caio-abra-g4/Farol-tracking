@@ -277,6 +277,15 @@ app.get('/api/gtm/health', async (req, res) => {
   }
 })
 
+app.get('/api/gtm/diag/tag-types', async (req, res) => {
+  try {
+    const result = await gtmService.getTagTypesDiag()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // ─── Meta ──────────────────────────────────────────────────────────────────
 app.get('/api/meta/pixels', async (req, res) => {
   try {

@@ -62,11 +62,15 @@ export default function GTMPage() {
 
   async function loadContainers() {
     setContainersLoading(true)
-    const result = await api.gtmContainers()
+    const [result, cfg] = await Promise.all([api.gtmContainers(), api.getConfig()])
     const list = result.containers ?? []
     setContainers(list)
     setContainersLoading(false)
-    if (!selectedId && list.length > 0) setSelectedId(list[0].id)
+    if (!selectedId && list.length > 0) {
+      const defaultId = cfg?.gtm?.default_container_id
+      const match = defaultId && list.find(c => c.id === defaultId)
+      setSelectedId(match ? match.id : list[0].id)
+    }
   }
 
   async function loadContainerDetail(publicId) {

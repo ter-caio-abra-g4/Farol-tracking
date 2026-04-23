@@ -33,11 +33,16 @@ export function TrackingProvider({ children }) {
   const [loadingContainers, setLoadingContainers] = useState(true)
 
   useEffect(() => {
-    // Carrega containers GTM
-    api.gtmContainers().then((res) => {
+    // Carrega containers GTM + container padrão salvo em config
+    Promise.all([api.gtmContainers(), api.getConfig()]).then(([res, cfg]) => {
       const containers = res?.containers || []
       if (containers.length > 0) setGtmContainers(containers)
       setLoadingContainers(false)
+      // Aplica container padrão salvo nas configurações
+      const defaultId = cfg?.gtm?.default_container_id
+      if (defaultId && containers.find(c => c.id === defaultId)) {
+        setSelectedGTM(defaultId)
+      }
     })
 
     // Carrega propriedades GA4 + property ativa salva

@@ -15,7 +15,6 @@ import {
   ChevronDown,
   LineChart,
   Sprout,
-  DollarSign,
   Radio,
   AlertTriangle,
   Users2,
@@ -35,22 +34,21 @@ const navGroups = [
     label: 'Canais',
     defaultOpen: false,
     items: [
-      { to: '/gtm',  icon: Tag,        label: 'GTM'      },
-      { to: '/ga4',  icon: BarChart2,  label: 'GA4'      },
-      { to: '/meta', icon: Activity,   label: 'Meta Ads' },
-      { to: '/paid', icon: DollarSign, label: 'Mídia Paga' },
-      { to: '/seo',  icon: Sprout,     label: 'Orgânico' },
+      { to: '/gtm',  icon: Tag,       label: 'GTM'      },
+      { to: '/ga4',  icon: BarChart2, label: 'GA4'      },
+      { to: '/meta', icon: Activity,  label: 'Meta Ads' },
+      { to: '/seo',  icon: Sprout,    label: 'Orgânico' },
     ],
   },
   {
     label: 'Análise',
     defaultOpen: false,
     items: [
-      { to: '/funil',      icon: TrendingUp,   label: 'Funil'          },
-      { to: '/analytics',  icon: LineChart,    label: 'Analytics'      },
-      { to: '/comparacao', icon: Triangle,     label: 'Triangulação'   },
-      { to: '/anomaly',    icon: AlertTriangle, label: 'Anomalias', badge: 'beta' },
-      { to: '/cohort',     icon: Users2,        label: 'Cohort',    badge: 'beta' },
+      { to: '/funil',      icon: TrendingUp,    label: 'Funil'        },
+      { to: '/analytics',  icon: LineChart,     label: 'Analytics'    },
+      { to: '/comparacao', icon: Triangle,      label: 'Triangulação' },
+      { to: '/anomaly',    icon: AlertTriangle, label: 'Anomalias', badge: 'em breve', disabled: true },
+      { to: '/cohort',     icon: Users2,        label: 'Cohort',    badge: 'em breve', disabled: true },
     ],
   },
   {
@@ -190,7 +188,7 @@ function NavGroup({ group, collapsed, isOpen, onToggle }) {
 }
 
 // ── NavItem ───────────────────────────────────────────────────────────────────
-function NavItem({ to, icon: Icon, label, badge, collapsed }) {
+function NavItem({ to, icon: Icon, label, badge, collapsed, disabled }) {
   const [hovered, setHovered] = useState(false)
   const [tooltipTop, setTooltipTop] = useState(0)
   const ref = useRef(null)
@@ -201,6 +199,44 @@ function NavItem({ to, icon: Icon, label, badge, collapsed }) {
       setTooltipTop(r.top + r.height / 2 - 14)
     }
   }, [hovered, collapsed])
+
+  // Item desabilitado: visual acinzentado, sem navegação
+  if (disabled) {
+    return (
+      <div
+        style={{ position: 'relative' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <div
+          ref={ref}
+          className="sidebar__nav-item"
+          style={{ opacity: 0.35, cursor: 'not-allowed', pointerEvents: 'all' }}
+          title="Em desenvolvimento"
+        >
+          <span className="sidebar__nav-icon">
+            <Icon size={16} strokeWidth={1.8} />
+          </span>
+          <span className="sidebar__nav-label">{label}</span>
+          {badge && !collapsed && (
+            <span style={{
+              fontSize: 8, fontWeight: 700, letterSpacing: '0.04em',
+              padding: '1px 5px', borderRadius: 4,
+              background: 'rgba(107,114,128,0.2)', color: '#6B7280',
+              border: '1px solid rgba(107,114,128,0.3)', marginLeft: 'auto',
+              textTransform: 'uppercase', lineHeight: 1.6,
+            }}>{badge}</span>
+          )}
+        </div>
+        {collapsed && hovered && (
+          <div className="sidebar__tooltip" style={{ top: tooltipTop }}>
+            {label} (em desenvolvimento)
+            <div className="sidebar__tooltip-arrow" />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div
@@ -264,10 +300,8 @@ function FarolLogo() {
       <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" stroke="#B9915B" strokeOpacity="0.4" />
 
       {/* Feixe 3D — rotação 360° + opacidade senoidal simulando perspectiva */}
-      {/* Quando aponta pra frente: brilhante e largo. Quando vai pro fundo: some. */}
       <g clipPath="url(#boxClip)">
         <path d="M16 10.75 L42 4 L42 17.5 Z" fill="#E8C17A">
-          {/* Rotação contínua em torno do pivô da lanterna */}
           <animateTransform
             attributeName="transform"
             type="rotate"
@@ -276,7 +310,6 @@ function FarolLogo() {
             dur="4s"
             repeatCount="indefinite"
           />
-          {/* Opacidade pulsa em sincronia: frente=visível, fundo=invisível */}
           <animate
             attributeName="fill-opacity"
             values="0.55; 0.05; 0.55; 0.05; 0.55"
