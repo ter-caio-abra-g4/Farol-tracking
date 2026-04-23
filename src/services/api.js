@@ -127,7 +127,7 @@ export const api = {
 
   // Live Monitor
   liveGa4:        (propertyId, event = '') => get(`/api/live/ga4?propertyId=${propertyId}${event ? `&event=${encodeURIComponent(event)}` : ''}`, { mock: true }),
-  liveMeta:       ()                       => get('/api/live/meta', { mock: true }),
+  liveMeta:       (account = '')            => get(`/api/live/meta${account ? `?account=${encodeURIComponent(account)}` : ''}`, { mock: true }),
   liveDatabricks: (event = 'generate_lead') => get(`/api/live/databricks?event=${encodeURIComponent(event)}`, { mock: true }),
   liveCrm:        (campaign = '')           => get(`/api/live/crm${campaign ? `?campaign=${encodeURIComponent(campaign)}` : ''}`, { mock: true }),
 

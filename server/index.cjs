@@ -766,9 +766,11 @@ app.get('/api/live/ga4', async (req, res) => {
 })
 
 // Meta hoje — spend + leads do dia atual (~15 min latência)
+// ?account=act_XXX para filtrar por conta específica; omitir = todas consolidadas
 app.get('/api/live/meta', async (req, res) => {
   try {
-    res.json(await metaService.getLiveMetaToday())
+    const account = req.query.account || null
+    res.json(await metaService.getLiveMetaToday(account))
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message })
   }

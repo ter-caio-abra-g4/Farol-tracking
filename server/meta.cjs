@@ -659,13 +659,19 @@ function getMockLeadsByDay(days = 30) {
 
 // ─── Live Meta hoje — spend + leads do dia atual ──────────────────────────────
 // Usa date_preset: 'today' para dados do dia (não last_7d)
+// accountFilter: ID de uma conta específica (ex: 'act_942...') ou null para todas
 // Sem cache — chamado a cada 30s pelo LiveMonitor
-async function getLiveMetaToday() {
+async function getLiveMetaToday(accountFilter = null) {
   const token = getToken()
   if (!token) return { mock: true, totalSpend: 0, totalLeads: 0, cpl: null, topAds: [] }
 
   try {
-    const adAccounts = getAdAccounts()
+    const allAccounts = getAdAccounts()
+    // Filtra por conta específica se solicitado
+    const adAccounts = accountFilter
+      ? allAccounts.filter(a => a === accountFilter)
+      : allAccounts
+    if (adAccounts.length === 0) adAccounts.push(...allAccounts) // fallback seguro
 
     // Busca totais do dia por conta
     const [ageResults, adsResults] = await Promise.all([
@@ -717,6 +723,7 @@ async function getLiveMetaToday() {
       mock: false,
       capturedAt: new Date().toISOString(),
       latencyNote: '~15 min de atraso (limite da API Meta)',
+      accountFilter: accountFilter || 'all',
       totalSpend: Math.round(totalSpend),
       totalLeads,
       cpl: totalLeads > 0 ? Math.round(totalSpend / totalLeads) : null,
@@ -724,7 +731,7 @@ async function getLiveMetaToday() {
     }
   } catch (err) {
     console.error('[Meta] getLiveMetaToday error:', err.message)
-    return { mock: true, totalSpend: 0, totalLeads: 0, cpl: null, topAds: [], error: err.message }
+    return { mock: true, totalSpend: 0, totalLeads: 0, cpl: null, topAds: [], error: err.message, accountFilter: accountFilter || 'all' }
   }
 }
 

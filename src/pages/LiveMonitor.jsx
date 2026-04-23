@@ -182,6 +182,9 @@ export default function LiveMonitor() {
   const [dbLoading, setDbLoading]       = useState(false)
   const [crmLoading, setCrmLoading]     = useState(false)
 
+  // Filtro de conta Meta ('' = todas consolidadas)
+  const [metaAccount, setMetaAccount] = useState('')
+
   // Filtro de campanha UTM (opcional — filtra CRM)
   const [campaignFilter, setCampaignFilter] = useState('')
   const [inputCampaign, setInputCampaign]   = useState('')
@@ -223,7 +226,7 @@ export default function LiveMonitor() {
 
     const [ga4, meta, db, crm] = await Promise.all([
       api.liveGa4(propertyId, eventFilter),
-      api.liveMeta(),
+      api.liveMeta(metaAccount),
       api.liveDatabricks(eventFilter),
       api.liveCrm(campaignFilter),
     ])
@@ -326,7 +329,7 @@ export default function LiveMonitor() {
       }
     }
     // ── Fim alertas ──────────────────────────────────────────────────────────
-  }, [propertyId, eventFilter, campaignFilter])
+  }, [propertyId, eventFilter, campaignFilter, metaAccount])
 
   // Polling automático
   useEffect(() => {
@@ -799,9 +802,31 @@ export default function LiveMonitor() {
             )}
           </div>
 
+          {/* Filtro de conta Meta */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Meta:</span>
+            <select
+              value={metaAccount}
+              onChange={e => { setMetaAccount(e.target.value); historyRef.current = []; setHistory([]) }}
+              style={{
+                background: '#0D1B26', border: `1px solid ${metaAccount ? 'rgba(225,48,108,0.4)' : 'rgba(225,48,108,0.2)'}`,
+                borderRadius: 6, padding: '5px 8px', fontSize: 11, color: '#F5F4F3',
+                fontFamily: 'Manrope, sans-serif', cursor: 'pointer', outline: 'none',
+              }}
+            >
+              <option value="">Todas as contas</option>
+              <option value="act_942577509469439">LGEN</option>
+              <option value="act_584341142722462">SOCIAL</option>
+              <option value="act_324663872349737">SELFCHECKOUT</option>
+            </select>
+          </div>
+
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <SourceBadge label="GA4 Realtime" loading={ga4Loading} mock={ga4Data?.mock} error={ga4Data?.error} latency="~1 min" />
-            <SourceBadge label="Meta Ads"     loading={metaLoading} mock={metaData?.mock} error={metaData?.error} latency="~15 min" />
+            <SourceBadge
+              label={`Meta${metaAccount ? ' · ' + { 'act_942577509469439': 'LGEN', 'act_584341142722462': 'SOCIAL', 'act_324663872349737': 'SELFCHECKOUT' }[metaAccount] : ''}`}
+              loading={metaLoading} mock={metaData?.mock} error={metaData?.error} latency="~15 min"
+            />
             <SourceBadge label="Databricks"   loading={dbLoading}   mock={dbData?.mock}  error={dbData?.error}  latency={dbData?.latencyNote ? 'pipeline' : ''} />
             <SourceBadge label="CRM"          loading={crmLoading}  mock={crmData?.mock} error={crmData?.error} latency="5–30 min" />
           </div>
