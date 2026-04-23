@@ -182,9 +182,12 @@ export default function LiveMonitor() {
   const [inputCampaign, setInputCampaign]   = useState('')
   const [crmData, setCrmData]               = useState(null)
 
-  // Histórico acumulativo — em memória (ref) + persiste no servidor
+  // Histórico de snapshots — em memória (ref) + persiste no servidor
   const [history, setHistory]           = useState([])
   const historyRef = useRef([])
+
+  // Último ponto anterior — para calcular delta entre ciclos
+  const prevPointRef = useRef(null)
 
   // ID da sessão atual — criado uma vez por montagem + mudança de filtro
   const sessionIdRef = useRef(makeSessionId('generate_lead'))
@@ -239,10 +242,28 @@ export default function LiveMonitor() {
       qualificados: crm?.qualificados ?? 0,
       dbMock:       !!(db?.mock),
       eventFilter,
+      savedAt:      new Date().toISOString(),
+    }
+
+    // Delta em relação ao ponto anterior (quanto mudou neste ciclo de 30s)
+    const prev = prevPointRef.current
+    point.deltaGa4  = prev != null ? ga4Count - (prev.ga4 ?? 0) : null
+    point.deltaMeta = prev != null ? (meta?.totalLeads ?? 0) - (prev.meta ?? 0) : null
+    prevPointRef.current = point
+
+    // Histórico: guarda deltas para o gráfico de pulso
+    const deltaPoint = {
+      time:       timeLabel,
+      savedAt:    point.savedAt,
+      ga4Delta:   Math.max(0, point.deltaGa4 ?? 0),
+      metaDelta:  Math.max(0, point.deltaMeta ?? 0),
+      // Databricks e CRM são acumulados do dia — não faz sentido delta
+      crm:        crm?.totalLeads ?? 0,
+      qualificados: crm?.qualificados ?? 0,
     }
 
     // Atualiza histórico em memória
-    const updated = [...historyRef.current, point].slice(-40)
+    const updated = [...historyRef.current, deltaPoint].slice(-40)
     historyRef.current = updated
     setHistory(updated)
     setCountdown(POLL_INTERVAL_MS / 1000)
@@ -797,62 +818,78 @@ export default function LiveMonitor() {
           </span>
         </div>
 
-        {/* ── KPIs triangulados ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-          <LiveKpi
-            label={`GA4 · "${eventFilter}" (agora)`}
-            value={fmtNum((ga4Data?.topEvents || []).find(e => e.event === eventFilter)?.count ?? 0)}
-            sub={`${fmtNum(ga4Data?.activeUsers ?? 0)} ativos · ${fmtTime(ga4Data?.capturedAt)}`}
-            color="#6366F1"
-            pulse={!ga4Data?.mock}
-          />
-          <LiveKpi
-            label="Meta · Leads hoje"
-            value={fmtNum(metaData?.totalLeads ?? 0)}
-            sub={`${fmtMoney(metaData?.totalSpend ?? 0)} invest. · CPL ${metaData?.cpl ? fmtMoney(metaData.cpl) : '—'}`}
-            color="#E1306C"
-            pulse={!metaData?.mock}
-          />
-          <LiveKpi
-            label={`Databricks · "${eventFilter}" hoje`}
-            value={fmtNum(dbData?.total ?? 0)}
-            sub={`${fmtNum(dbData?.uniqueUsers ?? 0)} únicos · ${fmtEpochTime(dbData?.lastSeenTs)}`}
-            color="#F59E0B"
-            pulse={!dbData?.mock}
-          />
-          <LiveKpi
-            label={`CRM · Leads hoje${campaignFilter ? ` · ${campaignFilter}` : ''}`}
-            value={fmtNum(crmData?.totalLeads ?? 0)}
-            sub={`${fmtNum(crmData?.ganhos ?? 0)} ganhos · ${fmtTime(crmData?.capturedAt)}`}
-            color="#22C55E"
-            pulse={!crmData?.mock}
-          />
-          <LiveKpi
-            label="Qualificados (MQL)"
-            value={fmtNum(crmData?.qualificados ?? 0)}
-            sub={crmData?.totalLeads ? `${Math.round(((crmData.qualificados ?? 0) / crmData.totalLeads) * 100)}% de taxa de qualif.` : '—'}
-            color="#06B6D4"
-            pulse={!crmData?.mock}
-          />
+        {/* ══════════════════════════════════════════════════════════
+            BLOCO 1 — TEMPO REAL (este instante)
+            Valores do snapshot mais recente: ativos agora, delta do ciclo
+        ══════════════════════════════════════════════════════════ */}
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Radio size={10} color="#22C55E" />
+            Agora — snapshot do último ciclo (30s)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            {/* GA4: usuários ativos + novo evento neste ciclo */}
+            {(() => {
+              const lastDelta = history.length > 0 ? history[history.length - 1]?.ga4Delta ?? null : null
+              return (
+                <LiveKpi
+                  label={`GA4 · "${eventFilter}" neste ciclo`}
+                  value={lastDelta != null ? `+${fmtNum(lastDelta)}` : fmtNum((ga4Data?.topEvents || []).find(e => e.event === eventFilter)?.count ?? 0)}
+                  sub={`${fmtNum(ga4Data?.activeUsers ?? 0)} usuários ativos agora · ${fmtTime(ga4Data?.capturedAt)}`}
+                  color="#6366F1"
+                  pulse={!ga4Data?.mock}
+                />
+              )
+            })()}
+            {/* Meta: delta de leads neste ciclo */}
+            {(() => {
+              const lastDelta = history.length > 0 ? history[history.length - 1]?.metaDelta ?? null : null
+              return (
+                <LiveKpi
+                  label="Meta · novos leads neste ciclo"
+                  value={lastDelta != null ? `+${fmtNum(lastDelta)}` : '—'}
+                  sub={`CPL atual ${metaData?.cpl ? fmtMoney(metaData.cpl) : '—'} · ${fmtTime(metaData?.capturedAt)}`}
+                  color="#E1306C"
+                  pulse={!metaData?.mock}
+                />
+              )
+            })()}
+            {/* Databricks: último evento visto */}
+            <LiveKpi
+              label="Databricks · último evento"
+              value={fmtEpochTime(dbData?.lastSeenTs)}
+              sub={`${fmtNum(dbData?.uniqueUsers ?? 0)} usuários únicos hoje`}
+              color="#F59E0B"
+              pulse={!dbData?.mock}
+            />
+            {/* CRM: qualificados */}
+            <LiveKpi
+              label="Qualificados (MQL) hoje"
+              value={fmtNum(crmData?.qualificados ?? 0)}
+              sub={crmData?.totalLeads ? `${Math.round(((crmData.qualificados ?? 0) / crmData.totalLeads) * 100)}% dos leads do dia` : '—'}
+              color="#06B6D4"
+              pulse={!crmData?.mock}
+            />
+          </div>
         </div>
 
-        {/* ── Gráfico acumulativo ── */}
+        {/* ── Gráfico de pulso — delta por ciclo ── */}
         <Card>
           <CardHeader
-            title={`Acúmulo ao longo da sessão · "${eventFilter}"`}
-            subtitle={`${history.length} snapshots · intervalo 30s`}
+            title={`Pulso de atividade · "${eventFilter}"`}
+            subtitle={`Novos eventos por ciclo de 30s · ${history.filter(p => p.ga4Delta != null).length} ciclos capturados`}
           />
           <CardBody>
             {history.length < 2 ? (
-              <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: 12 }}>
-                Aguardando dados… ({history.length}/2 pontos)
+              <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: 12 }}>
+                Aguardando dados… ({history.length}/2 ciclos)
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={160}>
                 <LineChart data={history} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                   <XAxis dataKey="time" tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
                     cursor={TT.cursorLine}
                     content={({ active, payload, label }) => {
@@ -862,23 +899,63 @@ export default function LiveMonitor() {
                           <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 11 }}>{label}</div>
                           {payload.map((p, i) => (
                             <div key={i} style={{ color: p.color, fontSize: 11 }}>
-                              {p.name}: {fmtNum(p.value)}
+                              {p.name}: +{fmtNum(p.value)}
                             </div>
                           ))}
                         </div>
                       )
                     }}
                   />
-                  <Line type="monotone" dataKey="ga4"          name="GA4"          stroke="#6366F1" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="meta"         name="Meta Leads"   stroke="#E1306C" strokeWidth={2} dot={false} activeDot={{ r: 4 }} strokeDasharray="5 3" />
-                  <Line type="monotone" dataKey="databricks"   name="Databricks"   stroke="#F59E0B" strokeWidth={2} dot={false} activeDot={{ r: 4 }} strokeDasharray="2 2" />
-                  <Line type="monotone" dataKey="crm"          name="CRM Leads"    stroke="#22C55E" strokeWidth={2} dot={false} activeDot={{ r: 4 }} strokeDasharray="6 2" />
-                  <Line type="monotone" dataKey="qualificados" name="Qualificados" stroke="#06B6D4" strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} strokeDasharray="3 3" />
+                  <Line type="monotone" dataKey="ga4Delta"  name={`GA4 "${eventFilter}"`} stroke="#6366F1" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="metaDelta" name="Meta leads"              stroke="#E1306C" strokeWidth={2} dot={false} activeDot={{ r: 4 }} strokeDasharray="5 3" />
                 </LineChart>
               </ResponsiveContainer>
             )}
           </CardBody>
         </Card>
+
+        {/* ══════════════════════════════════════════════════════════
+            BLOCO 2 — ACUMULADO DO DIA (desde meia-noite)
+            Totais reais de cada fonte para referência contextual
+        ══════════════════════════════════════════════════════════ */}
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Activity size={10} color="#8A9BAA" />
+            Acumulado do dia — totais desde meia-noite
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+            <LiveKpi
+              label={`GA4 · "${eventFilter}" hoje`}
+              value={fmtNum((ga4Data?.topEvents || []).find(e => e.event === eventFilter)?.count ?? 0)}
+              sub={`${fmtNum(ga4Data?.totalEvents ?? 0)} eventos no total`}
+              color="#6366F1"
+            />
+            <LiveKpi
+              label="Meta · leads hoje"
+              value={fmtNum(metaData?.totalLeads ?? 0)}
+              sub={`${fmtMoney(metaData?.totalSpend ?? 0)} investido`}
+              color="#E1306C"
+            />
+            <LiveKpi
+              label={`Databricks · "${eventFilter}" hoje`}
+              value={fmtNum(dbData?.total ?? 0)}
+              sub={`${fmtNum(dbData?.uniqueUsers ?? 0)} usuários únicos`}
+              color="#F59E0B"
+            />
+            <LiveKpi
+              label={`CRM · leads hoje${campaignFilter ? ` (${campaignFilter})` : ''}`}
+              value={fmtNum(crmData?.totalLeads ?? 0)}
+              sub={`${fmtNum(crmData?.ganhos ?? 0)} ganhos`}
+              color="#22C55E"
+            />
+            <LiveKpi
+              label="CPL Meta (dia)"
+              value={metaData?.cpl ? fmtMoney(metaData.cpl) : '—'}
+              sub={metaData?.totalLeads ? `base: ${fmtNum(metaData.totalLeads)} leads` : '—'}
+              color={!metaData?.cpl ? '#6B7280' : metaData.cpl < 150 ? '#22C55E' : metaData.cpl < 300 ? '#F59E0B' : '#EF4444'}
+            />
+          </div>
+        </div>
 
         {/* ── Detalhe GA4 + Meta lado a lado ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

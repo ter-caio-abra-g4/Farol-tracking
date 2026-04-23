@@ -401,7 +401,7 @@ main {
   transition: transform var(--sb-dur-layout) var(--sb-ease-spring);
 }
 .sidebar__toggle:hover {
-  background: rgba(185, 145, 91, 0.12);
+  background: var(--sb-bg);
   border-color: var(--sb-gold);
 }
 .sidebar--collapsed .sidebar__toggle {
