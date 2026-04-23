@@ -2135,12 +2135,14 @@ async function runLiveQuery(eventName = 'generate_lead') {
 
 // ─── Live CRM — leads e qualificados do dia por campanha ─────────────────────
 async function runLiveCRM(utmCampaign = null) {
-  const { host, token, warehouseId, catalog, schema } = getCredentials()
+  const { host, token, catalog, schema } = getCredentials()
   if (!host || !token) return { mock: true, ...getMockLiveCRM(utmCampaign) }
 
   const campaignFilter = utmCampaign
     ? `AND LOWER(utm_campaign) LIKE LOWER('%${utmCampaign.replace(/'/g, "''")}%')`
     : ''
+
+  const tbl = `${catalog}.gold.deals_fct`
 
   const sql = `
     SELECT
@@ -2151,7 +2153,7 @@ async function runLiveCRM(utmCampaign = null) {
       COUNT(CASE WHEN status_do_deal = 'lost' THEN 1 END)              AS perdidos,
       utm_campaign,
       pipeline_name
-    FROM ${catalog}.gold.deals_fct
+    FROM ${tbl}
     WHERE DATE(created_at) = CURRENT_DATE()
       ${campaignFilter}
     GROUP BY utm_campaign, pipeline_name
@@ -2160,13 +2162,20 @@ async function runLiveCRM(utmCampaign = null) {
   `
 
   try {
-    const rows = await executeSQL(sql, warehouseId, host, token)
-    const totalLeads     = rows.reduce((s, r) => s + (Number(r[0]) || 0), 0)
-    const qualificados   = rows.reduce((s, r) => s + (Number(r[1]) || 0), 0)
-    const ganhos         = rows.reduce((s, r) => s + (Number(r[2]) || 0), 0)
-    const topCampaigns   = rows
-      .filter(r => r[4])
-      .map(r => ({ campaign: r[4], pipeline: r[5], leads: Number(r[0]) || 0, qualificados: Number(r[1]) || 0 }))
+    const data = await executeStatement(sql, 20)
+    const { rows } = parseResult(data)
+    const totalLeads   = rows.reduce((s, r) => s + (Number(r.total_leads)   || 0), 0)
+    const qualificados = rows.reduce((s, r) => s + (Number(r.qualificados)  || 0), 0)
+    const ganhos       = rows.reduce((s, r) => s + (Number(r.ganhos)        || 0), 0)
+    const topCampaigns = rows
+      .filter(r => r.utm_campaign)
+      .map(r => ({
+        campaign:     r.utm_campaign,
+        pipeline:     r.pipeline_name,
+        leads:        Number(r.total_leads)  || 0,
+        qualificados: Number(r.qualificados) || 0,
+        ganhos:       Number(r.ganhos)       || 0,
+      }))
       .slice(0, 5)
 
     return {

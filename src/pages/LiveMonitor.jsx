@@ -73,9 +73,14 @@ function fmtEpochTime(ts) {
 }
 
 // ── Badge de status da fonte ───────────────────────────────────────────────────
+// Lógica de estado:
+// - mock=false, sem error → verde (dado real)
+// - mock=true (com ou sem error) → laranja/Clock (sem credencial ou auth falhou — esperado)
+// - mock=false + error → vermelho (dado real falhou — erro real)
 function SourceBadge({ label, loading, mock, error, latency }) {
-  const color = error ? '#EF4444' : mock ? '#F59E0B' : '#22C55E'
-  const icon  = error ? <AlertTriangle size={12} /> : mock ? <Clock size={12} /> : <CheckCircle2 size={12} />
+  const isFatal = !mock && error  // só vermelho se era pra ter dado real mas falhou
+  const color = isFatal ? '#EF4444' : mock ? '#F59E0B' : '#22C55E'
+  const icon  = isFatal ? <AlertTriangle size={12} /> : mock ? <Clock size={12} /> : <CheckCircle2 size={12} />
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6,

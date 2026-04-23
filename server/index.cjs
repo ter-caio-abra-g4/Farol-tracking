@@ -765,30 +765,10 @@ app.get('/api/live/ga4', async (req, res) => {
   }
 })
 
-// Meta hoje — spend + leads do dia (~15 min latência)
+// Meta hoje — spend + leads do dia atual (~15 min latência)
 app.get('/api/live/meta', async (req, res) => {
   try {
-    const aud = await metaService.getAudienceInsights(1)   // days=1 = hoje
-    const cre = await metaService.getAdCreativeInsights(1)
-    const ageRows   = aud.ageRows   || []
-    const ads       = cre.ads       || []
-    const totalSpend = ageRows.reduce((s, r) => s + r.spend, 0)
-    const totalLeads = ageRows.reduce((s, r) => s + r.leads, 0)
-    res.json({
-      mock: aud.mock || cre.mock,
-      capturedAt: new Date().toISOString(),
-      latencyNote: '~15 min de atraso (limite da API Meta)',
-      totalSpend,
-      totalLeads,
-      cpl: totalLeads > 0 ? Math.round(totalSpend / totalLeads) : null,
-      topAds: ads.slice(0, 5).map(a => ({
-        name:     a.name,
-        campaign: a.campaign,
-        spend:    a.spend,
-        leads:    a.leads,
-        cpl:      a.cpl,
-      })),
-    })
+    res.json(await metaService.getLiveMetaToday())
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message })
   }

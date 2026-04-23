@@ -657,4 +657,75 @@ function getMockLeadsByDay(days = 30) {
   return rows
 }
 
-module.exports = { getPixelStats, getEventQuality, getEventVolume, listPixels, getMockMeta, getAudienceInsights, getAdCreativeInsights, getLeadsByDay, clearCache }
+// ─── Live Meta hoje — spend + leads do dia atual ──────────────────────────────
+// Usa date_preset: 'today' para dados do dia (não last_7d)
+// Sem cache — chamado a cada 30s pelo LiveMonitor
+async function getLiveMetaToday() {
+  const token = getToken()
+  if (!token) return { mock: true, totalSpend: 0, totalLeads: 0, cpl: null, topAds: [] }
+
+  try {
+    const adAccounts = getAdAccounts()
+
+    // Busca totais do dia por conta
+    const [ageResults, adsResults] = await Promise.all([
+      Promise.all(adAccounts.map(acc =>
+        metaGet(`${acc}/insights`, {
+          fields: 'spend,actions',
+          date_preset: 'today',
+          limit: '1',
+        }).catch(() => ({ data: [] }))
+      )),
+      Promise.all(adAccounts.map(acc =>
+        metaGet(`${acc}/insights`, {
+          fields: 'ad_id,ad_name,adset_name,campaign_name,spend,actions',
+          level: 'ad',
+          date_preset: 'today',
+          limit: '25',
+          sort: 'spend_descending',
+        }).catch(() => ({ data: [] }))
+      )),
+    ])
+
+    let totalSpend = 0
+    let totalLeads = 0
+    for (const res of ageResults) {
+      for (const r of (res.data || [])) {
+        totalSpend += parseFloat(r.spend) || 0
+        totalLeads += extractLeads(r.actions || [])
+      }
+    }
+
+    const allAds = []
+    for (const res of adsResults) {
+      for (const r of (res.data || [])) {
+        const spend = parseFloat(r.spend) || 0
+        if (spend < 1) continue
+        const leads = extractLeads(r.actions || [])
+        allAds.push({
+          id: r.ad_id, name: r.ad_name,
+          adset: r.adset_name, campaign: r.campaign_name,
+          spend, leads,
+          cpl: leads > 0 ? Math.round(spend / leads) : null,
+        })
+      }
+    }
+
+    const topAds = allAds.sort((a, b) => b.spend - a.spend).slice(0, 5)
+
+    return {
+      mock: false,
+      capturedAt: new Date().toISOString(),
+      latencyNote: '~15 min de atraso (limite da API Meta)',
+      totalSpend: Math.round(totalSpend),
+      totalLeads,
+      cpl: totalLeads > 0 ? Math.round(totalSpend / totalLeads) : null,
+      topAds,
+    }
+  } catch (err) {
+    console.error('[Meta] getLiveMetaToday error:', err.message)
+    return { mock: true, totalSpend: 0, totalLeads: 0, cpl: null, topAds: [], error: err.message }
+  }
+}
+
+module.exports = { getPixelStats, getEventQuality, getEventVolume, listPixels, getMockMeta, getAudienceInsights, getAdCreativeInsights, getLeadsByDay, getLiveMetaToday, clearCache }
