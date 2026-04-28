@@ -192,7 +192,8 @@ export default function LiveMonitor() {
 
   // Histórico de snapshots — em memória (ref) + persiste no servidor
   const [history, setHistory]           = useState([])
-  const historyRef = useRef([])
+  const historyRef = useRef([])         // últimos 40 pontos — para gráfico de pulso
+  const allDeltasRef = useRef([])       // todos os pontos da sessão — para gráfico por hora
 
   // Último ponto anterior — para calcular delta entre ciclos
   const prevPointRef = useRef(null)
@@ -270,10 +271,11 @@ export default function LiveMonitor() {
       qualificados: crm?.qualificados ?? 0,
     }
 
-    // Atualiza histórico em memória
+    // Atualiza histórico em memória (últimos 40 para pulso; todos para gráfico por hora)
     const updated = [...historyRef.current, deltaPoint].slice(-40)
     historyRef.current = updated
     setHistory(updated)
+    allDeltasRef.current = [...allDeltasRef.current, deltaPoint]
     setCountdown(POLL_INTERVAL_MS / 1000)
 
     // Persiste no servidor (fire-and-forget — não bloqueia o UI)
@@ -349,15 +351,17 @@ export default function LiveMonitor() {
   const handleApplyFilter = () => {
     const newFilter = inputEvent.trim() || 'generate_lead'
     setEventFilter(newFilter)
-    // Nova sessão ao trocar o evento monitorado
     sessionIdRef.current = makeSessionId(newFilter)
     historyRef.current = []
+    allDeltasRef.current = []
+    prevPointRef.current = null
     setHistory([])
   }
 
   const handleApplyCampaign = () => {
     setCampaignFilter(inputCampaign.trim())
     historyRef.current = []
+    allDeltasRef.current = []
     setHistory([])
   }
 
@@ -807,7 +811,7 @@ export default function LiveMonitor() {
             <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Meta:</span>
             <select
               value={metaAccount}
-              onChange={e => { setMetaAccount(e.target.value); historyRef.current = []; setHistory([]) }}
+              onChange={e => { setMetaAccount(e.target.value); historyRef.current = []; allDeltasRef.current = []; prevPointRef.current = null; setHistory([]) }}
               style={{
                 background: '#0D1B26', border: `1px solid ${metaAccount ? 'rgba(225,48,108,0.4)' : 'rgba(225,48,108,0.2)'}`,
                 borderRadius: 6, padding: '5px 8px', fontSize: 11, color: '#F5F4F3',
@@ -986,6 +990,65 @@ export default function LiveMonitor() {
             />
           </div>
         </div>
+
+        {/* ── Gráfico por hora — acumulado GA4 + Meta até agora ── */}
+        {(() => {
+          // Agrega todos os deltas da sessão agrupados por hora
+          const allPoints = allDeltasRef.current
+          if (allPoints.length < 2) return null
+
+          const byHour = {}
+          for (const p of allPoints) {
+            if (!p.savedAt) continue
+            const d = new Date(p.savedAt)
+            const hh = d.getHours()
+            const key = `${String(hh).padStart(2, '0')}:00`
+            // Sobrescreve — fica com o último ponto da hora (o mais recente = maior valor)
+            if (!byHour[key]) byHour[key] = { hour: key, ga4: 0, meta: 0 }
+            // ga4Delta acumulado na hora: soma deltas daquela hora
+            byHour[key].ga4  += (p.ga4Delta  ?? 0)
+            byHour[key].meta += (p.metaDelta ?? 0)
+          }
+
+          const hourlyData = Object.values(byHour).sort((a, b) => a.hour.localeCompare(b.hour))
+          if (hourlyData.length < 1) return null
+
+          return (
+            <Card>
+              <CardHeader
+                title={`Evolução por hora · "${eventFilter}"`}
+                subtitle={`Eventos acumulados por hora até ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} · ${hourlyData.length} hora${hourlyData.length !== 1 ? 's' : ''} monitorada${hourlyData.length !== 1 ? 's' : ''}`}
+              />
+              <CardBody>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={hourlyData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="hour" tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#8A9BAA', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip
+                      cursor={TT.cursorLine}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        return (
+                          <div style={TT.contentStyle}>
+                            <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 11 }}>{label}</div>
+                            {payload.map((p, i) => (
+                              <div key={i} style={{ color: p.color, fontSize: 11 }}>
+                                {p.name}: {fmtNum(p.value)}
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      }}
+                    />
+                    <Line type="monotone" dataKey="ga4"  name={`GA4 "${eventFilter}"`} stroke="#6366F1" strokeWidth={2} dot={{ r: 3, fill: '#6366F1' }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="meta" name="Meta leads"              stroke="#E1306C" strokeWidth={2} dot={{ r: 3, fill: '#E1306C' }} activeDot={{ r: 5 }} strokeDasharray="5 3" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardBody>
+            </Card>
+          )
+        })()}
 
         {/* ── Detalhe GA4 + Meta lado a lado ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
