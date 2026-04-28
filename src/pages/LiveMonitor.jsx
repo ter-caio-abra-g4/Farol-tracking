@@ -219,6 +219,40 @@ export default function LiveMonitor() {
     api.liveSessions().then(r => setSessions(r?.sessions || []))
   }, [showHistory])
 
+  // Reconstrói allDeltasRef com o histórico persistido do dia atual ao montar/trocar evento
+  // Assim o gráfico por hora começa da meia-noite mesmo que o app tenha sido aberto agora
+  useEffect(() => {
+    const sessionId = makeSessionId(eventFilter)
+    api.liveSession(sessionId).then(session => {
+      if (!session?.points?.length) return
+      // Reconstrói os deltaPoints a partir dos pontos brutos persistidos
+      const rebuilt = []
+      for (let i = 0; i < session.points.length; i++) {
+        const p = session.points[i]
+        const prev = session.points[i - 1]
+        const d = new Date(p.savedAt || p.time)
+        const timeLabel = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        rebuilt.push({
+          time:         timeLabel,
+          savedAt:      p.savedAt || new Date().toISOString(),
+          ga4Delta:     prev != null ? Math.max(0, (p.ga4 ?? 0) - (prev.ga4 ?? 0)) : 0,
+          metaDelta:    prev != null ? Math.max(0, (p.meta ?? 0) - (prev.meta ?? 0)) : 0,
+          crm:          p.crm ?? 0,
+          qualificados: p.qualificados ?? 0,
+        })
+      }
+      allDeltasRef.current = rebuilt
+      // Popula o gráfico de pulso com os últimos 40
+      const last40 = rebuilt.slice(-40)
+      historyRef.current = last40
+      setHistory([...last40])
+      // Inicializa prevPointRef com o último ponto persistido
+      // para que o primeiro delta do polling seja calculado corretamente
+      const lastRaw = session.points[session.points.length - 1]
+      if (lastRaw) prevPointRef.current = lastRaw
+    }).catch(() => {}) // sessão não existe ainda — começa do zero
+  }, [eventFilter])
+
   const fetchAll = useCallback(async () => {
     const now = new Date()
     const timeLabel = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
