@@ -19,15 +19,28 @@ import {
   AlertTriangle,
   Users2,
   Triangle,
+  MapPin,
+  Wifi,
+  Share2,
+  Cpu,
 } from 'lucide-react'
 
 // ── Estrutura de navegação agrupada ──────────────────────────────────────────
 const navGroups = [
   {
-    // Sem label — Dashboard + Monitor ao vivo no topo
+    // Sem label — Dashboard no topo
     items: [
-      { to: '/',     icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/live', icon: Radio,           label: 'Ao Vivo'   },
+      { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+    ],
+  },
+  {
+    label: 'Ao Vivo',
+    defaultOpen: true,
+    items: [
+      { to: '/live',             icon: Radio,    label: 'Resumo',      badge: 'live' },
+      { to: '/live/ga4',         icon: Wifi,     label: 'GA4'          },
+      { to: '/live/meta',        icon: Share2,   label: 'Meta Ads'     },
+      { to: '/live/databricks',  icon: Cpu,      label: 'Databricks'   },
     ],
   },
   {
@@ -44,11 +57,12 @@ const navGroups = [
     label: 'Análise',
     defaultOpen: false,
     items: [
-      { to: '/funil',      icon: TrendingUp,    label: 'Funil'        },
-      { to: '/analytics',  icon: LineChart,     label: 'Analytics'    },
-      { to: '/comparacao', icon: Triangle,      label: 'Triangulação' },
-      { to: '/anomaly',    icon: AlertTriangle, label: 'Anomalias', badge: 'em breve', disabled: true },
-      { to: '/cohort',     icon: Users2,        label: 'Cohort',    badge: 'em breve', disabled: true },
+      { to: '/funil',           icon: TrendingUp,    label: 'Funil'           },
+      { to: '/analytics',       icon: LineChart,     label: 'Analytics'       },
+      { to: '/comparacao',      icon: Triangle,      label: 'Triangulação'    },
+      { to: '/events-explorer', icon: MapPin,        label: 'Eventos/Página'  },
+      { to: '/anomaly',         icon: AlertTriangle, label: 'Anomalias', badge: 'em breve', disabled: true },
+      { to: '/cohort',          icon: Users2,        label: 'Cohort',    badge: 'em breve', disabled: true },
     ],
   },
   {
@@ -72,11 +86,13 @@ export default function Sidebar() {
   // Accordion: só um grupo aberto por vez (guarda o label do grupo aberto)
   const location = useLocation()
   const [openGroup, setOpenGroup] = useState(() => {
-    // Abre o grupo que contém a rota atual na carga inicial
+    // Abre o grupo que contém a rota atual; fallback para o grupo com defaultOpen: true
     const active = navGroups.find(g =>
-      g.label && g.items?.some(item => item.to === window.location.pathname)
+      g.label && g.items?.some(item => window.location.pathname.startsWith(item.to) && item.to !== '/')
     )
-    return active?.label ?? null
+    if (active) return active.label
+    const def = navGroups.find(g => g.defaultOpen)
+    return def?.label ?? null
   })
 
   const checkServer = useCallback(() => {
@@ -246,7 +262,7 @@ function NavItem({ to, icon: Icon, label, badge, collapsed, disabled }) {
     >
       <NavLink
         to={to}
-        end={to === '/'}
+        end={to === '/' || to === '/live'}
         ref={ref}
         className={({ isActive }) =>
           ['sidebar__nav-item', isActive ? 'sidebar__nav-item--active' : ''].join(' ')
@@ -260,8 +276,10 @@ function NavItem({ to, icon: Icon, label, badge, collapsed, disabled }) {
           <span style={{
             fontSize: 8, fontWeight: 700, letterSpacing: '0.04em',
             padding: '1px 5px', borderRadius: 4,
-            background: 'rgba(99,102,241,0.15)', color: '#A5B4FC',
-            border: '1px solid rgba(99,102,241,0.25)', marginLeft: 'auto',
+            background: badge === 'live' ? 'rgba(34,197,94,0.15)' : 'rgba(99,102,241,0.15)',
+            color: badge === 'live' ? '#22C55E' : '#A5B4FC',
+            border: `1px solid ${badge === 'live' ? 'rgba(34,197,94,0.35)' : 'rgba(99,102,241,0.25)'}`,
+            marginLeft: 'auto',
             textTransform: 'uppercase', lineHeight: 1.6,
           }}>{badge}</span>
         )}

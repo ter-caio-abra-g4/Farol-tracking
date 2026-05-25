@@ -752,14 +752,25 @@ app.get('/api/searchconsole/performance', async (req, res) => {
   }
 })
 
+// GA4 Events by Page — pagePath × eventName
+app.get('/api/ga4/events-by-page/:propertyId', async (req, res) => {
+  const { propertyId } = req.params
+  const days = parseInt(req.query.days) || 28
+  try {
+    res.json(await ga4Service.getEventsByPage(propertyId, days))
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, rows: [] })
+  }
+})
+
 // ─── Live Monitor ───────────────────────────────────────────────────────────
 
 // GA4 Realtime — últimos 30 min (~1 min latência)
 app.get('/api/live/ga4', async (req, res) => {
-  const { propertyId, event } = req.query
+  const { propertyId, event, channel } = req.query
   if (!propertyId) return res.status(400).json({ error: 'propertyId obrigatório' })
   try {
-    res.json(await ga4Service.getRealtimeReport(propertyId, event || null))
+    res.json(await ga4Service.getRealtimeReport(propertyId, event || null, channel || null))
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message })
   }

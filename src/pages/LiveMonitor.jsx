@@ -5,7 +5,7 @@ import { api } from '../services/api'
 import { fmtNum, fmtMoney } from '../utils/format'
 import { TT } from '../components/ui/DarkTooltip'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts'
 import {
@@ -96,7 +96,7 @@ function SourceBadge({ label, loading, mock, error, latency }) {
 }
 
 // ── KPI live ───────────────────────────────────────────────────────────────────
-function LiveKpi({ label, value, sub, color = '#B9915B', pulse = false }) {
+function LiveKpi({ label, value, sub, color = '#B9915B', pulse = false, sparkData }) {
   return (
     <div style={{
       background: '#0D1B26', border: `1px solid ${color}33`,
@@ -117,6 +117,22 @@ function LiveKpi({ label, value, sub, color = '#B9915B', pulse = false }) {
       <div style={{ fontSize: 20, fontWeight: 800, color: '#F5F4F3', lineHeight: 1.1 }}>{value}</div>
       <div style={{ fontSize: 11, color, marginTop: 4, fontWeight: 700 }}>{label}</div>
       {sub && <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>{sub}</div>}
+      {sparkData && sparkData.length >= 3 && (
+        <div style={{ marginTop: 8, opacity: 0.7 }}>
+          <ResponsiveContainer width="100%" height={28}>
+            <AreaChart data={sparkData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={`sg-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={color} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5}
+                fill={`url(#sg-${color.replace('#','')})`} dot={false} isAnimationActive={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   )
 }
@@ -194,6 +210,10 @@ export default function LiveMonitor() {
   const [history, setHistory]           = useState([])
   const historyRef = useRef([])         // últimos 40 pontos — para gráfico de pulso
   const allDeltasRef = useRef([])       // todos os pontos da sessão — para gráfico por hora
+
+  // Minutely: agrega deltas de GA4 por minuto (chave HH:MM)
+  const minutelyRef  = useRef({})       // { 'HH:MM': { ga4: number, meta: number, ts: number } }
+  const [minutelyData, setMinutelyData] = useState([]) // array ordenado para o gráfico
 
   // Último ponto anterior — para calcular delta entre ciclos
   const prevPointRef = useRef(null)
@@ -310,6 +330,19 @@ export default function LiveMonitor() {
     historyRef.current = updated
     setHistory(updated)
     allDeltasRef.current = [...allDeltasRef.current, deltaPoint]
+
+    // Agrega por minuto (HH:MM) — acumula deltas no bucket do minuto atual
+    const minuteKey = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    const mb = minutelyRef.current
+    if (!mb[minuteKey]) mb[minuteKey] = { minute: minuteKey, ga4: 0, meta: 0, ts: now.getTime() }
+    mb[minuteKey].ga4  += Math.max(0, point.deltaGa4  ?? 0)
+    mb[minuteKey].meta += Math.max(0, point.deltaMeta ?? 0)
+    // Mantém só últimos 60 minutos
+    const cutoffTs = now.getTime() - 60 * 60 * 1000
+    for (const k of Object.keys(mb)) { if (mb[k].ts < cutoffTs) delete mb[k] }
+    const minuteSorted = Object.values(mb).sort((a, b) => a.ts - b.ts)
+    setMinutelyData(minuteSorted)
+
     setCountdown(POLL_INTERVAL_MS / 1000)
 
     // Persiste no servidor (fire-and-forget — não bloqueia o UI)
@@ -899,6 +932,7 @@ export default function LiveMonitor() {
             {/* GA4: usuários ativos + novo evento neste ciclo */}
             {(() => {
               const lastDelta = history.length > 0 ? history[history.length - 1]?.ga4Delta ?? null : null
+              const spark = history.slice(-12).map(p => ({ v: p.ga4Delta ?? 0 }))
               return (
                 <LiveKpi
                   label={`GA4 · "${eventFilter}" neste ciclo`}
@@ -906,12 +940,14 @@ export default function LiveMonitor() {
                   sub={`${fmtNum(ga4Data?.activeUsers ?? 0)} usuários ativos agora · ${fmtTime(ga4Data?.capturedAt)}`}
                   color="#6366F1"
                   pulse={!ga4Data?.mock}
+                  sparkData={spark}
                 />
               )
             })()}
             {/* Meta: delta de leads neste ciclo */}
             {(() => {
               const lastDelta = history.length > 0 ? history[history.length - 1]?.metaDelta ?? null : null
+              const spark = history.slice(-12).map(p => ({ v: p.metaDelta ?? 0 }))
               return (
                 <LiveKpi
                   label="Meta · novos leads neste ciclo"
@@ -919,6 +955,7 @@ export default function LiveMonitor() {
                   sub={`CPL atual ${metaData?.cpl ? fmtMoney(metaData.cpl) : '—'} · ${fmtTime(metaData?.capturedAt)}`}
                   color="#E1306C"
                   pulse={!metaData?.mock}
+                  sparkData={spark}
                 />
               )
             })()}
@@ -931,13 +968,19 @@ export default function LiveMonitor() {
               pulse={!dbData?.mock}
             />
             {/* CRM: qualificados */}
-            <LiveKpi
-              label="Qualificados (MQL) hoje"
-              value={fmtNum(crmData?.qualificados ?? 0)}
-              sub={crmData?.totalLeads ? `${Math.round(((crmData.qualificados ?? 0) / crmData.totalLeads) * 100)}% dos leads do dia` : '—'}
-              color="#06B6D4"
-              pulse={!crmData?.mock}
-            />
+            {(() => {
+              const spark = history.slice(-12).map(p => ({ v: p.qualificados ?? 0 }))
+              return (
+                <LiveKpi
+                  label="Qualificados (MQL) hoje"
+                  value={fmtNum(crmData?.qualificados ?? 0)}
+                  sub={crmData?.totalLeads ? `${Math.round(((crmData.qualificados ?? 0) / crmData.totalLeads) * 100)}% dos leads do dia` : '—'}
+                  color="#06B6D4"
+                  pulse={!crmData?.mock}
+                  sparkData={spark}
+                />
+              )
+            })()}
           </div>
         </div>
 
@@ -981,6 +1024,51 @@ export default function LiveMonitor() {
             )}
           </CardBody>
         </Card>
+
+        {/* ── Gráfico minutely — GA4 + Meta por minuto (últimos 60 min) ── */}
+        {minutelyData.length >= 2 && (
+          <Card>
+            <CardHeader
+              title={`Atividade por minuto · "${eventFilter}"`}
+              subtitle={`Deltas acumulados por minuto · últimos ${minutelyData.length} min monitorados`}
+            />
+            <CardBody>
+              <ResponsiveContainer width="100%" height={130}>
+                <AreaChart data={minutelyData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="mgGa4" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366F1" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="#6366F1" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="mgMeta" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#E1306C" stopOpacity={0.2} />
+                      <stop offset="100%" stopColor="#E1306C" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <XAxis dataKey="minute" tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: '#8A9BAA', fontSize: 9 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip
+                    cursor={TT.cursorLine}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      return (
+                        <div style={TT.contentStyle}>
+                          <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 11 }}>{label}</div>
+                          {payload.map((p, i) => (
+                            <div key={i} style={{ color: p.color, fontSize: 11 }}>{p.name}: +{fmtNum(p.value)}</div>
+                          ))}
+                        </div>
+                      )
+                    }}
+                  />
+                  <Area type="monotone" dataKey="ga4"  name={`GA4 "${eventFilter}"`} stroke="#6366F1" strokeWidth={2} fill="url(#mgGa4)" dot={false} activeDot={{ r: 4 }} />
+                  <Area type="monotone" dataKey="meta" name="Meta leads"              stroke="#E1306C" strokeWidth={1.5} fill="url(#mgMeta)" dot={false} activeDot={{ r: 3 }} strokeDasharray="5 3" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardBody>
+          </Card>
+        )}
 
         {/* ══════════════════════════════════════════════════════════
             BLOCO 2 — ACUMULADO DO DIA (desde meia-noite)
