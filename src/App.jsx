@@ -1,5 +1,5 @@
 import { Component } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { HashRouter, Routes, Route } from 'react-router-dom'
 import Titlebar from './components/layout/Titlebar'
 import Sidebar from './components/layout/Sidebar'
 import Dashboard from './pages/Dashboard'
@@ -41,7 +41,7 @@ class ErrorBoundary extends Component {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <TrackingProvider>
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#050E17' }}>
           <Titlebar />
@@ -75,6 +75,6 @@ export default function App() {
           </div>
         </div>
       </TrackingProvider>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
