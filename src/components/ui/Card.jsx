@@ -4,10 +4,10 @@ export default function Card({ children, style = {}, className = '', onClick }) 
       className={className}
       onClick={onClick}
       style={{
-        background: '#0A1825',
-        border: '1px solid rgba(255,255,255,0.08)',
+        background: '#0E2030',
+        border: '1px solid rgba(255,255,255,0.09)',
         borderRadius: 12,
-        boxShadow: '0 1px 3px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.2)',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.35), 0 4px 14px rgba(0,0,0,0.18)',
         ...(onClick ? { cursor: 'pointer' } : {}),
         ...style,
       }}
@@ -19,28 +19,24 @@ export default function Card({ children, style = {}, className = '', onClick }) 
 
 export function CardHeader({ title, subtitle, action, children }) {
   return (
-    <div
-      style={{
-        padding: '14px 18px 12px',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        gap: 12,
-      }}
-    >
-      <div>
+    <div style={{
+      padding: '13px 18px 11px',
+      borderBottom: '1px solid rgba(255,255,255,0.07)',
+      display: 'flex',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 12,
+    }}>
+      <div style={{ minWidth: 0 }}>
         {title && (
-          <h3
-            style={{
-              fontFamily: "'PPMuseum','Georgia',serif",
-              fontSize: 13,
-              fontWeight: 600,
-              color: '#C9A962',
-              letterSpacing: '-0.01em',
-              lineHeight: 1.3,
-            }}
-          >
+          <h3 style={{
+            fontFamily: "'PPMuseum','Georgia',serif",
+            fontSize: 13,
+            fontWeight: 600,
+            color: '#C9A962',
+            letterSpacing: '-0.01em',
+            lineHeight: 1.3,
+          }}>
             {title}
           </h3>
         )}

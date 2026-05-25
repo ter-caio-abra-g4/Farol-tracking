@@ -10,10 +10,11 @@ import {
 } from 'recharts'
 import {
   Radio, RefreshCw, Activity, Clock, CheckCircle2, AlertTriangle,
-  Filter, Plus, X, MapPin, ChevronUp, ChevronDown,
-  Monitor, Table2, Columns2,
+  Filter, X, MapPin, ChevronUp, ChevronDown,
+  Monitor, Table2, Columns2, ExternalLink,
 } from 'lucide-react'
 import { useTracking } from '../context/TrackingContext'
+import SelectUI from '../components/ui/Select'
 
 const POLL_MS = 30_000
 
@@ -54,11 +55,12 @@ function fmtDelta(curr, prev) {
   return { pct: Math.abs(pct).toFixed(1), up: pct >= 0 }
 }
 
+// SELECT_STYLE mantido só para compatibilidade com código legado não migrado
 const SELECT_STYLE = {
-  background: '#001F35', border: '1px solid rgba(99,102,241,0.35)',
-  borderRadius: 6, color: '#F5F4F3', padding: '5px 28px 5px 10px',
+  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 6, color: '#E8EDF2', padding: '5px 28px 5px 10px',
   fontSize: 12, cursor: 'pointer', outline: 'none', appearance: 'none',
-  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23A5B4FC' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%23C9A962' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
   backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center',
   fontFamily: 'Manrope, sans-serif',
 }
@@ -73,10 +75,10 @@ const TABS = [
 function TabNav({ active, onChange }) {
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 2,
-      borderBottom: '1px solid rgba(99,102,241,0.15)',
+      display: 'flex', alignItems: 'center', gap: 0,
+      borderBottom: '1px solid rgba(255,255,255,0.08)',
       padding: '0 20px',
-      background: 'rgba(0,0,0,0.15)',
+      background: 'rgba(8,20,32,0.6)',
       flexShrink: 0,
     }}>
       {TABS.map(t => {
@@ -87,12 +89,12 @@ function TabNav({ active, onChange }) {
             key={t.id}
             onClick={() => onChange(t.id)}
             style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '10px 16px', fontSize: 12, fontWeight: isActive ? 700 : 500,
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '11px 18px', fontSize: 12.5, fontWeight: isActive ? 700 : 500,
               cursor: 'pointer', border: 'none', background: 'none',
               fontFamily: 'Manrope, sans-serif',
-              color: isActive ? '#A5B4FC' : '#6B7280',
-              borderBottom: `2px solid ${isActive ? '#6366F1' : 'transparent'}`,
+              color: isActive ? '#C9A962' : '#6E8898',
+              borderBottom: `2px solid ${isActive ? '#C9A962' : 'transparent'}`,
               marginBottom: -1, transition: 'color 0.15s, border-color 0.15s',
             }}
           >
@@ -123,7 +125,7 @@ function StatusBadge({ loading, mock, error }) {
 // ── KPI card ──────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, color = '#6366F1', sparkData, pulse, delta }) {
   return (
-    <div style={{ background: '#0D1B26', border: `1px solid ${color}33`, borderRadius: 10, padding: '14px 16px', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ background: '#152840', border: `1px solid ${color}33`, borderRadius: 10, padding: '14px 16px', position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: color, borderRadius: '10px 0 0 10px' }} />
       {pulse && <div style={{ position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: '50%', background: '#22C55E', animation: 'liveKpiPulse 1.5s ease-out infinite' }} />}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
@@ -622,48 +624,60 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
   const clearAll  = () => { setPageFilter(''); setInputPage(''); setEventFilter(''); setSrcFilter(''); setMedFilter(''); setCmpFilter('') }
   const hasFilters = pageFilter || eventFilter || srcFilter || medFilter || cmpFilter
 
+  // Modo URL completa vs path
+  const [showFullUrl, setShowFullUrl] = useState(false)
+
   const COL_HEADERS = [
-    { key: 'event',    label: 'Evento',   align: 'left',  flex: '130px' },
-    { key: 'page',     label: 'Página',   align: 'left',  flex: '1'     },
-    { key: 'source',   label: 'Source',   align: 'left',  flex: '80px'  },
-    { key: 'medium',   label: 'Medium',   align: 'left',  flex: '70px'  },
-    { key: 'campaign', label: 'Campaign', align: 'left',  flex: '1'     },
-    { key: 'users',    label: 'Usuários', align: 'right', flex: '65px'  },
-    { key: 'count',    label: 'Eventos',  align: 'right', flex: '65px'  },
-    { key: 'pct',      label: '%',        align: 'right', flex: '45px', noSort: true },
+    { key: 'event',    label: 'Evento',             align: 'left',  flex: '130px' },
+    { key: 'page',     label: showFullUrl ? 'URL' : 'Página / Path', align: 'left',  flex: '2'     },
+    { key: 'source',   label: 'Source',             align: 'left',  flex: '80px'  },
+    { key: 'medium',   label: 'Medium',             align: 'left',  flex: '70px'  },
+    { key: 'campaign', label: 'Campaign',           align: 'left',  flex: '1'     },
+    { key: 'users',    label: 'Usuários',           align: 'right', flex: '65px'  },
+    { key: 'count',    label: 'Eventos',            align: 'right', flex: '65px'  },
+    { key: 'pct',      label: '%',                  align: 'right', flex: '45px', noSort: true },
   ]
   const gridCols = COL_HEADERS.map(c => c.flex).join(' ')
+
+  // Hostname da property para montar URL completa (usa dados do context ou fallback)
+  const siteHost = data?.siteUrl || data?.defaultUri || ''
+  function buildUrl(path) {
+    if (!path) return null
+    if (path.startsWith('http')) return path
+    if (siteHost) return siteHost.replace(/\/$/, '') + (path.startsWith('/') ? path : '/' + path)
+    return path
+  }
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '14px 20px', gap: 12, overflow: 'hidden' }}>
 
       {/* Filtros */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 8, padding: '10px 16px' }}>
-        <Filter size={13} color="#A5B4FC" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 10, padding: '10px 16px' }}>
+        <Filter size={13} color="#8AA0B4" />
 
         {/* Localização */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          <MapPin size={12} color="#8A9BAA" />
-          <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Localização:</span>
+          <MapPin size={12} color="#8AA0B4" />
+          <span style={{ fontSize: 11, color: '#8AA0B4', fontWeight: 700 }}>Local:</span>
           <input
             value={inputPage}
             onChange={e => { setInputPage(e.target.value); setShowPageSug(true) }}
             onKeyDown={e => { if (e.key === 'Enter') applyPage() }}
             onBlur={() => setTimeout(() => setShowPageSug(false), 150)}
-            placeholder="ex: /inscricao, summit"
-            style={{ background: '#0D1B26', border: `1px solid ${pageFilter ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.3)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, color: '#F5F4F3', fontFamily: 'monospace', width: 190, outline: 'none' }}
+            placeholder="/inscricao, summit…"
+            style={{ background: '#152840', border: `1px solid ${pageFilter ? 'rgba(201,169,98,0.5)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 11.5, color: '#E8EDF2', fontFamily: 'monospace', width: 180, outline: 'none' }}
           />
-          <button onClick={applyPage} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: pageFilter ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.08)', border: `1px solid ${pageFilter ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.25)'}`, color: pageFilter ? '#A5B4FC' : '#6B7280' }}>Filtrar</button>
+          <button onClick={applyPage} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: pageFilter ? 'rgba(201,169,98,0.12)' : 'rgba(255,255,255,0.06)', border: `1px solid ${pageFilter ? 'rgba(201,169,98,0.45)' : 'rgba(255,255,255,0.1)'}`, color: pageFilter ? '#C9A962' : '#8AA0B4' }}>OK</button>
           {pageFilter && <button onClick={() => { setPageFilter(''); setInputPage('') }} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
           {showPageSug && inputPage.length > 0 && topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).length > 0 && (
-            <div style={{ position: 'absolute', top: '100%', left: 86, zIndex: 100, background: '#0D1B26', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6, marginTop: 2, minWidth: 260, maxHeight: 160, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+            <div style={{ position: 'absolute', top: '100%', left: 56, zIndex: 200, background: '#152840', border: '1px solid rgba(201,169,98,0.3)', borderRadius: 8, marginTop: 4, minWidth: 260, maxHeight: 180, overflowY: 'auto', boxShadow: '0 12px 32px rgba(0,0,0,0.6)' }}>
               {topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).slice(0, 8).map((p, i) => (
                 <div key={i} onMouseDown={() => { setInputPage(p.page); setPageFilter(p.page); setShowPageSug(false) }}
-                  style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 11, color: '#C4D0DC', fontFamily: 'monospace', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.12)'}
+                  style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 11, color: '#C4D0DC', fontFamily: 'monospace', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <div>{p.page}</div>
-                  <div style={{ fontSize: 9, color: '#6B7280' }}>{fmtNum(p.views)} views agora</div>
+                  <div style={{ color: '#E8EDF2' }}>{p.page}</div>
+                  <div style={{ fontSize: 9, color: '#5A7080', marginTop: 2 }}>{fmtNum(p.views)} views agora</div>
                 </div>
               ))}
             </div>
@@ -671,9 +685,9 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
         </div>
 
         {pageFilter && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 5, padding: '3px 8px' }}>
-            <MapPin size={9} color="#6366F1" />
-            <span style={{ fontSize: 10, color: '#A5B4FC' }}>contém "{pageFilter}"</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(201,169,98,0.1)', border: '1px solid rgba(201,169,98,0.35)', borderRadius: 5, padding: '3px 8px' }}>
+            <MapPin size={9} color="#C9A962" />
+            <span style={{ fontSize: 10, color: '#C9A962' }}>contém "{pageFilter}"</span>
           </div>
         )}
 
@@ -681,12 +695,14 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
 
         {/* Evento */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Evento:</span>
-          <select value={eventFilter} onChange={e => setEventFilter(e.target.value)} style={{ ...SELECT_STYLE, minWidth: 150 }}>
-            <option value="">Todos os eventos</option>
-            {eventNames.map(e => <option key={e} value={e}>{e}</option>)}
-          </select>
-          {eventFilter && <button onClick={() => setEventFilter('')} style={{ padding: '4px 7px', borderRadius: 4, fontSize: 10, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
+          <span style={{ fontSize: 11, color: '#8AA0B4', fontWeight: 700 }}>Evento:</span>
+          <SelectUI
+            value={eventFilter}
+            onChange={setEventFilter}
+            options={eventNames.map(e => ({ value: e, label: e }))}
+            placeholder="Todos os eventos"
+            minWidth={160}
+          />
         </div>
 
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
@@ -698,35 +714,48 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
           { label: 'Campaign', value: cmpFilter, setter: setCmpFilter, list: utmCampaigns },
         ].map(f => (
           <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>{f.label}:</span>
-            <select value={f.value} onChange={e => f.setter(e.target.value)}
-              style={{ ...SELECT_STYLE, padding: '5px 24px 5px 8px', border: `1px solid ${f.value ? 'rgba(99,102,241,0.55)' : 'rgba(99,102,241,0.35)'}` }}>
-              <option value="">Todos</option>
-              {f.list.map(v => <option key={v} value={v}>{v || '(direct)'}</option>)}
-            </select>
-            {f.value && <button onClick={() => f.setter('')} style={{ padding: '3px 6px', borderRadius: 4, fontSize: 9, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
+            <span style={{ fontSize: 11, color: '#8AA0B4', fontWeight: 700 }}>{f.label}:</span>
+            <SelectUI
+              value={f.value}
+              onChange={f.setter}
+              options={f.list.map(v => ({ value: v, label: v || '(direct)' }))}
+              placeholder="Todos"
+              minWidth={110}
+              small
+            />
           </div>
         ))}
 
         {hasFilters && (
           <>
             <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-            <button onClick={clearAll} style={{ padding: '4px 10px', borderRadius: 5, fontSize: 11, cursor: 'pointer', fontWeight: 700, fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>
-              <X size={11} /> Limpar filtros
+            <button onClick={clearAll} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontWeight: 700, fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239,68,68,0.09)', border: '1px solid rgba(239,68,68,0.28)', color: '#EF4444' }}>
+              <X size={11} /> Limpar
             </button>
           </>
         )}
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: isRunning ? '#22C55E' : '#6B7280' }}>
-          <Radio size={11} />
-          {isRunning ? `${countdown}s` : 'Pausado'}
-          {loading && <RefreshCw size={10} color="#6B7280" style={{ animation: 'spin 1s linear infinite' }} />}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Toggle URL completa */}
+          <button
+            onClick={() => setShowFullUrl(u => !u)}
+            title={showFullUrl ? 'Mostrar path' : 'Mostrar URL completa'}
+            style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 5, background: showFullUrl ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${showFullUrl ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.1)'}`, color: showFullUrl ? '#A5B4FC' : '#8AA0B4', fontWeight: showFullUrl ? 700 : 400 }}
+          >
+            <ExternalLink size={11} />
+            {showFullUrl ? 'URL' : 'Path'}
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: isRunning ? '#22C55E' : '#6B7280' }}>
+            <Radio size={11} />
+            {isRunning ? `${countdown}s` : 'Pausado'}
+            {loading && <RefreshCw size={10} color="#6B7280" style={{ animation: 'spin 1s linear infinite' }} />}
+          </div>
         </div>
       </div>
 
       {/* Tabela */}
       <Card style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 8, padding: '8px 16px', borderBottom: '2px solid rgba(99,102,241,0.2)', background: '#0A1825', flexShrink: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 8, padding: '8px 16px', borderBottom: '2px solid rgba(99,102,241,0.2)', background: '#0A1E2E', flexShrink: 0 }}>
           {COL_HEADERS.map(col => (
             <div key={col.key} onClick={() => !col.noSort && handleSort(col.key)}
               style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start', fontSize: 10, color: sortBy === col.key ? '#A5B4FC' : '#6B7280', fontWeight: 700, cursor: col.noSort ? 'default' : 'pointer', userSelect: 'none' }}>
@@ -756,7 +785,14 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
                   <span style={{ fontSize: 11, color: isConv ? color : '#F5F4F3', fontFamily: 'monospace', fontWeight: isConv ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.event}</span>
                   {isConv && <span style={{ fontSize: 9, color, background: `${color}18`, borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>conv</span>}
                 </div>
-                <div style={{ fontSize: 11, color: '#8A9BAA', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.page}>{r.page || '—'}</div>
+                <div style={{ fontSize: 11, color: '#8A9BAA', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={buildUrl(r.page) || r.page}>
+                  {showFullUrl ? (
+                    <a href={buildUrl(r.page) || '#'} target="_blank" rel="noreferrer" style={{ color: '#8AA0B4', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildUrl(r.page) || r.page || '—'}</span>
+                      {buildUrl(r.page) && <ExternalLink size={9} style={{ flexShrink: 0, opacity: 0.6 }} />}
+                    </a>
+                  ) : (r.page || '—')}
+                </div>
                 <div>{r.source ? <span style={{ fontSize: 10, color: '#F5F4F3', background: 'rgba(255,255,255,0.06)', borderRadius: 3, padding: '2px 6px', fontWeight: 600 }}>{r.source}</span> : <span style={{ fontSize: 10, color: '#374151' }}>(direct)</span>}</div>
                 <div>{r.medium ? <span style={{ fontSize: 10, color: r.medium === 'cpc' ? '#F59E0B' : r.medium === 'organic' ? '#22C55E' : '#A5B4FC', background: 'rgba(255,255,255,0.05)', borderRadius: 3, padding: '2px 6px' }}>{r.medium}</span> : <span style={{ fontSize: 10, color: '#374151' }}>—</span>}</div>
                 <div style={{ fontSize: 11, color: r.campaign ? '#C4D0DC' : '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.campaign}>{r.campaign || '—'}</div>
@@ -769,7 +805,7 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
         </div>
 
         {sorted.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 8, padding: '8px 16px', borderTop: '2px solid rgba(99,102,241,0.2)', background: '#0A1825', flexShrink: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 8, padding: '8px 16px', borderTop: '2px solid rgba(99,102,241,0.2)', background: '#0A1E2E', flexShrink: 0 }}>
             <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 700 }}>{sorted.length} linhas</div>
             <div /><div /><div /><div />
             <div style={{ textAlign: 'right', fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>{fmtNum(sorted.reduce((s, r) => s + r.users, 0))}</div>
@@ -794,18 +830,18 @@ function FilterBarCompact({ label, inputEvent, setInputEvent, onApplyEvent, inpu
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <span style={{ fontSize: 10, color: '#8A9BAA', fontWeight: 700 }}>Evento:</span>
         <input value={inputEvent} onChange={e => setInputEvent(e.target.value)} onKeyDown={e => e.key === 'Enter' && onApplyEvent()}
-          style={{ background: '#0D1B26', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 5, padding: '4px 8px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 130, outline: 'none' }} />
+          style={{ background: '#152840', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 5, padding: '4px 8px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 130, outline: 'none' }} />
         <button onClick={onApplyEvent} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.35)', color: '#A5B4FC' }}>OK</button>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, position: 'relative' }}>
         <MapPin size={10} color="#8A9BAA" />
         <span style={{ fontSize: 10, color: '#8A9BAA', fontWeight: 700 }}>Loc.:</span>
         <input value={inputPage} onChange={e => { setInputPage(e.target.value); setShowSug(true) }} onKeyDown={e => { if (e.key === 'Enter') onApplyPage() }} onBlur={() => setTimeout(() => setShowSug(false), 150)} placeholder="ex: /inscricao"
-          style={{ background: '#0D1B26', border: `1px solid ${pageFilter ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.3)'}`, borderRadius: 5, padding: '4px 8px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 120, outline: 'none' }} />
+          style={{ background: '#152840', border: `1px solid ${pageFilter ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.3)'}`, borderRadius: 5, padding: '4px 8px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 120, outline: 'none' }} />
         <button onClick={onApplyPage} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', fontFamily: 'Manrope', background: pageFilter ? 'rgba(99,102,241,0.25)' : 'rgba(99,102,241,0.08)', border: `1px solid ${pageFilter ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.25)'}`, color: pageFilter ? '#A5B4FC' : '#6B7280', fontWeight: 700 }}>Filtrar</button>
         {pageFilter && <button onClick={onClearPage} style={{ padding: '3px 6px', borderRadius: 4, fontSize: 9, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
         {showSug && inputPage.length > 0 && topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).length > 0 && (
-          <div style={{ position: 'absolute', top: '100%', left: 52, zIndex: 100, background: '#0D1B26', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6, marginTop: 2, minWidth: 220, maxHeight: 140, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          <div style={{ position: 'absolute', top: '100%', left: 52, zIndex: 100, background: '#152840', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6, marginTop: 2, minWidth: 220, maxHeight: 140, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
             {topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).slice(0, 6).map((p, i) => (
               <div key={i} onMouseDown={() => { setInputPage(p.page); onApplyPage() }}
                 style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 10, color: '#C4D0DC', fontFamily: 'monospace', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
@@ -906,7 +942,7 @@ export default function LiveGA4() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Evento:</span>
               <input value={inputEventA} onChange={e => setInputEventA(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') setEventFilterA(inputEventA.trim() || 'generate_lead') }}
-                style={{ background: '#0D1B26', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: '#F5F4F3', fontFamily: 'monospace', width: 180, outline: 'none' }} />
+                style={{ background: '#152840', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: '#F5F4F3', fontFamily: 'monospace', width: 180, outline: 'none' }} />
               <button onClick={() => setEventFilterA(inputEventA.trim() || 'generate_lead')} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.35)', color: '#A5B4FC' }}>Aplicar</button>
             </div>
 
@@ -917,11 +953,11 @@ export default function LiveGA4() {
               <MapPin size={12} color="#8A9BAA" />
               <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Localização:</span>
               <input value={inputPageA} onChange={e => { setInputPageA(e.target.value); setShowSugA(true) }} onKeyDown={e => { if (e.key === 'Enter') applyPageA() }} onBlur={() => setTimeout(() => setShowSugA(false), 150)} placeholder="ex: /inscricao, summit"
-                style={{ background: '#0D1B26', border: `1px solid ${pageFilterA ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.3)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 190, outline: 'none' }} />
+                style={{ background: '#152840', border: `1px solid ${pageFilterA ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.3)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 190, outline: 'none' }} />
               <button onClick={applyPageA} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: pageFilterA ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.08)', border: `1px solid ${pageFilterA ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.25)'}`, color: pageFilterA ? '#A5B4FC' : '#6B7280' }}>Filtrar</button>
               {pageFilterA && <button onClick={() => { setPageFilterA(''); setInputPageA('') }} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
               {showSugA && inputPageA.length > 0 && topPagesA.filter(p => p.page?.toLowerCase().includes(inputPageA.toLowerCase())).length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 90, zIndex: 100, background: '#0D1B26', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6, marginTop: 2, minWidth: 260, maxHeight: 160, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+                <div style={{ position: 'absolute', top: '100%', left: 90, zIndex: 100, background: '#152840', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6, marginTop: 2, minWidth: 260, maxHeight: 160, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
                   {topPagesA.filter(p => p.page?.toLowerCase().includes(inputPageA.toLowerCase())).slice(0, 8).map((p, i) => (
                     <div key={i} onMouseDown={() => { setInputPageA(p.page); setPageFilterA(p.page); setShowSugA(false) }}
                       style={{ padding: '7px 12px', cursor: 'pointer', fontSize: 11, color: '#C4D0DC', fontFamily: 'monospace', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
