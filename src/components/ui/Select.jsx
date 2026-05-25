@@ -34,7 +34,7 @@ export default function Select({ value, onChange, options = [], placeholder = 'T
   const pad = small ? '4px 8px' : '5px 10px'
 
   return (
-    <div ref={ref} className="frl-select" style={{ minWidth }}>
+    <div ref={ref} className="frl-select" style={{ minWidth, position: 'relative', zIndex: open ? 99999 : 'auto' }}>
       <button
         type="button"
         className={`frl-select__btn${isActive ? ' frl-select__btn--active' : ''}`}

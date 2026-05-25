@@ -555,6 +555,8 @@ function SortIcon({ col, sortBy, sortDir }) {
 }
 
 // ── Aba Tabela ────────────────────────────────────────────────────────────────
+const GRID = '150px minmax(160px,2fr) 80px 72px minmax(100px,1fr) 58px 64px 44px'
+
 function TabelaView({ propertyId, isRunning, sharedData }) {
   const [pageFilter,  setPageFilter]  = useState('')
   const [inputPage,   setInputPage]   = useState('')
@@ -565,6 +567,7 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
   const [cmpFilter,   setCmpFilter]   = useState('')
   const [sortBy,  setSortBy]  = useState('count')
   const [sortDir, setSortDir] = useState('desc')
+  const [showFullUrl, setShowFullUrl] = useState(false)
 
   const [data,      setData]      = useState(null)
   const [loading,   setLoading]   = useState(false)
@@ -581,41 +584,37 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
   }, [propertyId, eventFilter, pageFilter])
 
   useEffect(() => { fetchData() }, [fetchData])
-
   useEffect(() => {
     if (!isRunning) return
     const iv = setInterval(fetchData, POLL_MS)
     return () => clearInterval(iv)
   }, [fetchData, isRunning])
-
   useEffect(() => {
     if (!isRunning) return
     const tick = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000)
     return () => clearInterval(tick)
   }, [isRunning, data])
 
-  const allRows   = data?.utmRows  || []
-  const topPages  = data?.topPages || sharedData?.topPages || []
+  const allRows      = data?.utmRows  || []
+  const topPages     = data?.topPages || sharedData?.topPages || []
   const utmSources   = data?.utmSources?.length   ? data.utmSources   : [...new Set(allRows.map(r => r.source).filter(Boolean))].sort()
   const utmMediums   = data?.utmMediums?.length   ? data.utmMediums   : [...new Set(allRows.map(r => r.medium).filter(Boolean))].sort()
   const utmCampaigns = data?.utmCampaigns?.length ? data.utmCampaigns : [...new Set(allRows.map(r => r.campaign).filter(Boolean))].sort()
   const eventNames   = [...new Set(allRows.map(r => r.event).filter(Boolean))].sort()
 
-  const filtered = allRows.filter(r =>
+  const filtered   = allRows.filter(r =>
     (!srcFilter || r.source   === srcFilter) &&
     (!medFilter || r.medium   === medFilter) &&
     (!cmpFilter || r.campaign === cmpFilter)
   )
   const grandTotal = filtered.reduce((s, r) => s + r.count, 0)
-
-  const sorted = [...filtered].sort((a, b) => {
-    const aVal = sortBy === 'event' ? a.event : sortBy === 'page' ? (a.page||'') : sortBy === 'source' ? (a.source||'') : sortBy === 'medium' ? (a.medium||'') : sortBy === 'campaign' ? (a.campaign||'') : sortBy === 'users' ? a.users : a.count
-    const bVal = sortBy === 'event' ? b.event : sortBy === 'page' ? (b.page||'') : sortBy === 'source' ? (b.source||'') : sortBy === 'medium' ? (b.medium||'') : sortBy === 'campaign' ? (b.campaign||'') : sortBy === 'users' ? b.users : b.count
-    if (typeof aVal === 'string') return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-    return sortDir === 'asc' ? aVal - bVal : bVal - aVal
+  const sorted     = [...filtered].sort((a, b) => {
+    const v = k => k === 'users' ? (a.users - b.users) : k === 'count' ? (a.count - b.count) : (a[k]||'').localeCompare(b[k]||'')
+    const res = v(sortBy)
+    return sortDir === 'asc' ? res : -res
   })
 
-  const handleSort = (col) => {
+  const handleSort = col => {
     if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortBy(col); setSortDir('desc') }
   }
@@ -624,199 +623,215 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
   const clearAll  = () => { setPageFilter(''); setInputPage(''); setEventFilter(''); setSrcFilter(''); setMedFilter(''); setCmpFilter('') }
   const hasFilters = pageFilter || eventFilter || srcFilter || medFilter || cmpFilter
 
-  // Modo URL completa vs path
-  const [showFullUrl, setShowFullUrl] = useState(false)
-
-  const COL_HEADERS = [
-    { key: 'event',    label: 'Evento',             align: 'left',  flex: '130px' },
-    { key: 'page',     label: showFullUrl ? 'URL' : 'Página / Path', align: 'left',  flex: '2'     },
-    { key: 'source',   label: 'Source',             align: 'left',  flex: '80px'  },
-    { key: 'medium',   label: 'Medium',             align: 'left',  flex: '70px'  },
-    { key: 'campaign', label: 'Campaign',           align: 'left',  flex: '1'     },
-    { key: 'users',    label: 'Usuários',           align: 'right', flex: '65px'  },
-    { key: 'count',    label: 'Eventos',            align: 'right', flex: '65px'  },
-    { key: 'pct',      label: '%',                  align: 'right', flex: '45px', noSort: true },
-  ]
-  const gridCols = COL_HEADERS.map(c => c.flex).join(' ')
-
-  // Hostname da property para montar URL completa (usa dados do context ou fallback)
   const siteHost = data?.siteUrl || data?.defaultUri || ''
-  function buildUrl(path) {
+  const buildUrl = path => {
     if (!path) return null
     if (path.startsWith('http')) return path
     if (siteHost) return siteHost.replace(/\/$/, '') + (path.startsWith('/') ? path : '/' + path)
-    return path
+    return null
   }
 
+  const COLS = [
+    { key: 'event',    label: 'Evento',   align: 'left'  },
+    { key: 'page',     label: 'Página',   align: 'left'  },
+    { key: 'source',   label: 'Source',   align: 'left'  },
+    { key: 'medium',   label: 'Medium',   align: 'left'  },
+    { key: 'campaign', label: 'Campaign', align: 'left'  },
+    { key: 'users',    label: 'Usuários', align: 'right' },
+    { key: 'count',    label: 'Eventos',  align: 'right' },
+    { key: 'pct',      label: '%',        align: 'right', noSort: true },
+  ]
+
+  const thStyle = (col) => ({
+    display: 'flex', alignItems: 'center', gap: 3,
+    justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start',
+    fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+    color: sortBy === col.key ? '#C9A962' : '#4E6070',
+    cursor: col.noSort ? 'default' : 'pointer', userSelect: 'none',
+  })
+
+  const medColor = m => m === 'cpc' ? '#F59E0B' : m === 'organic' ? '#22C55E' : m === 'email' ? '#6366F1' : '#8AA0B4'
+
   return (
-    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '14px 20px', gap: 12, overflow: 'hidden' }}>
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* Filtros */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 10, padding: '10px 16px' }}>
-        <Filter size={13} color="#8AA0B4" />
+      {/* Barra de filtros */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '10px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(8,20,32,0.6)', flexShrink: 0 }}>
 
-        {/* Localização */}
+        {/* Busca de página */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          <MapPin size={12} color="#8AA0B4" />
-          <span style={{ fontSize: 11, color: '#8AA0B4', fontWeight: 700 }}>Local:</span>
           <input
             value={inputPage}
             onChange={e => { setInputPage(e.target.value); setShowPageSug(true) }}
-            onKeyDown={e => { if (e.key === 'Enter') applyPage() }}
+            onKeyDown={e => { if (e.key === 'Enter') applyPage(); if (e.key === 'Escape') { setInputPage(''); setPageFilter(''); setShowPageSug(false) } }}
             onBlur={() => setTimeout(() => setShowPageSug(false), 150)}
-            placeholder="/inscricao, summit…"
-            style={{ background: '#152840', border: `1px solid ${pageFilter ? 'rgba(201,169,98,0.5)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 11.5, color: '#E8EDF2', fontFamily: 'monospace', width: 180, outline: 'none' }}
+            placeholder="Filtrar por página…"
+            style={{ background: pageFilter ? 'rgba(201,169,98,0.07)' : 'rgba(255,255,255,0.05)', border: `1px solid ${pageFilter ? 'rgba(201,169,98,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: 7, padding: '5px 10px 5px 28px', fontSize: 11.5, color: pageFilter ? '#C9A962' : '#E8EDF2', fontFamily: 'monospace', width: 200, outline: 'none', transition: 'border-color 0.15s' }}
           />
-          <button onClick={applyPage} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: pageFilter ? 'rgba(201,169,98,0.12)' : 'rgba(255,255,255,0.06)', border: `1px solid ${pageFilter ? 'rgba(201,169,98,0.45)' : 'rgba(255,255,255,0.1)'}`, color: pageFilter ? '#C9A962' : '#8AA0B4' }}>OK</button>
-          {pageFilter && <button onClick={() => { setPageFilter(''); setInputPage('') }} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
+          <Filter size={11} color={pageFilter ? '#C9A962' : '#4E6070'} style={{ position: 'absolute', left: 9, pointerEvents: 'none' }} />
+          {inputPage && (
+            <button onClick={() => { setInputPage(''); setPageFilter(''); setShowPageSug(false) }}
+              style={{ position: 'absolute', right: 8, background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', padding: 0, display: 'flex' }}>
+              <X size={10} />
+            </button>
+          )}
           {showPageSug && inputPage.length > 0 && topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).length > 0 && (
-            <div style={{ position: 'absolute', top: '100%', left: 56, zIndex: 200, background: '#152840', border: '1px solid rgba(201,169,98,0.3)', borderRadius: 8, marginTop: 4, minWidth: 260, maxHeight: 180, overflowY: 'auto', boxShadow: '0 12px 32px rgba(0,0,0,0.6)' }}>
+            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 99999, background: '#152840', border: '1px solid rgba(201,169,98,0.25)', borderRadius: 8, minWidth: 260, maxHeight: 200, overflowY: 'auto', boxShadow: '0 12px 32px rgba(0,0,0,0.6)' }}>
               {topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).slice(0, 8).map((p, i) => (
                 <div key={i} onMouseDown={() => { setInputPage(p.page); setPageFilter(p.page); setShowPageSug(false) }}
-                  style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 11, color: '#C4D0DC', fontFamily: 'monospace', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                  style={{ padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <div style={{ color: '#E8EDF2' }}>{p.page}</div>
-                  <div style={{ fontSize: 9, color: '#5A7080', marginTop: 2 }}>{fmtNum(p.views)} views agora</div>
+                  <div style={{ fontSize: 11, color: '#E8EDF2', fontFamily: 'monospace' }}>{p.page}</div>
+                  <div style={{ fontSize: 9, color: '#4E6070', marginTop: 1 }}>{fmtNum(p.views)} views agora</div>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {pageFilter && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(201,169,98,0.1)', border: '1px solid rgba(201,169,98,0.35)', borderRadius: 5, padding: '3px 8px' }}>
-            <MapPin size={9} color="#C9A962" />
-            <span style={{ fontSize: 10, color: '#C9A962' }}>contém "{pageFilter}"</span>
-          </div>
-        )}
-
-        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
+        <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
 
         {/* Evento */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 11, color: '#8AA0B4', fontWeight: 700 }}>Evento:</span>
-          <SelectUI
-            value={eventFilter}
-            onChange={setEventFilter}
-            options={eventNames.map(e => ({ value: e, label: e }))}
-            placeholder="Todos os eventos"
-            minWidth={160}
-          />
-        </div>
-
-        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
+        <SelectUI value={eventFilter} onChange={setEventFilter}
+          options={eventNames.map(e => ({ value: e, label: e }))}
+          placeholder="Evento" minWidth={150} small />
 
         {/* Source / Medium / Campaign */}
-        {[
-          { label: 'Source',   value: srcFilter, setter: setSrcFilter, list: utmSources   },
-          { label: 'Medium',   value: medFilter, setter: setMedFilter, list: utmMediums   },
-          { label: 'Campaign', value: cmpFilter, setter: setCmpFilter, list: utmCampaigns },
-        ].map(f => (
-          <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ fontSize: 11, color: '#8AA0B4', fontWeight: 700 }}>{f.label}:</span>
-            <SelectUI
-              value={f.value}
-              onChange={f.setter}
-              options={f.list.map(v => ({ value: v, label: v || '(direct)' }))}
-              placeholder="Todos"
-              minWidth={110}
-              small
-            />
-          </div>
-        ))}
+        <SelectUI value={srcFilter} onChange={setSrcFilter}
+          options={utmSources.map(v => ({ value: v, label: v || '(direct)' }))}
+          placeholder="Source" minWidth={100} small />
+        <SelectUI value={medFilter} onChange={setMedFilter}
+          options={utmMediums.map(v => ({ value: v, label: v || '(direct)' }))}
+          placeholder="Medium" minWidth={90} small />
+        <SelectUI value={cmpFilter} onChange={setCmpFilter}
+          options={utmCampaigns.map(v => ({ value: v, label: v }))}
+          placeholder="Campaign" minWidth={110} small />
 
         {hasFilters && (
-          <>
-            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-            <button onClick={clearAll} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontWeight: 700, fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239,68,68,0.09)', border: '1px solid rgba(239,68,68,0.28)', color: '#EF4444' }}>
-              <X size={11} /> Limpar
-            </button>
-          </>
+          <button onClick={clearAll} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', color: '#EF4444' }}>
+            <X size={10} /> Limpar
+          </button>
         )}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Toggle URL completa */}
-          <button
-            onClick={() => setShowFullUrl(u => !u)}
-            title={showFullUrl ? 'Mostrar path' : 'Mostrar URL completa'}
-            style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', display: 'flex', alignItems: 'center', gap: 5, background: showFullUrl ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${showFullUrl ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.1)'}`, color: showFullUrl ? '#A5B4FC' : '#8AA0B4', fontWeight: showFullUrl ? 700 : 400 }}
-          >
-            <ExternalLink size={11} />
+          <button onClick={() => setShowFullUrl(u => !u)} title={showFullUrl ? 'Mostrar path' : 'Mostrar URL completa'}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 6, fontSize: 10, cursor: 'pointer', fontFamily: 'Manrope', fontWeight: 600, background: showFullUrl ? 'rgba(201,169,98,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${showFullUrl ? 'rgba(201,169,98,0.4)' : 'rgba(255,255,255,0.09)'}`, color: showFullUrl ? '#C9A962' : '#4E6070' }}>
+            <ExternalLink size={10} />
             {showFullUrl ? 'URL' : 'Path'}
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: isRunning ? '#22C55E' : '#6B7280' }}>
-            <Radio size={11} />
-            {isRunning ? `${countdown}s` : 'Pausado'}
-            {loading && <RefreshCw size={10} color="#6B7280" style={{ animation: 'spin 1s linear infinite' }} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: isRunning ? '#22C55E' : '#4E6070' }}>
+            {loading
+              ? <RefreshCw size={10} style={{ animation: 'spin 1s linear infinite' }} />
+              : <Radio size={10} />}
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{isRunning ? `${countdown}s` : 'pausado'}</span>
           </div>
         </div>
       </div>
 
       {/* Tabela */}
-      <Card style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 8, padding: '8px 16px', borderBottom: '2px solid rgba(99,102,241,0.2)', background: '#0A1E2E', flexShrink: 0 }}>
-          {COL_HEADERS.map(col => (
-            <div key={col.key} onClick={() => !col.noSort && handleSort(col.key)}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start', fontSize: 10, color: sortBy === col.key ? '#A5B4FC' : '#6B7280', fontWeight: 700, cursor: col.noSort ? 'default' : 'pointer', userSelect: 'none' }}>
-              {col.align === 'right' && !col.noSort && <SortIcon col={col.key} sortBy={sortBy} sortDir={sortDir} />}
-              {col.label}
-              {col.align !== 'right' && !col.noSort && <SortIcon col={col.key} sortBy={sortBy} sortDir={sortDir} />}
-            </div>
-          ))}
-        </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '0 20px 16px' }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#0E2030', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 10, overflow: 'hidden', marginTop: 14 }}>
 
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {sorted.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#6B7280', fontSize: 12 }}>
-              {loading ? 'Carregando dados...' : hasFilters ? 'Nenhuma linha para estes filtros' : 'Sem dados nos últimos 30 min'}
-            </div>
-          ) : sorted.map((r, i) => {
-            const color  = evColor(r.event)
-            const isConv = CONV_EVENTS.includes(r.event)
-            const pct    = grandTotal > 0 ? ((r.count / grandTotal) * 100).toFixed(1) : '0.0'
-            return (
-              <div key={i}
-                style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 8, padding: '8px 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: isConv ? `${color}07` : 'transparent', borderLeft: isConv ? `3px solid ${color}` : '3px solid transparent', alignItems: 'center' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                onMouseLeave={e => e.currentTarget.style.background = isConv ? `${color}07` : 'transparent'}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} />
-                  <span style={{ fontSize: 11, color: isConv ? color : '#F5F4F3', fontFamily: 'monospace', fontWeight: isConv ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.event}</span>
-                  {isConv && <span style={{ fontSize: 9, color, background: `${color}18`, borderRadius: 3, padding: '1px 4px', flexShrink: 0 }}>conv</span>}
-                </div>
-                <div style={{ fontSize: 11, color: '#8A9BAA', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={buildUrl(r.page) || r.page}>
-                  {showFullUrl ? (
-                    <a href={buildUrl(r.page) || '#'} target="_blank" rel="noreferrer" style={{ color: '#8AA0B4', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{buildUrl(r.page) || r.page || '—'}</span>
-                      {buildUrl(r.page) && <ExternalLink size={9} style={{ flexShrink: 0, opacity: 0.6 }} />}
-                    </a>
-                  ) : (r.page || '—')}
-                </div>
-                <div>{r.source ? <span style={{ fontSize: 10, color: '#F5F4F3', background: 'rgba(255,255,255,0.06)', borderRadius: 3, padding: '2px 6px', fontWeight: 600 }}>{r.source}</span> : <span style={{ fontSize: 10, color: '#374151' }}>(direct)</span>}</div>
-                <div>{r.medium ? <span style={{ fontSize: 10, color: r.medium === 'cpc' ? '#F59E0B' : r.medium === 'organic' ? '#22C55E' : '#A5B4FC', background: 'rgba(255,255,255,0.05)', borderRadius: 3, padding: '2px 6px' }}>{r.medium}</span> : <span style={{ fontSize: 10, color: '#374151' }}>—</span>}</div>
-                <div style={{ fontSize: 11, color: r.campaign ? '#C4D0DC' : '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.campaign}>{r.campaign || '—'}</div>
-                <div style={{ textAlign: 'right', fontSize: 11, color: '#8A9BAA' }}>{fmtNum(r.users)}</div>
-                <div style={{ textAlign: 'right', fontSize: 12, color: '#F5F4F3', fontWeight: 700 }}>{fmtNum(r.count)}</div>
-                <div style={{ textAlign: 'right', fontSize: 10, color: '#6B7280' }}>{pct}%</div>
+          {/* Header */}
+          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 0, padding: '0 16px', borderBottom: '1px solid rgba(255,255,255,0.09)', background: '#0A1825', flexShrink: 0 }}>
+            {COLS.map(col => (
+              <div key={col.key} onClick={() => !col.noSort && handleSort(col.key)} style={{ ...thStyle(col), padding: '9px 6px' }}>
+                {col.align === 'right' && !col.noSort && <SortIcon col={col.key} sortBy={sortBy} sortDir={sortDir} />}
+                {col.label}
+                {col.align !== 'right' && !col.noSort && <SortIcon col={col.key} sortBy={sortBy} sortDir={sortDir} />}
               </div>
-            )
-          })}
+            ))}
+          </div>
+
+          {/* Rows */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {sorted.length === 0 ? (
+              <div style={{ padding: '48px 0', textAlign: 'center', color: '#4E6070', fontSize: 12 }}>
+                {loading ? 'Carregando…' : hasFilters ? 'Nenhuma linha para estes filtros' : 'Sem dados nos últimos 30 min'}
+              </div>
+            ) : sorted.map((r, i) => {
+              const color  = evColor(r.event)
+              const isConv = CONV_EVENTS.includes(r.event)
+              const pct    = grandTotal > 0 ? ((r.count / grandTotal) * 100).toFixed(1) : '0.0'
+              const url    = buildUrl(r.page)
+              return (
+                <div key={i}
+                  style={{ display: 'grid', gridTemplateColumns: GRID, gap: 0, padding: '0 16px', borderBottom: '1px solid rgba(255,255,255,0.04)', borderLeft: `2px solid ${isConv ? color : 'transparent'}`, alignItems: 'center', minHeight: 36 }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+
+                  {/* Evento */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden', padding: '7px 6px 7px 0' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: isConv ? color : '#E8EDF2', fontFamily: 'monospace', fontWeight: isConv ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.event}</span>
+                  </div>
+
+                  {/* Página / URL */}
+                  <div style={{ overflow: 'hidden', padding: '0 6px' }}>
+                    {showFullUrl && url ? (
+                      <a href={url} target="_blank" rel="noreferrer"
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#8AA0B4', textDecoration: 'none', fontSize: 11, fontFamily: 'monospace' }}
+                        title={url}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
+                        <ExternalLink size={9} style={{ flexShrink: 0, opacity: 0.5 }} />
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: 11, color: '#8AA0B4', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={r.page}>
+                        {r.page || '—'}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Source */}
+                  <div style={{ padding: '0 6px' }}>
+                    {r.source
+                      ? <span style={{ fontSize: 10, color: '#C4D0DC', fontWeight: 600 }}>{r.source}</span>
+                      : <span style={{ fontSize: 10, color: '#2E4050' }}>direct</span>}
+                  </div>
+
+                  {/* Medium */}
+                  <div style={{ padding: '0 6px' }}>
+                    {r.medium
+                      ? <span style={{ fontSize: 10, color: medColor(r.medium), fontWeight: 600 }}>{r.medium}</span>
+                      : <span style={{ fontSize: 10, color: '#2E4050' }}>—</span>}
+                  </div>
+
+                  {/* Campaign */}
+                  <div style={{ overflow: 'hidden', padding: '0 6px' }}>
+                    <span style={{ fontSize: 10, color: r.campaign ? '#8AA0B4' : '#2E4050', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={r.campaign}>
+                      {r.campaign || '—'}
+                    </span>
+                  </div>
+
+                  {/* Usuários */}
+                  <div style={{ textAlign: 'right', fontSize: 11, color: '#6E8898', padding: '0 6px' }}>{fmtNum(r.users)}</div>
+
+                  {/* Eventos */}
+                  <div style={{ textAlign: 'right', fontSize: 12, color: '#E8EDF2', fontWeight: 700, padding: '0 6px' }}>{fmtNum(r.count)}</div>
+
+                  {/* % */}
+                  <div style={{ textAlign: 'right', fontSize: 10, color: '#4E6070', padding: '0 0 0 6px' }}>{pct}%</div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Footer totais */}
+          {sorted.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 0, padding: '7px 16px', borderTop: '1px solid rgba(255,255,255,0.09)', background: '#0A1825', flexShrink: 0 }}>
+              <div style={{ fontSize: 10, color: '#4E6070', padding: '0 0 0 12px' }}>{sorted.length} linhas</div>
+              <div /><div /><div /><div />
+              <div style={{ textAlign: 'right', fontSize: 11, color: '#6E8898', fontWeight: 700, padding: '0 6px' }}>{fmtNum(sorted.reduce((s, r) => s + r.users, 0))}</div>
+              <div style={{ textAlign: 'right', fontSize: 12, color: '#C9A962', fontWeight: 800, padding: '0 6px' }}>{fmtNum(grandTotal)}</div>
+              <div style={{ textAlign: 'right', fontSize: 10, color: '#4E6070', padding: '0 0 0 6px' }}>100%</div>
+            </div>
+          )}
         </div>
 
-        {sorted.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 8, padding: '8px 16px', borderTop: '2px solid rgba(99,102,241,0.2)', background: '#0A1E2E', flexShrink: 0 }}>
-            <div style={{ fontSize: 10, color: '#6B7280', fontWeight: 700 }}>{sorted.length} linhas</div>
-            <div /><div /><div /><div />
-            <div style={{ textAlign: 'right', fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>{fmtNum(sorted.reduce((s, r) => s + r.users, 0))}</div>
-            <div style={{ textAlign: 'right', fontSize: 12, color: '#A5B4FC', fontWeight: 800 }}>{fmtNum(grandTotal)}</div>
-            <div style={{ textAlign: 'right', fontSize: 10, color: '#6B7280' }}>100%</div>
-          </div>
-        )}
-      </Card>
-
-      <div style={{ fontSize: 10, color: '#374151', textAlign: 'right' }}>
-        Atualizado às {fmtTime(lastFetch)} · polling {POLL_MS / 1000}s
+        <div style={{ fontSize: 10, color: '#2E4050', textAlign: 'right', marginTop: 6 }}>
+          Atualizado às {fmtTime(lastFetch)} · polling {POLL_MS / 1000}s
+        </div>
       </div>
     </div>
   )

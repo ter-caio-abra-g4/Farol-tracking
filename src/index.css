@@ -183,7 +183,7 @@ main { min-width: 0; }
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  z-index: 1000;
+  z-index: 99999;
   background: var(--bg-elevated);
   border: 1px solid rgba(201,169,98,0.25);
   border-radius: var(--radius-md);
