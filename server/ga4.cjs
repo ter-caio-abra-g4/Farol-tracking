@@ -600,9 +600,9 @@ function getMockExitPages() {
 //   2. sessionDefaultChannelGroup + eventName → byChannel (canal × evento)
 //   3. minutesAgo + eventName          → timeline 0-29 min
 //   4. eventName + página + source + medium + campaign → tabela UTM detalhada
-async function getRealtimeReport(propertyId, eventFilter = null, channelFilter = null) {
+async function getRealtimeReport(propertyId, eventFilter = null, channelFilter = null, pageFilter = null) {
   const auth = await getAuthClient()
-  if (!auth) return { mock: true, ...getMockRealtime(eventFilter) }
+  if (!auth) return { mock: true, ...getMockRealtime(eventFilter, pageFilter) }
 
   try {
     const analyticsData = google.analyticsdata({ version: 'v1beta', auth })
@@ -617,8 +617,11 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
     }
 
     // Filtros para cada call
-    const eventDimFilter  = eventFilter   ? makeFilter('eventName', eventFilter)                    : null
+    const eventDimFilter   = eventFilter   ? makeFilter('eventName', eventFilter)                    : null
     const channelDimFilter = channelFilter ? makeFilter('sessionDefaultChannelGroup', channelFilter) : null
+    const pageDimFilter    = pageFilter    ? {
+      filter: { fieldName: 'unifiedScreenName', stringFilter: { matchType: 'CONTAINS', value: pageFilter } }
+    } : null
 
     function buildFilter(...parts) {
       const active = parts.filter(Boolean)
@@ -627,18 +630,18 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
     }
 
     const [evRes, channelRes, minuteRes, utmRes] = await Promise.all([
-      // Call 1: eventName × página
+      // Call 1: eventName × página (pageFilter aplicado)
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
           dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }],
           metrics:    [{ name: 'eventCount' }, { name: 'activeUsers' }],
-          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter),
+          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter, pageDimFilter),
           limit: 100,
         },
       }),
 
-      // Call 2: canal × evento (quadro completo — sem eventFilter)
+      // Call 2: canal × evento (quadro completo — sem pageFilter/eventFilter)
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
@@ -649,18 +652,18 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
         },
       }),
 
-      // Call 3: minutesAgo × eventName — timeline dos últimos 30 min
+      // Call 3: minutesAgo × eventName — timeline dos últimos 30 min (pageFilter aplicado)
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
           dimensions: [{ name: 'minutesAgo' }, { name: 'eventName' }],
           metrics:    [{ name: 'eventCount' }],
-          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter),
+          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter, pageDimFilter),
           limit: 200,
         },
       }),
 
-      // Call 4: tabela UTM — evento × página × source × medium × campaign
+      // Call 4: tabela UTM — evento × página × source × medium × campaign (pageFilter aplicado)
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
@@ -672,7 +675,7 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
             { name: 'sessionCampaignName' },
           ],
           metrics: [{ name: 'eventCount' }, { name: 'activeUsers' }],
-          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter),
+          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter, pageDimFilter),
           orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
           limit: 200,
         },
@@ -772,15 +775,16 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
       utmSources,
       utmMediums,
       utmCampaigns,
+      pageFilter,
       rows,
     }
   } catch (err) {
     console.error('[GA4] getRealtimeReport error:', err.message)
-    return { mock: true, ...getMockRealtime(eventFilter), error: err.message }
+    return { mock: true, ...getMockRealtime(eventFilter, pageFilter), error: err.message }
   }
 }
 
-function getMockRealtime(eventFilter) {
+function getMockRealtime(eventFilter, pageFilter = null) {
   const ev = eventFilter || 'generate_lead'
   // Timeline: simula 30 min de atividade
   const timeline = Array.from({ length: 30 }, (_, i) => {
@@ -835,6 +839,7 @@ function getMockRealtime(eventFilter) {
     utmSources:   ['facebook', 'google', 'instagram'],
     utmMediums:   ['cpc', 'organic'],
     utmCampaigns: ['g4-presencial-maio26', 'skills-awareness-maio', 'summit-retargeting'],
+    pageFilter,
     rows: [],
   }
 }

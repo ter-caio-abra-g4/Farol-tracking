@@ -127,7 +127,7 @@ export const api = {
   metaCreatives: (days = 30) => get(`/api/meta/creatives?days=${days}`, { mock: true, ads: [] }),
 
   // Live Monitor
-  liveGa4:        (propertyId, event = '', channel = '') => get(`/api/live/ga4?propertyId=${propertyId}${event ? `&event=${encodeURIComponent(event)}` : ''}${channel ? `&channel=${encodeURIComponent(channel)}` : ''}`, { mock: true }),
+  liveGa4:        (propertyId, event = '', channel = '', page = '') => get(`/api/live/ga4?propertyId=${propertyId}${event ? `&event=${encodeURIComponent(event)}` : ''}${channel ? `&channel=${encodeURIComponent(channel)}` : ''}${page ? `&page=${encodeURIComponent(page)}` : ''}`, { mock: true }),
   liveMeta:       (account = '')            => get(`/api/live/meta${account ? `?account=${encodeURIComponent(account)}` : ''}`, { mock: true }),
   liveDatabricks: (event = 'generate_lead') => get(`/api/live/databricks?event=${encodeURIComponent(event)}`, { mock: true }),
   liveCrm:        (campaign = '')           => get(`/api/live/crm${campaign ? `?campaign=${encodeURIComponent(campaign)}` : ''}`, { mock: true }),

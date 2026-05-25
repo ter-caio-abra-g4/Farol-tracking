@@ -767,10 +767,10 @@ app.get('/api/ga4/events-by-page/:propertyId', async (req, res) => {
 
 // GA4 Realtime — últimos 30 min (~1 min latência)
 app.get('/api/live/ga4', async (req, res) => {
-  const { propertyId, event, channel } = req.query
+  const { propertyId, event, channel, page } = req.query
   if (!propertyId) return res.status(400).json({ error: 'propertyId obrigatório' })
   try {
-    res.json(await ga4Service.getRealtimeReport(propertyId, event || null, channel || null))
+    res.json(await ga4Service.getRealtimeReport(propertyId, event || null, channel || null, page || null))
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message })
   }
