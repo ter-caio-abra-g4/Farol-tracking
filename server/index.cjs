@@ -55,7 +55,7 @@ app.get('/api/health', (req, res) => {
   const g4 = detectG4OS()
   res.json({
     ok: true,
-    configured: !!(cfg.meta?.access_token || cfg.ga4?.service_account_path),
+    configured: !!(cfg.meta?.access_token || cfg.ga4?.service_account_path || cfg.ga4?.service_account_key?.private_key),
     g4osDetected: g4.available,
     configPath: CONFIG_PATH,
   })
