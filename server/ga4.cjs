@@ -761,12 +761,11 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
     const utmMediums   = [...new Set(utmRows.map(r => r.medium).filter(Boolean))].sort()
     const utmCampaigns = [...new Set(utmRows.map(r => r.campaign).filter(Boolean))].sort()
 
-    // Grava snapshot para histórico nativo
-    const ev = eventFilter || 'page_view'
-    const evCount = (topEvents.find(e => e.event === ev)?.count) ?? 0
-    recordSnapshot({ propertyId, event: ev, activeUsers, eventCount: evCount })
+    // Grava snapshot completo (todos os eventos) para histórico nativo
+    recordSnapshot({ propertyId, activeUsers, topEvents })
 
     // Usa timeline do histórico local se tiver >= 3 pontos (mais precisa que minutesAgo)
+    const ev = eventFilter || 'page_view'
     const localTimeline = getTimeline(propertyId, ev)
     const finalTimeline = localTimeline.length >= 3 ? localTimeline : timeline
 

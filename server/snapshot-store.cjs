@@ -1,26 +1,29 @@
 /**
  * snapshot-store.cjs
  * Persiste snapshots de realtime GA4 em JSONL no userData do Electron.
- * Cada linha: { ts, propertyId, event, activeUsers, eventCount }
- * Janela mantida: RETAIN_MS (padrão 60 min). Limpeza automática ao gravar.
+ *
+ * Schema por linha:
+ *   { ts, propertyId, activeUsers, events: { eventName: count, ... } }
+ *
+ * Um único snapshot por poll por propertyId — contém todos os eventos.
+ * Janela retida em disco: RETAIN_MS (60 min). Limpeza automática ao gravar.
  */
 
 const fs   = require('fs')
 const path = require('path')
 
-const RETAIN_MS  = 60 * 60 * 1000   // manter 60 min de histórico no disco
-const WINDOW_MS  = 30 * 60 * 1000   // retornar últimos 30 min na timeline
+const RETAIN_MS = 60 * 60 * 1000  // manter 60 min no disco
+const WINDOW_MS = 30 * 60 * 1000  // janela padrão para getTimeline
 
-// Resolve o caminho do arquivo de snapshots
 function getStorePath() {
   const base = process.env.FAROL_USER_DATA || require('os').tmpdir()
   return path.join(base, 'farol-snapshots.jsonl')
 }
 
-// Cache em memória para evitar releitura constante do disco
-// Estrutura: Map<`${propertyId}:${event}`, Snapshot[]>
-const _mem = new Map()
-let _loaded = false
+// Cache em memória: Map<propertyId, Snapshot[]>
+const _mem    = new Map()
+let _loaded   = false
+let _snapCount = 0  // contador global para triggerar compactação
 
 function _ensureLoaded() {
   if (_loaded) return
@@ -28,45 +31,57 @@ function _ensureLoaded() {
   const p = getStorePath()
   if (!fs.existsSync(p)) return
   try {
-    const lines = fs.readFileSync(p, 'utf8').split('\n').filter(Boolean)
+    const lines  = fs.readFileSync(p, 'utf8').split('\n').filter(Boolean)
     const cutoff = Date.now() - RETAIN_MS
     for (const line of lines) {
       try {
         const snap = JSON.parse(line)
         if (snap.ts < cutoff) continue
-        const key = `${snap.propertyId}:${snap.event}`
-        if (!_mem.has(key)) _mem.set(key, [])
-        _mem.get(key).push(snap)
-      } catch (_) { /* linha corrompida — ignora */ }
+        if (!_mem.has(snap.propertyId)) _mem.set(snap.propertyId, [])
+        _mem.get(snap.propertyId).push(snap)
+        _snapCount++
+      } catch (_) {}
     }
   } catch (e) {
     console.warn('[snapshot-store] falha ao carregar histórico:', e.message)
   }
 }
 
-function recordSnapshot({ propertyId, event, activeUsers, eventCount }) {
+/**
+ * Grava um snapshot completo da property.
+ * @param {string} propertyId
+ * @param {number} activeUsers
+ * @param {Array<{event:string, count:number}>} topEvents  — array vindo da API
+ */
+function recordSnapshot({ propertyId, activeUsers, topEvents }) {
   _ensureLoaded()
-  const snap = { ts: Date.now(), propertyId, event, activeUsers, eventCount }
-  const key = `${propertyId}:${event}`
-  if (!_mem.has(key)) _mem.set(key, [])
 
-  const list = _mem.get(key)
+  // Converte topEvents em mapa { eventName: count }
+  const events = {}
+  for (const e of (topEvents || [])) {
+    if (e.event) events[e.event] = e.count || 0
+  }
+
+  const snap = { ts: Date.now(), propertyId, activeUsers, events }
+
+  if (!_mem.has(propertyId)) _mem.set(propertyId, [])
+  const list = _mem.get(propertyId)
   list.push(snap)
+  _snapCount++
 
-  // Remove entradas antigas da memória
+  // Prune memória
   const cutoff = Date.now() - RETAIN_MS
-  const pruned = list.filter(s => s.ts >= cutoff)
-  _mem.set(key, pruned)
+  _mem.set(propertyId, list.filter(s => s.ts >= cutoff))
 
-  // Persiste no arquivo JSONL (append)
+  // Persiste (append)
   try {
     fs.appendFileSync(getStorePath(), JSON.stringify(snap) + '\n', 'utf8')
   } catch (e) {
     console.warn('[snapshot-store] falha ao persistir snapshot:', e.message)
   }
 
-  // Compacta o arquivo de tempos em tempos (a cada 200 snaps para esta key)
-  if (pruned.length % 200 === 0) _compactFile()
+  // Compacta a cada 300 snaps globais
+  if (_snapCount % 300 === 0) _compactFile()
 }
 
 function _compactFile() {
@@ -80,43 +95,55 @@ function _compactFile() {
   all.sort((a, b) => a.ts - b.ts)
   try {
     fs.writeFileSync(getStorePath(), all.map(s => JSON.stringify(s)).join('\n') + '\n', 'utf8')
+    console.log(`[snapshot-store] compactado: ${all.length} snaps`)
   } catch (e) {
     console.warn('[snapshot-store] falha ao compactar:', e.message)
   }
 }
 
 /**
- * Retorna a timeline de snapshots para uma property+evento,
- * agregada por minuto, nos últimos WINDOW_MS.
- * Formato de saída compatível com o que o frontend já espera:
- *   [{ minute: 'HH:MM', minAgo: N, [event]: count, page_view: count, total: N }]
+ * Retorna timeline agregada por minuto para um evento específico,
+ * com page_view como série de referência paralela.
+ * Formato compatível com o frontend:
+ *   [{ minute, minAgo, [eventName]: count, page_view: count, activeUsers, total }]
+ *
+ * Se não houver snapshots suficientes (< 3), retorna array vazio
+ * para o caller usar o fallback da API.
  */
 function getTimeline(propertyId, event, windowMs = WINDOW_MS) {
   _ensureLoaded()
-  const key = `${propertyId}:${event}`
-  const list = _mem.get(key) || []
+  const list   = _mem.get(propertyId) || []
   const cutoff = Date.now() - windowMs
 
   const byMinute = {}
   for (const snap of list) {
     if (snap.ts < cutoff) continue
-    const d = new Date(snap.ts)
-    const label = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    const d      = new Date(snap.ts)
+    const label  = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     const minAgo = Math.round((Date.now() - snap.ts) / 60000)
-    if (!byMinute[label]) byMinute[label] = { minute: label, minAgo, total: 0, activeUsers: 0 }
-    byMinute[label][event]       = snap.eventCount
-    byMinute[label].page_view    = byMinute[label].page_view || 0
-    byMinute[label].total        = snap.eventCount
-    byMinute[label].activeUsers  = snap.activeUsers
-    byMinute[label].minAgo       = minAgo
+
+    if (!byMinute[label]) {
+      byMinute[label] = { minute: label, minAgo, activeUsers: 0, total: 0 }
+    }
+
+    // Atualiza com o snap mais recente daquele minuto
+    byMinute[label].activeUsers = snap.activeUsers
+    byMinute[label].minAgo      = minAgo
+
+    // Série do evento solicitado
+    const evCount = snap.events?.[event] ?? 0
+    byMinute[label][event] = evCount
+    byMinute[label].total  = evCount
+
+    // Série page_view como referência (se diferente do evento principal)
+    if (event !== 'page_view') {
+      byMinute[label].page_view = snap.events?.['page_view'] ?? 0
+    }
   }
 
   return Object.values(byMinute).sort((a, b) => b.minAgo - a.minAgo)
 }
 
-/**
- * Retorna contagem total de snapshots em memória (debug).
- */
 function getStats() {
   _ensureLoaded()
   let total = 0
