@@ -14,6 +14,7 @@ const {
 } = require('./config.cjs')
 const gtmService = require('./gtm.cjs')
 const ga4Service = require('./ga4.cjs')
+const { getStats: snapshotStats } = require('./snapshot-store.cjs')
 const metaService = require('./meta.cjs')
 const databricksService = require('./databricks.cjs')
 const scService = require('./searchconsole.cjs')
@@ -26,6 +27,9 @@ app.use(express.json())
 
 // Sincroniza credenciais externas na inicialização (não-bloqueante)
 syncCredentialsIfNewer()
+
+// ─── Snapshot store stats (debug) ─────────────────────────────────────────
+app.get('/api/ga4/snapshots/stats', (req, res) => res.json(snapshotStats()))
 
 // ─── Health ────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

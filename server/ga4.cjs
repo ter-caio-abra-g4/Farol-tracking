@@ -5,6 +5,7 @@
 
 const { google } = require('googleapis')
 const { loadConfig } = require('./config.cjs')
+const { recordSnapshot, getTimeline } = require('./snapshot-store.cjs')
 
 // ─── Cache em memória ────────────────────────────────────────────────────────
 const CACHE_TTL_MS      = 5 * 60 * 1000   // 5 min — reports
@@ -760,6 +761,15 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
     const utmMediums   = [...new Set(utmRows.map(r => r.medium).filter(Boolean))].sort()
     const utmCampaigns = [...new Set(utmRows.map(r => r.campaign).filter(Boolean))].sort()
 
+    // Grava snapshot para histórico nativo
+    const ev = eventFilter || 'page_view'
+    const evCount = (topEvents.find(e => e.event === ev)?.count) ?? 0
+    recordSnapshot({ propertyId, event: ev, activeUsers, eventCount: evCount })
+
+    // Usa timeline do histórico local se tiver >= 3 pontos (mais precisa que minutesAgo)
+    const localTimeline = getTimeline(propertyId, ev)
+    const finalTimeline = localTimeline.length >= 3 ? localTimeline : timeline
+
     return {
       mock: false,
       propertyId,
@@ -770,7 +780,7 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
       topPages,
       channels,
       channelList,
-      timeline,
+      timeline: finalTimeline,
       utmRows,
       utmSources,
       utmMediums,
