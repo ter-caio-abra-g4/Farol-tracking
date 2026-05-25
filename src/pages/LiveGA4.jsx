@@ -838,43 +838,50 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
 }
 
 // ── Filtro compacto (modo comparativo) ────────────────────────────────────────
-function FilterBarCompact({ label, inputEvent, setInputEvent, onApplyEvent, inputPage, setInputPage, pageFilter, onApplyPage, onClearPage, topPages, showSug, setShowSug }) {
+function FilterBarCompact({ label, eventFilter, onEventChange, eventOptions, inputPage, setInputPage, pageFilter, onApplyPage, onClearPage, topPages, showSug, setShowSug }) {
+  const color = label === 'A' ? '#C9A962' : '#6366F1'
+  const colorBg = label === 'A' ? 'rgba(201,169,98,0.08)' : 'rgba(99,102,241,0.08)'
+  const colorBorder = label === 'A' ? 'rgba(201,169,98,0.25)' : 'rgba(99,102,241,0.25)'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8, padding: '10px 14px' }}>
-      <span style={{ fontSize: 10, fontWeight: 800, color: '#6366F1', background: 'rgba(99,102,241,0.2)', borderRadius: 4, padding: '2px 8px', flexShrink: 0 }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <span style={{ fontSize: 10, color: '#8A9BAA', fontWeight: 700 }}>Evento:</span>
-        <input value={inputEvent} onChange={e => setInputEvent(e.target.value)} onKeyDown={e => e.key === 'Enter' && onApplyEvent()}
-          style={{ background: '#152840', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 5, padding: '4px 8px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 130, outline: 'none' }} />
-        <button onClick={onApplyEvent} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.35)', color: '#A5B4FC' }}>OK</button>
-      </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: colorBg, border: `1px solid ${colorBorder}`, borderRadius: 8, padding: '9px 14px' }}>
+      <span style={{ fontSize: 10, fontWeight: 800, color, background: `${color}22`, borderRadius: 4, padding: '2px 8px', flexShrink: 0, letterSpacing: '0.05em' }}>{label}</span>
+
+      <SelectUI
+        value={eventFilter}
+        onChange={onEventChange}
+        options={eventOptions.map(e => ({ value: e, label: e }))}
+        placeholder="Evento"
+        minWidth={160}
+        small
+      />
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, position: 'relative' }}>
-        <MapPin size={10} color="#8A9BAA" />
-        <span style={{ fontSize: 10, color: '#8A9BAA', fontWeight: 700 }}>Loc.:</span>
-        <input value={inputPage} onChange={e => { setInputPage(e.target.value); setShowSug(true) }} onKeyDown={e => { if (e.key === 'Enter') onApplyPage() }} onBlur={() => setTimeout(() => setShowSug(false), 150)} placeholder="ex: /inscricao"
-          style={{ background: '#152840', border: `1px solid ${pageFilter ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.3)'}`, borderRadius: 5, padding: '4px 8px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 120, outline: 'none' }} />
-        <button onClick={onApplyPage} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', fontFamily: 'Manrope', background: pageFilter ? 'rgba(99,102,241,0.25)' : 'rgba(99,102,241,0.08)', border: `1px solid ${pageFilter ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.25)'}`, color: pageFilter ? '#A5B4FC' : '#6B7280', fontWeight: 700 }}>Filtrar</button>
-        {pageFilter && <button onClick={onClearPage} style={{ padding: '3px 6px', borderRadius: 4, fontSize: 9, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
+        <input value={inputPage} onChange={e => { setInputPage(e.target.value); setShowSug(true) }}
+          onKeyDown={e => { if (e.key === 'Enter') onApplyPage() }}
+          onBlur={() => setTimeout(() => setShowSug(false), 150)}
+          placeholder="Filtrar página…"
+          style={{ background: pageFilter ? `${color}10` : 'rgba(255,255,255,0.05)', border: `1px solid ${pageFilter ? `${color}55` : 'rgba(255,255,255,0.1)'}`, borderRadius: 6, padding: '4px 8px 4px 26px', fontSize: 11, color: pageFilter ? color : '#E8EDF2', fontFamily: 'monospace', width: 160, outline: 'none' }} />
+        <MapPin size={10} color={pageFilter ? color : '#4E6070'} style={{ position: 'absolute', left: 8, pointerEvents: 'none' }} />
+        {inputPage && (
+          <button onClick={() => { setInputPage(''); onClearPage() }}
+            style={{ position: 'absolute', right: 6, background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer', padding: 0, display: 'flex' }}>
+            <X size={10} />
+          </button>
+        )}
         {showSug && inputPage.length > 0 && topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).length > 0 && (
-          <div style={{ position: 'absolute', top: '100%', left: 52, zIndex: 100, background: '#152840', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 6, marginTop: 2, minWidth: 220, maxHeight: 140, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-            {topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).slice(0, 6).map((p, i) => (
+          <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 99999, background: '#152840', border: `1px solid ${colorBorder}`, borderRadius: 8, minWidth: 240, maxHeight: 160, overflowY: 'auto', boxShadow: '0 12px 32px rgba(0,0,0,0.6)' }}>
+            {topPages.filter(p => p.page?.toLowerCase().includes(inputPage.toLowerCase())).slice(0, 7).map((p, i) => (
               <div key={i} onMouseDown={() => { setInputPage(p.page); onApplyPage() }}
-                style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 10, color: '#C4D0DC', fontFamily: 'monospace', borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.12)'}
+                style={{ padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <div>{p.page}</div>
-                <div style={{ fontSize: 9, color: '#6B7280' }}>{fmtNum(p.views)} views</div>
+                <div style={{ fontSize: 11, color: '#E8EDF2', fontFamily: 'monospace' }}>{p.page}</div>
+                <div style={{ fontSize: 9, color: '#4E6070', marginTop: 1 }}>{fmtNum(p.views)} views</div>
               </div>
             ))}
           </div>
         )}
       </div>
-      {pageFilter && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.1)', borderRadius: 4, padding: '2px 7px' }}>
-          <MapPin size={8} color="#6366F1" />
-          <span style={{ fontSize: 9, color: '#A5B4FC' }}>contém "{pageFilter}"</span>
-        </div>
-      )}
     </div>
   )
 }
@@ -895,8 +902,8 @@ export default function LiveGA4() {
   const [showSugA,       setShowSugA]       = useState(false)
 
   // Estado painel B (comparativo)
-  const [eventFilterB,   setEventFilterB]   = useState('generate_lead')
-  const [inputEventB,    setInputEventB]    = useState('generate_lead')
+  const [eventFilterB,   setEventFilterB]   = useState('purchase')
+  const [inputEventB,    setInputEventB]    = useState('purchase')
   const [channelFilterB, setChannelFilterB] = useState('')
   const [pageFilterB,    setPageFilterB]    = useState('')
   const [inputPageB,     setInputPageB]     = useState('')
@@ -956,9 +963,13 @@ export default function LiveGA4() {
             {/* Evento */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Evento:</span>
-              <input value={inputEventA} onChange={e => setInputEventA(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') setEventFilterA(inputEventA.trim() || 'generate_lead') }}
-                style={{ background: '#152840', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: '#F5F4F3', fontFamily: 'monospace', width: 180, outline: 'none' }} />
-              <button onClick={() => setEventFilterA(inputEventA.trim() || 'generate_lead')} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.35)', color: '#A5B4FC' }}>Aplicar</button>
+              <SelectUI
+                value={eventFilterA}
+                onChange={ev => { setEventFilterA(ev || 'generate_lead'); setInputEventA(ev || 'generate_lead') }}
+                options={EVENT_SHORTCUTS.map(e => ({ value: e, label: e }))}
+                placeholder="Evento"
+                minWidth={180}
+              />
             </div>
 
             <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
@@ -1026,8 +1037,8 @@ export default function LiveGA4() {
       {activeTab === 'comparar' && (
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <FilterBarCompact label="A" inputEvent={inputEventA} setInputEvent={setInputEventA} onApplyEvent={() => setEventFilterA(inputEventA.trim() || 'generate_lead')} inputPage={inputPageA} setInputPage={setInputPageA} pageFilter={pageFilterA} onApplyPage={applyPageA} onClearPage={() => { setPageFilterA(''); setInputPageA('') }} topPages={topPagesA} showSug={showSugA} setShowSug={setShowSugA} />
-            <FilterBarCompact label="B" inputEvent={inputEventB} setInputEvent={setInputEventB} onApplyEvent={() => setEventFilterB(inputEventB.trim() || 'generate_lead')} inputPage={inputPageB} setInputPage={setInputPageB} pageFilter={pageFilterB} onApplyPage={applyPageB} onClearPage={() => { setPageFilterB(''); setInputPageB('') }} topPages={topPagesA} showSug={showSugB} setShowSug={setShowSugB} />
+            <FilterBarCompact label="A" eventFilter={eventFilterA} onEventChange={ev => { setEventFilterA(ev); setInputEventA(ev) }} eventOptions={EVENT_SHORTCUTS} inputPage={inputPageA} setInputPage={setInputPageA} pageFilter={pageFilterA} onApplyPage={applyPageA} onClearPage={() => { setPageFilterA(''); setInputPageA('') }} topPages={topPagesA} showSug={showSugA} setShowSug={setShowSugA} />
+            <FilterBarCompact label="B" eventFilter={eventFilterB} onEventChange={ev => { setEventFilterB(ev); setInputEventB(ev) }} eventOptions={EVENT_SHORTCUTS} inputPage={inputPageB} setInputPage={setInputPageB} pageFilter={pageFilterB} onApplyPage={applyPageB} onClearPage={() => { setPageFilterB(''); setInputPageB('') }} topPages={topPagesA} showSug={showSugB} setShowSug={setShowSugB} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <MonitorPanel panelId="A" propertyId={propertyId} eventFilter={eventFilterA} channelFilter={channelFilterA} pageFilter={pageFilterA} isRunning={isRunning} compareMode={true} channelList={channelListA} topPages={topPagesA} onChannelFilter={setChannelFilterA} onEventFilter={(ev) => { setEventFilterA(ev); setInputEventA(ev) }} externalData={panelA} />
