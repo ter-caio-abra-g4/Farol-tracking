@@ -3,26 +3,24 @@ import { useState } from 'react'
 import { useTracking } from '../../context/TrackingContext'
 
 const SELECT_STYLE = {
-  background: '#001F35',
-  border: '1px solid rgba(185,145,91,0.4)',
-  borderRadius: 6,
-  color: '#F5F4F3',
+  background: 'rgba(255,255,255,0.05)',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 8,
+  color: '#EEF2F6',
   padding: '6px 28px 6px 10px',
   fontSize: 12,
   fontWeight: 500,
   cursor: 'pointer',
   outline: 'none',
   appearance: 'none',
-  maxWidth: 180,
-  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23B9915B' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+  maxWidth: 200,
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%23C9A962' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
   backgroundRepeat: 'no-repeat',
   backgroundPosition: 'right 8px center',
   fontFamily: 'Manrope, sans-serif',
+  transition: 'border-color 0.15s ease, background 0.15s ease',
 }
 
-// showGTM / showGA4: controla quais seletores globais aparecem por tela.
-// isMock: quando true, exibe banner ⚠️ Dados simulados abaixo do header.
-// Padrão false — cada página declara explicitamente o que precisa.
 export default function Header({ title, subtitle, onRefresh, lastUpdated, select, action, showGTM = false, showGA4 = false, isMock = false }) {
   const [spinning, setSpinning] = useState(false)
   const { gtmContainers, selectedGTM, setSelectedGTM, ga4Properties, selectedGA4, setSelectedGA4 } = useTracking()
@@ -41,13 +39,15 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
 
   return (
     <div style={{
-      borderBottom: '1px solid rgba(185,145,91,0.15)',
+      borderBottom: '1px solid rgba(255,255,255,0.07)',
+      background: 'rgba(6,15,24,0.6)',
+      backdropFilter: 'blur(8px)',
       flexShrink: 0,
     }}>
 
-      {/* ── Linha 1: título · selects contextuais · action ── */}
+      {/* Linha 1: título · selects · action */}
       <div style={{
-        padding: '14px 28px 12px',
+        padding: '14px 24px 12px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -57,25 +57,25 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
         <div style={{ flexShrink: 0 }}>
           <h1 style={{
             fontFamily: "'PPMuseum','Georgia',serif",
-            fontSize: 20,
+            fontSize: 19,
             fontWeight: 600,
-            color: '#B9915B',
-            letterSpacing: '-0.02em',
+            color: '#C9A962',
+            letterSpacing: '-0.025em',
             lineHeight: 1.2,
           }}>
             {title}
           </h1>
           {subtitle && (
-            <p style={{ fontSize: 12, color: '#8A9BAA', marginTop: 2 }}>{subtitle}</p>
+            <p style={{ fontSize: 11.5, color: '#506070', marginTop: 3, letterSpacing: '0.01em' }}>{subtitle}</p>
           )}
         </div>
 
-        {/* Selects contextuais — só aparecem quando a tela precisa */}
+        {/* Selects contextuais */}
         {hasSelects && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, justifyContent: 'center' }}>
             {showGTM && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GTM</span>
+                <span style={{ fontSize: 10, color: '#506070', whiteSpace: 'nowrap', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>GTM</span>
                 <select value={selectedGTM} onChange={(e) => setSelectedGTM(e.target.value)} style={SELECT_STYLE}>
                   <option value="all">Todos os containers</option>
                   {gtmContainers.map(c => (
@@ -84,14 +84,12 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
                 </select>
               </div>
             )}
-
             {showGTM && showGA4 && (
-              <div style={{ width: 1, height: 20, background: 'rgba(185,145,91,0.2)' }} />
+              <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.08)' }} />
             )}
-
             {showGA4 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: '#8A9BAA', whiteSpace: 'nowrap', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>GA4</span>
+                <span style={{ fontSize: 10, color: '#506070', whiteSpace: 'nowrap', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>GA4</span>
                 <select value={selectedGA4} onChange={(e) => setSelectedGA4(e.target.value)} style={SELECT_STYLE}>
                   {ga4Properties.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -102,10 +100,10 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
           </div>
         )}
 
-        {/* Select legado (páginas específicas) */}
+        {/* Select legado */}
         {select && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#8A9BAA', whiteSpace: 'nowrap' }}>{select.label}</span>
+            <span style={{ fontSize: 11, color: '#506070', whiteSpace: 'nowrap' }}>{select.label}</span>
             <select value={select.value} onChange={(e) => select.onChange(e.target.value)} style={SELECT_STYLE}>
               {select.groups
                 ? select.groups.map((g) => (
@@ -122,77 +120,71 @@ export default function Header({ title, subtitle, onRefresh, lastUpdated, select
             </select>
           </div>
         )}
-
       </div>
 
-      {/* ── Linha 2: seletor de período · · · hora + Atualizar ── */}
-      {(action || time || onRefresh) && <div style={{
-        padding: '6px 28px 10px',
-        borderTop: '1px solid rgba(185,145,91,0.07)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-      }}>
-        {/* Esquerda: action customizado (ex: seletor de período) */}
-        <div>
-          {action || <span />}
+      {/* Linha 2: action · hora + refresh */}
+      {(action || time || onRefresh) && (
+        <div style={{
+          padding: '6px 24px 10px',
+          borderTop: '1px solid rgba(255,255,255,0.04)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}>
+          <div>{action || <span />}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {time && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#506070', fontSize: 11 }}>
+                <Clock size={11} />
+                <span>Atualizado às {time}</span>
+              </div>
+            )}
+            {onRefresh && (
+              <button
+                onClick={handleRefresh}
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 7,
+                  padding: '4px 10px',
+                  color: '#C9A962',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  fontFamily: 'Manrope, sans-serif',
+                  transition: 'border-color 0.15s ease, background 0.15s ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(201,169,98,0.08)'; e.currentTarget.style.borderColor = 'rgba(201,169,98,0.3)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)' }}
+              >
+                <RefreshCw size={11} style={{ transition: 'transform 0.8s ease', transform: spinning ? 'rotate(360deg)' : 'rotate(0deg)' }} />
+                Atualizar
+              </button>
+            )}
+          </div>
         </div>
+      )}
 
-        {/* Direita: hora + refresh */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          {time && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#8A9BAA', fontSize: 11 }}>
-              <Clock size={12} />
-              <span>Atualizado às {time}</span>
-            </div>
-          )}
-          <button
-            onClick={handleRefresh}
-            style={{
-              background: 'rgba(185,145,91,0.08)',
-              border: '1px solid rgba(185,145,91,0.25)',
-              borderRadius: 6,
-              padding: '4px 10px',
-              color: '#B9915B',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              fontSize: 11,
-              fontWeight: 500,
-              fontFamily: 'Manrope, sans-serif',
-            }}
-          >
-            <RefreshCw
-              size={11}
-              style={{
-                transition: 'transform 0.8s ease',
-                transform: spinning ? 'rotate(360deg)' : 'rotate(0deg)',
-              }}
-            />
-            Atualizar
-          </button>
-        </div>
-      </div>}
-
-      {/* ── Badge: Dados simulados ── */}
+      {/* Badge: Dados simulados */}
       {isMock && (
         <div style={{
-          padding: '6px 28px',
-          background: 'rgba(245,158,11,0.07)',
-          borderTop: '1px solid rgba(245,158,11,0.2)',
+          padding: '6px 24px',
+          background: 'rgba(245,158,11,0.06)',
+          borderTop: '1px solid rgba(245,158,11,0.15)',
           display: 'flex',
           alignItems: 'center',
           gap: 6,
         }}>
-          <AlertTriangle size={12} color="#F59E0B" />
-          <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500 }}>
+          <AlertTriangle size={11} color="#F59E0B" />
+          <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500, opacity: 0.85 }}>
             Dados simulados — conecte as APIs em Configurações para dados reais
           </span>
         </div>
       )}
-
     </div>
   )
 }

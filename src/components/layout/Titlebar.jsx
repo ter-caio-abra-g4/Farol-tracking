@@ -43,9 +43,9 @@ export default function Titlebar() {
   return (
     <div
       style={{
-        height: 36,
-        background: '#001F35',
-        borderBottom: '1px solid rgba(185,145,91,0.15)',
+        height: 34,
+        background: '#040C14',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',

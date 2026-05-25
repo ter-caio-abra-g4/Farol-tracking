@@ -53,15 +53,15 @@ export default function App() {
 
   if (setupDone === null) {
     return (
-      <div style={{ height: '100vh', background: '#031A26', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#8A9BAA', fontSize: 13 }}>Iniciando Farol...</div>
+      <div style={{ height: '100vh', background: '#050E17', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: '#506070', fontSize: 12, letterSpacing: '0.06em' }}>Iniciando Farol...</div>
       </div>
     )
   }
 
   if (!setupDone) {
     return (
-      <div style={{ height: '100vh', background: '#031A26' }}>
+      <div style={{ height: '100vh', background: '#050E17' }}>
         <SetupWizard onComplete={() => {
           localStorage.setItem('farol_setup_done', '1')
           setSetupDone(true)
@@ -79,7 +79,7 @@ export default function App() {
             flexDirection: 'column',
             height: '100vh',
             overflow: 'hidden',
-            background: '#031A26',
+            background: '#050E17',
           }}
         >
           <Titlebar />
@@ -94,7 +94,7 @@ export default function App() {
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                background: '#031A26',
+                background: '#050E17',
               }}
             >
               <Routes>
