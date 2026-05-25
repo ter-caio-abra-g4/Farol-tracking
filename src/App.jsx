@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Titlebar from './components/layout/Titlebar'
 import Sidebar from './components/layout/Sidebar'
@@ -18,58 +17,13 @@ import LiveGA4Page from './pages/LiveGA4'
 import LiveMetaPage from './pages/LiveMeta'
 import LiveDatabricksPage from './pages/LiveDatabricks'
 import SettingsPage from './pages/Settings'
-import SetupWizard from './pages/Setup'
 import AnomalyDetectionPage from './pages/AnomalyDetection'
 import ClosingCohortPage from './pages/ClosingCohort'
 import EventsExplorerPage from './pages/EventsExplorer'
 import { TrackingProvider } from './context/TrackingContext'
-import { api } from './services/api'
 
 export default function App() {
-  const [setupDone, setSetupDone] = useState(null) // null = verificando
-
-  useEffect(() => {
-    // Verificar se já está configurado
-    api.health().then((health) => {
-      if (health?.configured) {
-        setSetupDone(true)
-      } else {
-        // Verificar se o usuário já fez o setup antes (localStorage)
-        const skipped = localStorage.getItem('farol_setup_done')
-        setSetupDone(!!skipped)
-      }
-    }).catch(() => {
-      // Servidor ainda não subiu — verifica localStorage antes de mostrar setup
-      const skipped = localStorage.getItem('farol_setup_done')
-      if (skipped) {
-        setSetupDone(true)
-      } else {
-        setTimeout(() => {
-          setSetupDone(prev => prev === null ? false : prev)
-        }, 2000)
-      }
-    })
-  }, [])
-
-  if (setupDone === null) {
-    return (
-      <div style={{ height: '100vh', background: '#050E17', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#506070', fontSize: 12, letterSpacing: '0.06em' }}>Iniciando Farol...</div>
-      </div>
-    )
-  }
-
-  if (!setupDone) {
-    return (
-      <div style={{ height: '100vh', background: '#050E17' }}>
-        <SetupWizard onComplete={() => {
-          localStorage.setItem('farol_setup_done', '1')
-          setSetupDone(true)
-        }} />
-      </div>
-    )
-  }
-
+  // Vai direto pro app — setup foi feito na instalação (credenciais embutidas)
   return (
     <BrowserRouter>
       <TrackingProvider>
