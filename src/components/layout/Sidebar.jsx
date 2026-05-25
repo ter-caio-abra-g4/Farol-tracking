@@ -23,7 +23,6 @@ import {
   Wifi,
   Share2,
   Cpu,
-  Table2,
 } from 'lucide-react'
 
 // ── Estrutura de navegação agrupada ──────────────────────────────────────────
@@ -40,7 +39,6 @@ const navGroups = [
     items: [
       { to: '/live',             icon: Radio,    label: 'Resumo',      badge: 'live' },
       { to: '/live/ga4',         icon: Wifi,     label: 'GA4'          },
-      { to: '/live/ga4/table',   icon: Table2,   label: 'GA4 · Tabela' },
       { to: '/live/meta',        icon: Share2,   label: 'Meta Ads'     },
       { to: '/live/databricks',  icon: Cpu,      label: 'Databricks'   },
     ],

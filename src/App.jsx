@@ -15,7 +15,6 @@ import SEOPage from './pages/SEO'
 import PaidPage from './pages/Paid'
 import LiveMonitorPage from './pages/LiveMonitor'
 import LiveGA4Page from './pages/LiveGA4'
-import LiveGA4TablePage from './pages/LiveGA4Table'
 import LiveMetaPage from './pages/LiveMeta'
 import LiveDatabricksPage from './pages/LiveDatabricks'
 import SettingsPage from './pages/Settings'
@@ -112,7 +111,6 @@ export default function App() {
                 <Route path="/paid" element={<PaidPage />} />
                 <Route path="/live"             element={<LiveMonitorPage />} />
                 <Route path="/live/ga4"        element={<LiveGA4Page />} />
-                <Route path="/live/ga4/table"  element={<LiveGA4TablePage />} />
                 <Route path="/live/meta"       element={<LiveMetaPage />} />
                 <Route path="/live/databricks" element={<LiveDatabricksPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
