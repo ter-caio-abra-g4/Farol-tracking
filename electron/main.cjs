@@ -47,10 +47,33 @@ ipcMain.on('update-install-now', () => {
   autoUpdater.quitAndInstall(false, true)
 })
 
+// Injeta service account embutida no config do usuário (primeira boot ou config ausente)
+function injectBundledCredentials() {
+  const saJson = process.env.FAROL_BUNDLED_SA
+  if (!saJson) return // build sem credenciais embutidas — modo dev sem .env.build
+
+  try {
+    const { loadConfig, saveConfig } = require(path.join(__dirname, '..', 'server', 'config.cjs'))
+    const cfg = loadConfig()
+    // Só injeta se ainda não tiver service account configurada
+    if (cfg.ga4?.service_account_key?.private_key) return
+    const sa = JSON.parse(saJson)
+    cfg.ga4 = cfg.ga4 || {}
+    cfg.ga4.service_account_key = sa
+    cfg.ga4.client_email = sa.client_email
+    cfg._bundled_credentials_version = sa.private_key_id
+    saveConfig(cfg)
+    console.log('[Farol] Credenciais embutidas aplicadas:', sa.client_email)
+  } catch (err) {
+    console.warn('[Farol] Falha ao injetar credenciais embutidas:', err.message)
+  }
+}
+
 // Inicia o servidor Express local
 async function startApiServer() {
   try {
     process.env.FAROL_USER_DATA = app.getPath('userData')
+    injectBundledCredentials()
     const { startServer } = require(path.join(__dirname, '..', 'server', 'index.cjs'))
     apiServer = await startServer()
     console.log('[Farol] API server iniciado')

@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5175 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "npm run build && node scripts/build-with-env.cjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },
