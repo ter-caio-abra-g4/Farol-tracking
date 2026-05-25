@@ -137,6 +137,8 @@ function createWindow() {
     mainWindow.webContents.openDevTools({ mode: 'detach', activate: false })
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    // DevTools habilitado temporariamente para diagnóstico — remover após resolver tela em branco
+    mainWindow.webContents.openDevTools({ mode: 'detach', activate: false })
   }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
