@@ -125,7 +125,7 @@ function StatusBadge({ loading, mock, error }) {
 // ── KPI card ──────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, color = '#6366F1', sparkData, pulse, delta }) {
   return (
-    <div style={{ background: '#152840', border: `1px solid ${color}33`, borderRadius: 10, padding: '14px 16px', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ background: '#152840', border: `1px solid ${color}33`, borderRadius: 10, padding: '14px 16px', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: color, borderRadius: '10px 0 0 10px' }} />
       {pulse && <div style={{ position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: '50%', background: '#22C55E', animation: 'liveKpiPulse 1.5s ease-out infinite' }} />}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
@@ -389,7 +389,7 @@ const MonitorPanel = memo(function MonitorPanel({
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${compareMode ? 3 : 4}, 1fr)`, gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${compareMode ? 3 : 4}, 1fr)`, gap: 10, alignItems: 'stretch' }}>
         <KpiCard label="Usuários ativos agora" value={fmtNum(activeUsers)} sub={fmtTime(data?.capturedAt)} color="#6366F1" sparkData={history.slice(-12).map(p => ({ v: p.activeUsers }))} pulse={!data?.mock} delta={deltaActive} />
         <KpiCard label={`"${eventFilter}" · 30 min`} value={fmtNum(evCount)} sub={`delta: +${fmtNum(history[history.length - 1]?.delta ?? 0)}`} color={evColor(eventFilter)} sparkData={history.slice(-12).map(p => ({ v: p.delta }))} pulse={!data?.mock} delta={deltaEv} />
         <KpiCard label="Total de eventos" value={fmtNum(data?.totalEvents ?? 0)} sub={`${(data?.topEvents || []).length} tipos · ${(data?.channels || []).length} canais`} color="#A855F7" />
