@@ -13,7 +13,25 @@ const {
   CONFIG_PATH,
 } = require('./config.cjs')
 const gtmService = require('./gtm.cjs')
-const ga4Service = require('./ga4.cjs')
+// ga4Service carregado via função para permitir reload sem reiniciar o Electron
+let ga4Service = require('./ga4.cjs')
+const ga4Path = require.resolve('./ga4.cjs')
+function reloadGa4() {
+  try {
+    delete require.cache[ga4Path]
+    ga4Service = require('./ga4.cjs')
+    console.log('[Farol] ga4.cjs recarregado do disco')
+  } catch (err) {
+    console.error('[Farol] Falha ao recarregar ga4.cjs:', err.message)
+  }
+}
+// Auto-reload quando o arquivo muda no disco (não funciona em build empacotado — arquivo é asar)
+try {
+  const fs_watch = require('fs')
+  if (fs_watch.existsSync(ga4Path)) {
+    fs_watch.watchFile(ga4Path, { interval: 2000 }, () => reloadGa4())
+  }
+} catch (_) {}
 const { getStats: snapshotStats } = require('./snapshot-store.cjs')
 const metaService = require('./meta.cjs')
 const databricksService = require('./databricks.cjs')
@@ -811,6 +829,16 @@ app.get('/api/live/crm', async (req, res) => {
     res.json(data)
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message, latencyNote: 'CRM via Databricks — latência pipeline 5-30 min' })
+  }
+})
+
+// Reload ga4.cjs sem reiniciar o Electron — útil em dev após editar o arquivo
+app.post('/api/server/reload-ga4', (req, res) => {
+  try {
+    reloadGa4()
+    res.json({ ok: true, message: 'ga4.cjs recarregado com sucesso' })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
   }
 })
 

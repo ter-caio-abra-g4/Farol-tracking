@@ -3,9 +3,10 @@
  * Persiste snapshots de realtime GA4 em JSONL no userData do Electron.
  *
  * Schema por linha:
- *   { ts, propertyId, activeUsers, events: { eventName: count, ... } }
+ *   { ts, propertyId, pageFilter, activeUsers, events: { eventName: count, ... } }
  *
- * Um único snapshot por poll por propertyId — contém todos os eventos.
+ * Chave de agrupamento: "propertyId:pageFilter" — permite histórico separado
+ * por página/evento (ex: LP vs Checkout de um mesmo evento ao vivo).
  * Janela retida em disco: RETAIN_MS (60 min). Limpeza automática ao gravar.
  */
 
@@ -20,7 +21,7 @@ function getStorePath() {
   return path.join(base, 'farol-snapshots.jsonl')
 }
 
-// Cache em memória: Map<propertyId, Snapshot[]>
+// Cache em memória: Map<"propertyId:pageFilter", Snapshot[]>
 const _mem    = new Map()
 let _loaded   = false
 let _snapCount = 0  // contador global para triggerar compactação
@@ -37,8 +38,9 @@ function _ensureLoaded() {
       try {
         const snap = JSON.parse(line)
         if (snap.ts < cutoff) continue
-        if (!_mem.has(snap.propertyId)) _mem.set(snap.propertyId, [])
-        _mem.get(snap.propertyId).push(snap)
+        const key = `${snap.propertyId}:${snap.pageFilter || ''}`
+        if (!_mem.has(key)) _mem.set(key, [])
+        _mem.get(key).push(snap)
         _snapCount++
       } catch (_) {}
     }
@@ -48,30 +50,31 @@ function _ensureLoaded() {
 }
 
 /**
- * Grava um snapshot completo da property.
+ * Grava um snapshot completo da property (opcionalmente escoped por pageFilter).
  * @param {string} propertyId
  * @param {number} activeUsers
  * @param {Array<{event:string, count:number}>} topEvents  — array vindo da API
+ * @param {string} [pageFilter]  — fragmento de path (ex: 'g4pass', 'aniversario-2026')
  */
-function recordSnapshot({ propertyId, activeUsers, topEvents }) {
+function recordSnapshot({ propertyId, activeUsers, topEvents, pageFilter = '' }) {
   _ensureLoaded()
 
-  // Converte topEvents em mapa { eventName: count }
   const events = {}
   for (const e of (topEvents || [])) {
     if (e.event) events[e.event] = e.count || 0
   }
 
-  const snap = { ts: Date.now(), propertyId, activeUsers, events }
+  const snap = { ts: Date.now(), propertyId, pageFilter, activeUsers, events }
+  const key  = `${propertyId}:${pageFilter}`
 
-  if (!_mem.has(propertyId)) _mem.set(propertyId, [])
-  const list = _mem.get(propertyId)
+  if (!_mem.has(key)) _mem.set(key, [])
+  const list = _mem.get(key)
   list.push(snap)
   _snapCount++
 
   // Prune memória
   const cutoff = Date.now() - RETAIN_MS
-  _mem.set(propertyId, list.filter(s => s.ts >= cutoff))
+  _mem.set(key, list.filter(s => s.ts >= cutoff))
 
   // Persiste (append)
   try {
@@ -110,9 +113,10 @@ function _compactFile() {
  * Se não houver snapshots suficientes (< 3), retorna array vazio
  * para o caller usar o fallback da API.
  */
-function getTimeline(propertyId, event, windowMs = WINDOW_MS) {
+function getTimeline(propertyId, event, windowMs = WINDOW_MS, pageFilter = '') {
   _ensureLoaded()
-  const list   = _mem.get(propertyId) || []
+  const key  = `${propertyId}:${pageFilter}`
+  const list = _mem.get(key) || []
   const cutoff = Date.now() - windowMs
 
   const byMinute = {}

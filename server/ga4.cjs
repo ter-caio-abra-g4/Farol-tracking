@@ -596,11 +596,16 @@ function getMockExitPages() {
 }
 
 // ─── Realtime Report — últimos 30 minutos ────────────────────────────────────
-// Faz 4 calls paralelas:
-//   1. eventName + unifiedScreenName  → topEvents, topPages
-//   2. sessionDefaultChannelGroup + eventName → byChannel (canal × evento)
-//   3. minutesAgo + eventName          → timeline 0-29 min
-//   4. eventName + página + source + medium + campaign → tabela UTM detalhada
+// Restrições da Realtime API (descobertas empiricamente):
+//   - activeUsers NÃO combina com eventName
+//   - eventCount NÃO combina com eventName + unifiedScreenName juntos
+//   - Dimensões disponíveis: eventName, unifiedScreenName, minutesAgo, country, city, deviceCategory
+//   - NÃO existem: sessionSource/Medium/Campaign, defaultChannelGroup, firstUserX
+// Solução: 4 calls independentes + merge no processamento
+//   1. eventName alone + eventCount       → contagem por evento
+//   2. unifiedScreenName + eventCount + activeUsers → topPages + users por página
+//   3. minutesAgo + eventName + eventCount → timeline
+//   4. deviceCategory + eventName + eventCount → breakdown por dispositivo
 async function getRealtimeReport(propertyId, eventFilter = null, channelFilter = null, pageFilter = null) {
   const auth = await getAuthClient()
   if (!auth) return { mock: true, ...getMockRealtime(eventFilter, pageFilter) }
@@ -609,129 +614,117 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
     const analyticsData = google.analyticsdata({ version: 'v1beta', auth })
     const prop = `properties/${propertyId}`
 
-    // Monta filtro de dimensão reutilizável
-    function makeFilter(field, value) {
-      return { filter: { fieldName: field, stringFilter: { matchType: 'EXACT', value } } }
+    function makeFilter(field, value, matchType = 'EXACT') {
+      return { filter: { fieldName: field, stringFilter: { matchType, value } } }
     }
     function andFilter(...exprs) {
       return exprs.length === 1 ? exprs[0] : { andGroup: { expressions: exprs } }
     }
-
-    // Filtros para cada call
-    const eventDimFilter   = eventFilter   ? makeFilter('eventName', eventFilter)                    : null
-    const channelDimFilter = channelFilter ? makeFilter('sessionDefaultChannelGroup', channelFilter) : null
-    const pageDimFilter    = pageFilter    ? {
-      filter: { fieldName: 'unifiedScreenName', stringFilter: { matchType: 'CONTAINS', value: pageFilter } }
-    } : null
-
     function buildFilter(...parts) {
       const active = parts.filter(Boolean)
       if (!active.length) return undefined
       return active.length === 1 ? active[0] : andFilter(...active)
     }
 
-    const [evRes, channelRes, minuteRes, utmRes] = await Promise.all([
-      // Call 1: eventName × página (pageFilter aplicado)
+    const eventF  = eventFilter   ? makeFilter('eventName',      eventFilter,  'EXACT')    : null
+    const deviceF = channelFilter ? makeFilter('deviceCategory', channelFilter, 'EXACT')   : null
+    // pageF NÃO pode ser usado junto com eventName, minutesAgo ou deviceCategory —
+    // limitação da Realtime API. Usado apenas nas calls que aceitam (Call 2 e activeUsers).
+    const pageF   = pageFilter    ? makeFilter('unifiedScreenName', pageFilter, 'CONTAINS') : null
+
+    // Calls 1/3/4: sem pageF (incompatível com eventName/minutesAgo/deviceCategory na Realtime API)
+    // Call 2 e activeUsers: usam pageF pois só têm unifiedScreenName como dimensão
+    const [evCountRes, pageRes, minuteRes, deviceRes] = await Promise.all([
+      // Call 1: eventName + eventCount — sem pageF (incompatível)
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
-          dimensions: [{ name: 'eventName' }, { name: 'unifiedScreenName' }],
-          metrics:    [{ name: 'eventCount' }, { name: 'activeUsers' }],
-          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter, pageDimFilter),
-          limit: 100,
+          dimensions: [{ name: 'eventName' }],
+          metrics:    [{ name: 'eventCount' }],
+          dimensionFilter: buildFilter(eventF, deviceF),
+          limit: 50,
         },
       }),
 
-      // Call 2: canal × evento (quadro completo — sem pageFilter/eventFilter)
+      // Call 2: unifiedScreenName + eventCount + activeUsers — aceita pageF
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
-          dimensions: [{ name: 'sessionDefaultChannelGroup' }, { name: 'eventName' }],
+          dimensions: [{ name: 'unifiedScreenName' }],
           metrics:    [{ name: 'eventCount' }, { name: 'activeUsers' }],
-          dimensionFilter: channelFilter ? makeFilter('sessionDefaultChannelGroup', channelFilter) : undefined,
-          limit: 200,
+          dimensionFilter: buildFilter(deviceF, pageF),
+          orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
+          limit: 20,
         },
       }),
 
-      // Call 3: minutesAgo × eventName — timeline dos últimos 30 min (pageFilter aplicado)
+      // Call 3: minutesAgo × eventName + eventCount — sem pageF (incompatível)
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
           dimensions: [{ name: 'minutesAgo' }, { name: 'eventName' }],
           metrics:    [{ name: 'eventCount' }],
-          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter, pageDimFilter),
+          dimensionFilter: buildFilter(eventF, deviceF),
           limit: 200,
         },
       }),
 
-      // Call 4: tabela UTM — evento × página × source × medium × campaign (pageFilter aplicado)
+      // Call 4: deviceCategory × eventName + eventCount — sem pageF (incompatível)
       analyticsData.properties.runRealtimeReport({
         property: prop,
         requestBody: {
-          dimensions: [
-            { name: 'eventName' },
-            { name: 'unifiedScreenName' },
-            { name: 'sessionSource' },
-            { name: 'sessionMedium' },
-            { name: 'sessionCampaignName' },
-          ],
-          metrics: [{ name: 'eventCount' }, { name: 'activeUsers' }],
-          dimensionFilter: buildFilter(eventDimFilter, channelDimFilter, pageDimFilter),
-          orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
-          limit: 200,
+          dimensions: [{ name: 'deviceCategory' }, { name: 'eventName' }],
+          metrics:    [{ name: 'eventCount' }],
+          dimensionFilter: buildFilter(deviceF),
+          limit: 100,
         },
       }),
     ])
 
-    // ── Processa Call 1 ──
-    const rows = (evRes.data.rows || []).map(row => ({
-      event: row.dimensionValues[0].value,
-      page:  row.dimensionValues[1].value,
-      count: parseInt(row.metricValues[0].value, 10),
-      users: parseInt(row.metricValues[1].value, 10),
-    }))
-
-    const totalEvents = rows.reduce((s, r) => s + r.count, 0)
-    const activeUsers = rows.reduce((s, r) => s + r.users, 0)
-
+    // ── Processa Call 1 — top eventos ──
     const byEvent = {}
-    for (const r of rows) {
-      if (!byEvent[r.event]) byEvent[r.event] = { event: r.event, count: 0, users: 0 }
-      byEvent[r.event].count += r.count
-      byEvent[r.event].users += r.users
+    for (const row of (evCountRes.data.rows || [])) {
+      const ev    = row.dimensionValues[0].value
+      const count = parseInt(row.metricValues[0].value, 10)
+      if (!byEvent[ev]) byEvent[ev] = { event: ev, count: 0, users: 0 }
+      byEvent[ev].count += count
     }
-    const topEvents = Object.values(byEvent).sort((a, b) => b.count - a.count).slice(0, 15)
 
+    // ── Processa Call 2 — páginas + activeUsers totais ──
+    let activeUsers = 0
     const byPage = {}
-    for (const r of rows) {
-      if (r.event !== 'page_view') continue
-      const page = r.page || '(unknown)'
+    const rows = []
+    for (const row of (pageRes.data.rows || [])) {
+      const page  = row.dimensionValues[0].value
+      const count = parseInt(row.metricValues[0].value, 10)
+      const users = parseInt(row.metricValues[1].value, 10)
+      activeUsers = Math.max(activeUsers, users)
       if (!byPage[page]) byPage[page] = { page, views: 0, users: 0 }
-      byPage[page].views += r.count
-      byPage[page].users += r.users
+      byPage[page].views += count
+      byPage[page].users  = Math.max(byPage[page].users, users)
+      rows.push({ event: 'page_view', page, count, users })
     }
-    const topPages = Object.values(byPage).sort((a, b) => b.views - a.views).slice(0, 8)
 
-    // ── Processa Call 2 — canal × evento ──
-    // Estrutura: { [canal]: { channel, users, events: { [eventName]: count } } }
-    const byChannel = {}
-    for (const row of (channelRes.data.rows || [])) {
-      const channel = row.dimensionValues[0].value || '(unknown)'
-      const event   = row.dimensionValues[1].value
-      const count   = parseInt(row.metricValues[0].value, 10)
-      const users   = parseInt(row.metricValues[1].value, 10)
-      if (!byChannel[channel]) byChannel[channel] = { channel, users: 0, events: {} }
-      byChannel[channel].users += users
-      byChannel[channel].events[event] = (byChannel[channel].events[event] || 0) + count
+    // activeUsers total — sem dimensões; usa pageF quando disponível (aceito pela API)
+    const activeUsersRes = await analyticsData.properties.runRealtimeReport({
+      property: prop,
+      requestBody: {
+        dimensions: [],
+        metrics: [{ name: 'activeUsers' }],
+        ...(pageF ? { dimensionFilter: pageF } : {}),
+      }
+    })
+    activeUsers = parseInt(activeUsersRes.data.rows?.[0]?.metricValues?.[0]?.value ?? activeUsers, 10)
+
+    for (const [ev, obj] of Object.entries(byEvent)) {
+      obj.users = ev === 'page_view' ? Object.values(byPage).reduce((s, p) => s + p.users, 0) : 0
     }
-    const channels = Object.values(byChannel)
-      .sort((a, b) => (b.events['generate_lead'] || 0) - (a.events['generate_lead'] || 0))
 
-    // Lista única de canais ativos (para dropdown no front)
-    const channelList = channels.map(c => c.channel)
+    const totalEvents = Object.values(byEvent).reduce((s, e) => s + e.count, 0)
+    const topEvents   = Object.values(byEvent).sort((a, b) => b.count - a.count).slice(0, 15)
+    const topPages    = Object.values(byPage).sort((a, b) => b.views - a.views).slice(0, 8)
 
     // ── Processa Call 3 — minutesAgo ──
-    // Converte minutesAgo em label de hora real (agora - N min)
     const byMinute = {}
     for (const row of (minuteRes.data.rows || [])) {
       const minAgo  = parseInt(row.dimensionValues[0].value, 10)
@@ -743,31 +736,41 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
       byMinute[label].total += count
       byMinute[label][event] = (byMinute[label][event] || 0) + count
     }
-    const timeline = Object.values(byMinute).filter(p => p.minAgo <= 14).sort((a, b) => b.minAgo - a.minAgo)
+    const timeline = Object.values(byMinute).sort((a, b) => b.minAgo - a.minAgo)
 
-    // ── Processa Call 4 — tabela UTM ──
-    const utmRows = (utmRes.data.rows || []).map(row => ({
-      event:    row.dimensionValues[0].value,
-      page:     row.dimensionValues[1].value,
-      source:   row.dimensionValues[2].value === '(not set)' ? '' : row.dimensionValues[2].value,
-      medium:   row.dimensionValues[3].value === '(not set)' ? '' : row.dimensionValues[3].value,
-      campaign: row.dimensionValues[4].value === '(not set)' ? '' : row.dimensionValues[4].value,
-      count:    parseInt(row.metricValues[0].value, 10),
-      users:    parseInt(row.metricValues[1].value, 10),
-    }))
+    // ── Processa Call 4 — dispositivo × evento ──
+    const byDevice = {}
+    for (const row of (deviceRes.data.rows || [])) {
+      const device = row.dimensionValues[0].value || 'unknown'
+      const event  = row.dimensionValues[1].value
+      const count  = parseInt(row.metricValues[0].value, 10)
+      if (!byDevice[device]) byDevice[device] = { channel: device, users: 0, events: {} }
+      byDevice[device].events[event] = (byDevice[device].events[event] || 0) + count
+    }
+    const channels    = Object.values(byDevice).sort((a, b) => (b.events['page_view']||0) - (a.events['page_view']||0))
+    const channelList = channels.map(c => c.channel)
 
-    // Listas únicas para dropdowns de filtro no front
-    const utmSources   = [...new Set(utmRows.map(r => r.source).filter(Boolean))].sort()
-    const utmMediums   = [...new Set(utmRows.map(r => r.medium).filter(Boolean))].sort()
-    const utmCampaigns = [...new Set(utmRows.map(r => r.campaign).filter(Boolean))].sort()
+    // UTM não disponível na Realtime API
+    const utmRows      = []
+    const utmSources   = []
+    const utmMediums   = []
+    const utmCampaigns = []
 
-    // Grava snapshot completo (todos os eventos) para histórico nativo
-    recordSnapshot({ propertyId, activeUsers, topEvents })
+    // Grava snapshot escopado por pageFilter — histórico separado por LP/Checkout/etc
+    recordSnapshot({ propertyId, activeUsers, topEvents, pageFilter: pageFilter || '' })
 
     // Usa timeline do histórico local se tiver >= 3 pontos (mais precisa que minutesAgo)
     const ev = eventFilter || 'page_view'
-    const localTimeline = getTimeline(propertyId, ev)
-    const finalTimeline = localTimeline.length >= 3 ? localTimeline : timeline
+    const localTimeline = getTimeline(propertyId, ev, undefined, pageFilter || '')
+    const useLocal = localTimeline.length >= 3
+    const finalTimeline = useLocal ? localTimeline : timeline
+
+    // Janela real em minutos — usa o snap mais antigo da timeline local
+    let timelineWindowMin = 30
+    if (useLocal && localTimeline.length > 0) {
+      const oldest = localTimeline[localTimeline.length - 1]  // sorted desc por minAgo
+      timelineWindowMin = Math.max(1, oldest.minAgo || 1)
+    }
 
     return {
       mock: false,
@@ -780,11 +783,16 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
       channels,
       channelList,
       timeline: finalTimeline,
+      timelineSource: useLocal ? 'local' : 'api',
+      timelineWindowMin,
       utmRows,
       utmSources,
       utmMediums,
       utmCampaigns,
       pageFilter,
+      // Quando pageFilter ativo: activeUsers e topPages estão filtrados pela página
+      // topEvents e timeline mostram o site inteiro (limitação da Realtime API)
+      pageFilteredFields: pageFilter ? ['activeUsers', 'topPages'] : [],
       rows,
     }
   } catch (err) {
