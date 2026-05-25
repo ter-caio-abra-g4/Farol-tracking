@@ -16,7 +16,8 @@ import {
 import { useTracking } from '../context/TrackingContext'
 import SelectUI from '../components/ui/Select'
 
-const POLL_MS = 30_000
+const POLL_MS = 60_000
+const QUOTA_BACKOFF_MS = 5 * 60 * 1000 // 5 min de pausa quando quota esgotada
 
 const EVENT_SHORTCUTS = ['generate_lead', 'page_view', 'begin_checkout', 'purchase', 'form_start', 'form_submit', 'qualify_lead']
 
@@ -170,16 +171,21 @@ function TabNav({ active, onChange }) {
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
-function StatusBadge({ loading, mock, error }) {
-  const isFatal = !mock && error
-  const color = isFatal ? '#EF4444' : mock ? '#F59E0B' : '#22C55E'
-  const icon  = isFatal ? <AlertTriangle size={12} /> : mock ? <Clock size={12} /> : <CheckCircle2 size={12} />
+function StatusBadge({ loading, mock, error, quotaBackoff, countdown }) {
+  const isQuota = quotaBackoff && Date.now() < quotaBackoff
+  const isFatal = !mock && error && !isQuota
+  const color = isQuota ? '#F59E0B' : isFatal ? '#EF4444' : mock ? '#F59E0B' : '#22C55E'
+  const icon  = isQuota ? <Clock size={12} /> : isFatal ? <AlertTriangle size={12} /> : mock ? <Clock size={12} /> : <CheckCircle2 size={12} />
+  const label = isQuota ? 'Quota GA4' : 'GA4 Realtime'
+  const sub   = isQuota
+    ? `pausa ${Math.ceil(countdown / 60)}min`
+    : '~1 min'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: `${color}12`, border: `1px solid ${color}40`, borderRadius: 6, padding: '4px 10px' }}>
       <span style={{ color }}>{icon}</span>
-      <span style={{ fontSize: 11, fontWeight: 700, color }}>GA4 Realtime</span>
-      <span style={{ fontSize: 10, color: '#6B7280' }}>~1 min</span>
-      {loading && <RefreshCw size={10} color="#6B7280" style={{ animation: 'spin 1s linear infinite' }} />}
+      <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
+      <span style={{ fontSize: 10, color: isQuota ? color : '#6B7280' }}>{sub}</span>
+      {loading && !isQuota && <RefreshCw size={10} color="#6B7280" style={{ animation: 'spin 1s linear infinite' }} />}
     </div>
   )
 }
@@ -271,20 +277,42 @@ function KpiCard({ label, value, sub, color = '#6366F1', sparkData, pulse, delta
 
 // ── Hook de dados de painel ───────────────────────────────────────────────────
 function usePanelData(propertyId, eventFilter, channelFilter, pageFilter, isRunning) {
-  const [data, setData]           = useState(null)
-  const [loading, setLoading]     = useState(false)
-  const historyRef                = useRef([])
-  const [history, setHistory]     = useState([])
-  const prevCountRef              = useRef(null)
-  const [countdown, setCountdown] = useState(POLL_MS / 1000)
+  const [data, setData]               = useState(null)
+  const [loading, setLoading]         = useState(false)
+  const historyRef                    = useRef([])
+  const [history, setHistory]         = useState([])
+  const prevCountRef                  = useRef(null)
+  const [countdown, setCountdown]     = useState(POLL_MS / 1000)
+  const [quotaBackoff, setQuotaBackoff] = useState(null) // timestamp até quando está em backoff
+  const quotaBackoffRef               = useRef(null)
+
+  const isQuotaError = (result) =>
+    result?.mock && result?.error && /exhausted|quota/i.test(result.error)
 
   const fetchData = useCallback(async () => {
     if (!propertyId) return
+    // Não busca durante backoff
+    if (quotaBackoffRef.current && Date.now() < quotaBackoffRef.current) return
     setLoading(true)
     const timeLabel = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     const result = await api.liveGa4(propertyId, eventFilter, channelFilter, pageFilter)
-    setData(result)
     setLoading(false)
+
+    if (isQuotaError(result)) {
+      const until = Date.now() + QUOTA_BACKOFF_MS
+      quotaBackoffRef.current = until
+      setQuotaBackoff(until)
+      setCountdown(QUOTA_BACKOFF_MS / 1000)
+      return
+    }
+
+    // Quota voltou — limpa backoff
+    if (quotaBackoffRef.current) {
+      quotaBackoffRef.current = null
+      setQuotaBackoff(null)
+    }
+
+    setData(result)
     const evRow  = (result?.topEvents || []).find(e => e.event === eventFilter)
     const count  = evRow?.count ?? 0
     const prev   = prevCountRef.current
@@ -306,15 +334,16 @@ function usePanelData(propertyId, eventFilter, channelFilter, pageFilter, isRunn
 
   useEffect(() => {
     if (!isRunning) return
-    const iv = setInterval(fetchData, POLL_MS)
+    const pollMs = quotaBackoff ? QUOTA_BACKOFF_MS : POLL_MS
+    const iv = setInterval(fetchData, pollMs)
     return () => clearInterval(iv)
-  }, [fetchData, isRunning])
+  }, [fetchData, isRunning, quotaBackoff])
 
   useEffect(() => {
     if (!isRunning) return
     const tick = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000)
     return () => clearInterval(tick)
-  }, [isRunning, data])
+  }, [isRunning, data, quotaBackoff])
 
   const activeUsers = data?.activeUsers ?? 0
   const evCount     = (data?.topEvents || []).find(e => e.event === eventFilter)?.count ?? 0
@@ -322,7 +351,7 @@ function usePanelData(propertyId, eventFilter, channelFilter, pageFilter, isRunn
   const prevDelta   = history.length >= 2 ? history[history.length - 2]?.delta : null
 
   return {
-    data, loading, history, countdown, fetchData,
+    data, loading, history, countdown, fetchData, quotaBackoff,
     activeUsers, evCount,
     deltaActive: fmtDelta(activeUsers, prevActive),
     deltaEv:     fmtDelta(history[history.length - 1]?.delta ?? 0, prevDelta),
@@ -477,13 +506,15 @@ const MonitorPanel = memo(function MonitorPanel({
   onChannelFilter, onEventFilter, externalData, excludeTerm,
 }) {
   const internal = usePanelData(externalData ? null : propertyId, eventFilter, channelFilter, pageFilter, isRunning)
-  const data       = externalData?.data       ?? internal.data
-  const loading    = externalData?.loading    ?? internal.loading
-  const history    = externalData?.history    ?? internal.history
-  const activeUsers= externalData?.activeUsers?? internal.activeUsers
-  const evCount    = externalData?.evCount    ?? internal.evCount
-  const deltaActive= externalData?.deltaActive?? internal.deltaActive
-  const deltaEv    = externalData?.deltaEv    ?? internal.deltaEv
+  const data        = externalData?.data        ?? internal.data
+  const loading     = externalData?.loading     ?? internal.loading
+  const history     = externalData?.history     ?? internal.history
+  const activeUsers = externalData?.activeUsers ?? internal.activeUsers
+  const evCount     = externalData?.evCount     ?? internal.evCount
+  const deltaActive = externalData?.deltaActive ?? internal.deltaActive
+  const deltaEv     = externalData?.deltaEv     ?? internal.deltaEv
+  const quotaBackoff= externalData?.quotaBackoff?? internal.quotaBackoff
+  const countdown   = externalData?.countdown   ?? internal.countdown
 
   // Aplica exclusão local nos dados já recebidos da API
   const excl = excludeTerm?.toLowerCase().trim() || ''
@@ -528,7 +559,7 @@ const MonitorPanel = memo(function MonitorPanel({
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <StatusBadge loading={loading} mock={isMock} error={data?.error} />
+            <StatusBadge loading={loading} mock={isMock} error={data?.error} quotaBackoff={quotaBackoff} countdown={countdown} />
           </div>
         </div>
       )}
@@ -1410,7 +1441,7 @@ export default function LiveGA4() {
   const [excludeInput, setExcludeInput] = useState('')
 
   const panelA = usePanelData(propertyId, eventFilterA, channelFilterA, pageFilterA, isRunning)
-  const { data: rawDataA, loading: loadingA, countdown } = panelA
+  const { data: rawDataA, loading: loadingA, countdown, quotaBackoff: quotaBackoffA } = panelA
 
   const [dataA, setDataA] = useState(null)
   useEffect(() => { if (rawDataA) setDataA(rawDataA) }, [rawDataA])
@@ -1421,7 +1452,12 @@ export default function LiveGA4() {
     ? dataA.topEvents.map(e => e.event)
     : EVENT_SHORTCUTS
 
-  const applyPageA = () => { setPageFilterA(inputPageA.trim()); setShowSugA(false) }
+  const applyPageA = () => {
+    const f = extractPageFilter(inputPageA)
+    if (f) setInputPageA(f)
+    setPageFilterA(f || inputPageA.trim())
+    setShowSugA(false)
+  }
   const applyPageB = () => { setPageFilterB(inputPageB.trim()); setShowSugB(false) }
 
   return (
@@ -1434,11 +1470,11 @@ export default function LiveGA4() {
 
       <Header
         title="GA4 · Ao Vivo"
-        subtitle={`Property ${propertyId} · Realtime API · últimos 30 min`}
+        subtitle={`Property ${propertyId} · Realtime API · polling 60s`}
         showGA4
         action={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <StatusBadge loading={loadingA} mock={dataA?.mock} error={dataA?.error} />
+            <StatusBadge loading={loadingA} mock={dataA?.mock} error={dataA?.error} quotaBackoff={quotaBackoffA} countdown={countdown} />
             <div style={{ fontSize: 11, color: isRunning ? '#22C55E' : '#6B7280', display: 'flex', alignItems: 'center', gap: 5 }}>
               <Radio size={11} />
               {isRunning ? `${countdown}s` : 'Pausado'}
@@ -1478,7 +1514,7 @@ export default function LiveGA4() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
               <MapPin size={12} color="#8A9BAA" />
               <span style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 700 }}>Localização:</span>
-              <input value={inputPageA} onChange={e => { setInputPageA(e.target.value); setShowSugA(true) }} onKeyDown={e => { if (e.key === 'Enter') applyPageA() }} onBlur={() => setTimeout(() => setShowSugA(false), 150)} placeholder="ex: /inscricao, summit"
+              <input value={inputPageA} onChange={e => { setInputPageA(e.target.value); setShowSugA(true) }} onKeyDown={e => { if (e.key === 'Enter') applyPageA() }} onBlur={() => setTimeout(() => setShowSugA(false), 150)} placeholder="ex: /inscricao ou https://site.com/pagina"
                 style={{ background: '#152840', border: `1px solid ${pageFilterA ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.3)'}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, color: '#F5F4F3', fontFamily: 'monospace', width: 190, outline: 'none' }} />
               <button onClick={applyPageA} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Manrope, sans-serif', background: pageFilterA ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.08)', border: `1px solid ${pageFilterA ? 'rgba(99,102,241,0.6)' : 'rgba(99,102,241,0.25)'}`, color: pageFilterA ? '#A5B4FC' : '#6B7280' }}>Filtrar</button>
               {pageFilterA && <button onClick={() => { setPageFilterA(''); setInputPageA('') }} style={{ padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', background: 'none', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>✕</button>}
@@ -1500,7 +1536,7 @@ export default function LiveGA4() {
             {pageFilterA && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: 5, padding: '3px 8px' }}>
                 <MapPin size={9} color="#6366F1" />
-                <span style={{ fontSize: 10, color: '#A5B4FC' }}>Filtrando páginas que contêm "{pageFilterA}"</span>
+                <span style={{ fontSize: 10, color: '#A5B4FC' }}>Filtrando: <strong style={{ fontFamily: 'monospace' }}>{pageFilterA}</strong></span>
               </div>
             )}
 
