@@ -742,7 +742,7 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
       byMinute[label].total += count
       byMinute[label][event] = (byMinute[label][event] || 0) + count
     }
-    const timeline = Object.values(byMinute).sort((a, b) => b.minAgo - a.minAgo)
+    const timeline = Object.values(byMinute).filter(p => p.minAgo <= 14).sort((a, b) => b.minAgo - a.minAgo)
 
     // ── Processa Call 4 — tabela UTM ──
     const utmRows = (utmRes.data.rows || []).map(row => ({
@@ -786,8 +786,8 @@ async function getRealtimeReport(propertyId, eventFilter = null, channelFilter =
 
 function getMockRealtime(eventFilter, pageFilter = null) {
   const ev = eventFilter || 'generate_lead'
-  // Timeline: simula 30 min de atividade
-  const timeline = Array.from({ length: 30 }, (_, i) => {
+  // Timeline: simula 15 min de atividade
+  const timeline = Array.from({ length: 15 }, (_, i) => {
     const d = new Date(Date.now() - i * 60 * 1000)
     const label = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     const base = Math.max(0, Math.round(8 - i * 0.2 + Math.sin(i * 0.5) * 3))

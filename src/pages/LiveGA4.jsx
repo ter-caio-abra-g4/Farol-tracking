@@ -226,7 +226,7 @@ const UtmTable = memo(function UtmTable({ utmRows, utmSources, utmMediums, utmCa
   )
   return (
     <Card>
-      <CardHeader title="UTM · Origem × Evento" subtitle={`${filtered.length} linhas · últimos 30 min${utmSrcF || utmMedF || utmCmpF ? ' · filtros ativos' : ''}`} />
+      <CardHeader title="UTM · Origem × Evento" subtitle={`${filtered.length} linhas · últimos 15 min${utmSrcF || utmMedF || utmCmpF ? ' · filtros ativos' : ''}`} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '7px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <Filter size={10} color="#6B7280" />
         {[
@@ -259,7 +259,7 @@ const UtmTable = memo(function UtmTable({ utmRows, utmSources, utmMediums, utmCa
         </div>
         {filtered.length === 0 ? (
           <div style={{ padding: '20px', textAlign: 'center', color: '#6B7280', fontSize: 11 }}>
-            {(utmSrcF || utmMedF || utmCmpF) ? 'Sem resultados para este filtro' : 'Sem dados UTM nos últimos 30 min'}
+            {(utmSrcF || utmMedF || utmCmpF) ? 'Sem resultados para este filtro' : 'Sem dados UTM nos últimos 15 min'}
           </div>
         ) : filtered.map((r, i) => {
           const color  = evColor(r.event)
@@ -306,7 +306,7 @@ const TimelineCard = memo(function TimelineCard({ timelineData, eventFilter, cha
 
   return (
     <Card>
-      <CardHeader title="Timeline · últimos 30 min" subtitle={subtitle} action={<div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#6B7280' }}><Activity size={10} />{fmtTime(capturedAt)}</div>} />
+      <CardHeader title="Timeline · últimos 15 min" subtitle={subtitle} action={<div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#6B7280' }}><Activity size={10} />{fmtTime(capturedAt)}</div>} />
       <CardBody>
         {timelineData.length < 2 ? (
           <div style={{ height: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: 12 }}>Aguardando dados…</div>
@@ -391,7 +391,7 @@ const MonitorPanel = memo(function MonitorPanel({
 
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${compareMode ? 3 : 4}, 1fr)`, gap: 10, alignItems: 'stretch' }}>
         <KpiCard label="Usuários ativos agora" value={fmtNum(activeUsers)} sub={fmtTime(data?.capturedAt)} color="#6366F1" sparkData={history.slice(-12).map(p => ({ v: p.activeUsers }))} pulse={!data?.mock} delta={deltaActive} />
-        <KpiCard label={`"${eventFilter}" · 30 min`} value={fmtNum(evCount)} sub={`delta: +${fmtNum(history[history.length - 1]?.delta ?? 0)}`} color={evColor(eventFilter)} sparkData={history.slice(-12).map(p => ({ v: p.delta }))} pulse={!data?.mock} delta={deltaEv} />
+        <KpiCard label={`"${eventFilter}" · 15 min`} value={fmtNum(evCount)} sub={`delta: +${fmtNum(history[history.length - 1]?.delta ?? 0)}`} color={evColor(eventFilter)} sparkData={history.slice(-12).map(p => ({ v: p.delta }))} pulse={!data?.mock} delta={deltaEv} />
         <KpiCard label="Total de eventos" value={fmtNum(data?.totalEvents ?? 0)} sub={`${(data?.topEvents || []).length} tipos · ${(data?.channels || []).length} canais`} color="#A855F7" />
         {!compareMode && (
           <KpiCard
@@ -424,7 +424,7 @@ function ChannelTable({ channels, channelFilter, onChannelFilter }) {
   const rows = (channels||[]).map(ch => ({ channel: ch.channel, users: ch.users, leads: ch.events['generate_lead']||0, qual: ch.events['qualify_lead']||0, mql: ch.events['MQL']||0, checkout: ch.events['begin_checkout']||0, purchase: ch.events['purchase']||0 }))
   return (
     <Card>
-      <CardHeader title="Canais × Conversões · últimos 30 min" subtitle="Usuários ativos e eventos de conversão por canal" />
+      <CardHeader title="Canais × Conversões · últimos 15 min" subtitle="Usuários ativos e eventos de conversão por canal" />
       <CardBody style={{ padding: 0 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '160px 60px 70px 60px 50px 70px 60px', gap: 6, padding: '6px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {[{ l:'Canal',c:'#6B7280' },{l:'Usuários',c:'#6366F1'},{l:'Lead',c:'#00BFD3'},{l:'Qualif.',c:'#34D399'},{l:'MQL',c:'#C9A962'},{l:'Checkout',c:'#F59E0B'},{l:'Purchase',c:'#22C55E'}].map((h,i)=>(
@@ -515,7 +515,7 @@ function TopPagesCard({ data, channelFilter }) {
   const MEDALS = ['#F59E0B','#9CA3AF','#B45309','#6B7280','#6B7280','#6B7280','#6B7280','#6B7280']
   return (
     <Card>
-      <CardHeader title="Páginas mais acessadas agora" subtitle={`${channelFilter?`canal: ${channelFilter} · `:''}últimos 30 min`} />
+      <CardHeader title="Páginas mais acessadas agora" subtitle={`${channelFilter?`canal: ${channelFilter} · `:''}últimos 15 min`} />
       <CardBody>
         {!(data?.topPages?.length>0) ? (
           <div style={{ padding:'40px 0',textAlign:'center',color:'#6B7280',fontSize:12 }}>Sem dados de páginas</div>
@@ -748,7 +748,7 @@ function TabelaView({ propertyId, isRunning, sharedData }) {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {sorted.length === 0 ? (
               <div style={{ padding: '48px 0', textAlign: 'center', color: '#4E6070', fontSize: 12 }}>
-                {loading ? 'Carregando…' : hasFilters ? 'Nenhuma linha para estes filtros' : 'Sem dados nos últimos 30 min'}
+                {loading ? 'Carregando…' : hasFilters ? 'Nenhuma linha para estes filtros' : 'Sem dados nos últimos 15 min'}
               </div>
             ) : sorted.map((r, i) => {
               const color  = evColor(r.event)
@@ -934,7 +934,7 @@ export default function LiveGA4() {
 
       <Header
         title="GA4 · Ao Vivo"
-        subtitle={`Property ${propertyId} · Realtime API · últimos 30 min`}
+        subtitle={`Property ${propertyId} · Realtime API · últimos 15 min`}
         showGA4
         action={
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
