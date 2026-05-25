@@ -1,3 +1,4 @@
+import { Component } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Titlebar from './components/layout/Titlebar'
 import Sidebar from './components/layout/Sidebar'
@@ -22,56 +23,54 @@ import ClosingCohortPage from './pages/ClosingCohort'
 import EventsExplorerPage from './pages/EventsExplorer'
 import { TrackingProvider } from './context/TrackingContext'
 
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(error) { return { error } }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, color: '#EF4444', fontFamily: 'monospace', fontSize: 13, background: '#050E17', height: '100%', overflow: 'auto' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Erro de render:</div>
+          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{String(this.state.error)}{'\n\n'}{this.state.error?.stack}</pre>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App() {
-  // Vai direto pro app — setup foi feito na instalação (credenciais embutidas)
   return (
     <BrowserRouter>
       <TrackingProvider>
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100vh',
-            overflow: 'hidden',
-            background: '#050E17',
-          }}
-        >
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', background: '#050E17' }}>
           <Titlebar />
-
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
             <Sidebar />
-
-            <main
-              style={{
-                flex: 1,
-                minWidth: 0,       // evita que flex item estoure o container
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-                background: '#050E17',
-              }}
-            >
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/explorer" element={<Explorer />} />
-                <Route path="/gtm" element={<GTMPage />} />
-                <Route path="/ga4" element={<GA4Page />} />
-                <Route path="/meta" element={<MetaPage />} />
-                <Route path="/databricks" element={<DatabricksPage />} />
-                <Route path="/funil" element={<FunilPage />} />
-                <Route path="/comparacao" element={<ComparacaoPage />} />
-                <Route path="/analytics" element={<AnalyticsPage />} />
-                <Route path="/seo" element={<SEOPage />} />
-                <Route path="/paid" element={<PaidPage />} />
-                <Route path="/live"             element={<LiveMonitorPage />} />
-                <Route path="/live/ga4"        element={<LiveGA4Page />} />
-                <Route path="/live/meta"       element={<LiveMetaPage />} />
-                <Route path="/live/databricks" element={<LiveDatabricksPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/anomaly"         element={<AnomalyDetectionPage />} />
-                <Route path="/cohort"          element={<ClosingCohortPage />} />
-                <Route path="/events-explorer" element={<EventsExplorerPage />} />
-              </Routes>
+            <main style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#050E17' }}>
+              <ErrorBoundary>
+                <Routes>
+                  <Route path="/"                element={<Dashboard />} />
+                  <Route path="/explorer"        element={<Explorer />} />
+                  <Route path="/gtm"             element={<GTMPage />} />
+                  <Route path="/ga4"             element={<GA4Page />} />
+                  <Route path="/meta"            element={<MetaPage />} />
+                  <Route path="/databricks"      element={<DatabricksPage />} />
+                  <Route path="/funil"           element={<FunilPage />} />
+                  <Route path="/comparacao"      element={<ComparacaoPage />} />
+                  <Route path="/analytics"       element={<AnalyticsPage />} />
+                  <Route path="/seo"             element={<SEOPage />} />
+                  <Route path="/paid"            element={<PaidPage />} />
+                  <Route path="/live"            element={<LiveMonitorPage />} />
+                  <Route path="/live/ga4"        element={<LiveGA4Page />} />
+                  <Route path="/live/meta"       element={<LiveMetaPage />} />
+                  <Route path="/live/databricks" element={<LiveDatabricksPage />} />
+                  <Route path="/settings"        element={<SettingsPage />} />
+                  <Route path="/anomaly"         element={<AnomalyDetectionPage />} />
+                  <Route path="/cohort"          element={<ClosingCohortPage />} />
+                  <Route path="/events-explorer" element={<EventsExplorerPage />} />
+                </Routes>
+              </ErrorBoundary>
             </main>
           </div>
         </div>
