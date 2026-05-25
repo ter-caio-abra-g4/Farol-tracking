@@ -8,12 +8,10 @@ export default function Titlebar() {
 
   useEffect(() => {
     if (!isElectron) return
-    window.rais.onWindowState((state) => {
-      setIsMaximized(state === 'maximized')
-    })
-    window.rais.onUpdateStatus((info) => {
-      setUpdateInfo(info)
-    })
+    // Lê estado inicial da janela (app abre maximizado)
+    window.rais.getWindowState().then((state) => setIsMaximized(state === 'maximized'))
+    window.rais.onWindowState((state) => setIsMaximized(state === 'maximized'))
+    window.rais.onUpdateStatus((info) => setUpdateInfo(info))
   }, [isElectron])
 
   if (!isElectron) return null
@@ -45,9 +43,9 @@ export default function Titlebar() {
   return (
     <div
       style={{
-        height: 36,
-        background: '#001F35',
-        borderBottom: '1px solid rgba(185,145,91,0.15)',
+        height: 34,
+        background: '#040C14',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',

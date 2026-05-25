@@ -73,6 +73,7 @@ export const api = {
   ga4InternalRef: (propertyId, days = 28) => get(`/api/ga4/internal-ref/${propertyId}?days=${days}`, { mock: true, rows: [] }),
   ga4SourceMedium: (propertyId, days = 28) => get(`/api/ga4/source-medium/${propertyId}?days=${days}`, { mock: true, rows: [] }),
   ga4ExitPages: (propertyId, days = 28) => get(`/api/ga4/exit-pages/${propertyId}?days=${days}`, { mock: true, pages: [] }),
+  ga4EventsByPage: (propertyId, days = 28) => get(`/api/ga4/events-by-page/${propertyId}?days=${days}`, { mock: true, rows: [] }),
 
   // Databricks
   databricksSetConfig: (cfg) => post('/api/databricks/config', cfg),
@@ -126,8 +127,8 @@ export const api = {
   metaCreatives: (days = 30) => get(`/api/meta/creatives?days=${days}`, { mock: true, ads: [] }),
 
   // Live Monitor
-  liveGa4:        (propertyId, event = '') => get(`/api/live/ga4?propertyId=${propertyId}${event ? `&event=${encodeURIComponent(event)}` : ''}`, { mock: true }),
-  liveMeta:       ()                       => get('/api/live/meta', { mock: true }),
+  liveGa4:        (propertyId, event = '', channel = '', page = '') => get(`/api/live/ga4?propertyId=${propertyId}${event ? `&event=${encodeURIComponent(event)}` : ''}${channel ? `&channel=${encodeURIComponent(channel)}` : ''}${page ? `&page=${encodeURIComponent(page)}` : ''}`, { mock: true }),
+  liveMeta:       (account = '')            => get(`/api/live/meta${account ? `?account=${encodeURIComponent(account)}` : ''}`, { mock: true }),
   liveDatabricks: (event = 'generate_lead') => get(`/api/live/databricks?event=${encodeURIComponent(event)}`, { mock: true }),
   liveCrm:        (campaign = '')           => get(`/api/live/crm${campaign ? `?campaign=${encodeURIComponent(campaign)}` : ''}`, { mock: true }),
 

@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import Header from '../components/layout/Header'
 import Card, { CardHeader, CardBody } from '../components/ui/Card'
-import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server, Search, Shield, Download, Upload, Share2 } from 'lucide-react'
+import { Key, CheckCircle, AlertTriangle, Zap, Loader, XCircle, Database, Save, RefreshCw, Eye, EyeOff, Server, Search, Shield, Tag } from 'lucide-react'
 import { CredentialsModal } from './Setup'
 import { api } from '../services/api'
 
 const SOURCES = [
-  { id: 'gtm',           name: 'Google Tag Manager',        desc: 'Containers, tags e triggers via API',         route: '/gtm' },
-  { id: 'ga4',           name: 'Google Analytics 4',         desc: 'Dados de eventos e propriedades GA4',        route: '/ga4' },
-  { id: 'searchconsole', name: 'Google Search Console',      desc: 'Cliques, impressões, CTR e posição orgânica', route: '/seo' },
-  { id: 'meta',          name: 'Meta Ads — Conversions API', desc: 'Pixel e eventos via CAPI',                   route: '/meta' },
-  { id: 'databricks',    name: 'Databricks SQL',             desc: 'Tabelas e queries via SQL Warehouse',        route: '/databricks' },
+  { id: 'gtm',           name: 'Google Tag Manager',        desc: 'Containers, tags e triggers via API'          },
+  { id: 'ga4',           name: 'Google Analytics 4',         desc: 'Dados de eventos e propriedades GA4'         },
+  { id: 'searchconsole', name: 'Google Search Console',      desc: 'Cliques, impressões, CTR e posição orgânica' },
+  { id: 'meta',          name: 'Meta Ads — Conversions API', desc: 'Pixel e eventos via CAPI'                    },
+  { id: 'databricks',    name: 'Databricks SQL',             desc: 'Tabelas e queries via SQL Warehouse'         },
 ]
 
 const TEST_FNS = {
@@ -93,8 +92,9 @@ const KNOWN_PROPERTIES = [
 ]
 
 export default function SettingsPage() {
-  const navigate = useNavigate()
   const [refreshInterval, setRefreshInterval] = useState(5)
+  const [savingRefresh, setSavingRefresh] = useState(false)
+  const [refreshSaved, setRefreshSaved] = useState(false)
   // testState: { [id]: 'idle' | 'testing' | { live, detail } }
   const [testState, setTestState] = useState({ gtm: 'idle', ga4: 'idle', meta: 'idle', databricks: 'idle', searchconsole: 'idle' })
   const [testingAll, setTestingAll] = useState(false)
@@ -146,11 +146,13 @@ export default function SettingsPage() {
   const [metaPixelMode, setMetaPixelMode] = useState('single') // 'single' | 'unified'
   const [showCredentialsModal, setShowCredentialsModal] = useState(false)
 
-  // Compartilhar configuração — export/import
-  const [exporting, setExporting] = useState(false)
-  const [exportDone, setExportDone] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState(null) // { ok, msg }
+  // GTM — container padrão
+  const [gtmContainers, setGtmContainers] = useState([])
+  const [gtmContainersLoading, setGtmContainersLoading] = useState(false)
+  const [gtmDefaultId, setGtmDefaultId] = useState('') // '' = visão unificada (primeiro da lista)
+  const [savingGtm, setSavingGtm] = useState(false)
+  const [gtmSaved, setGtmSaved] = useState(false)
+
   const [credSource, setCredSource] = useState(null)
 
   useEffect(() => {
@@ -166,6 +168,8 @@ export default function SettingsPage() {
         setGa4Properties(merged)
       }
     })
+    // Carrega containers GTM em background (sem bloquear)
+    loadGtmContainers()
     // Carrega config atual do Meta + Databricks
     api.getConfig().then((cfg) => {
       if (cfg?.meta?.ad_accounts?.length > 0) setAdAccountsInput(cfg.meta.ad_accounts.join('\n'))
@@ -181,53 +185,27 @@ export default function SettingsPage() {
       if (cfg?.databricks?.tables?.customer_sales) setDbTableCustomerSales(cfg.databricks.tables.customer_sales)
       if (cfg?.searchconsole?.site_url) setScSiteUrl(cfg.searchconsole.site_url)
       if (cfg?._credentials_source) setCredSource(cfg._credentials_source)
+      if (cfg?.preferences?.refresh_interval) setRefreshInterval(cfg.preferences.refresh_interval)
+      if (cfg?.gtm?.default_container_id !== undefined) setGtmDefaultId(cfg.gtm.default_container_id ?? '')
     })
   }, [])
 
-  async function handleExportCredentials() {
-    setExporting(true)
-    setExportDone(false)
-    try {
-      const res = await fetch('http://localhost:3001/api/setup/export-credentials')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'farol.credentials.json'
-      a.click()
-      URL.revokeObjectURL(url)
-      setExportDone(true)
-      setTimeout(() => setExportDone(false), 3000)
-    } catch (e) {
-      alert('Erro ao exportar: ' + e.message)
-    } finally {
-      setExporting(false)
+  async function loadGtmContainers() {
+    setGtmContainersLoading(true)
+    const res = await api.gtmContainers()
+    setGtmContainersLoading(false)
+    if (!res?.mock && res?.containers?.length > 0) {
+      setGtmContainers(res.containers)
     }
   }
 
-  async function handleImportCredentials(file) {
-    if (!file) return
-    setImporting(true)
-    setImportResult(null)
-    try {
-      const text = await file.text()
-      const json = JSON.parse(text)
-      const res = await fetch('http://localhost:3001/api/setup/import-credentials-inline', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(json),
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setImportResult({ ok: true, msg: 'Credenciais importadas com sucesso. Reinicie o app para aplicar.' })
-      } else {
-        setImportResult({ ok: false, msg: data.error || 'Erro ao importar' })
-      }
-    } catch (e) {
-      setImportResult({ ok: false, msg: e.message })
-    } finally {
-      setImporting(false)
-    }
+  async function handleSaveGtmDefault() {
+    setSavingGtm(true)
+    setGtmSaved(false)
+    await api.saveConfig({ gtm: { default_container_id: gtmDefaultId || null } })
+    setSavingGtm(false)
+    setGtmSaved(true)
+    setTimeout(() => setGtmSaved(false), 3000)
   }
 
   async function handleFetchPixels() {
@@ -338,6 +316,15 @@ export default function SettingsPage() {
     setSavingSc(false)
     setScSaved(true)
     setTimeout(() => setScSaved(false), 3000)
+  }
+
+  async function handleSaveRefresh() {
+    setSavingRefresh(true)
+    setRefreshSaved(false)
+    await api.saveConfig({ preferences: { refresh_interval: refreshInterval } })
+    setSavingRefresh(false)
+    setRefreshSaved(true)
+    setTimeout(() => setRefreshSaved(false), 3000)
   }
 
   async function testAll() {
@@ -502,23 +489,6 @@ export default function SettingsPage() {
                             : <><Zap size={11} /> Testar</>
                           }
                         </button>
-
-                        <button
-                          onClick={() => navigate(s.route)}
-                          style={{
-                            background: 'rgba(185,145,91,0.1)',
-                            border: '1px solid rgba(185,145,91,0.3)',
-                            borderRadius: 6,
-                            padding: '5px 12px',
-                            color: '#B9915B',
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            fontFamily: 'Manrope, sans-serif',
-                          }}
-                        >
-                          Configurar
-                        </button>
                       </div>
                     </div>
 
@@ -594,6 +564,116 @@ export default function SettingsPage() {
                   </div>
                 )
               })}
+            </div>
+          </CardBody>
+        </Card>
+
+        {/* GTM — container padrão */}
+        <Card style={{ marginBottom: 20 }}>
+          <CardHeader title="Google Tag Manager — Container padrão" />
+          <CardBody>
+            <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 12 }}>
+              Define qual container abre por padrão na tela GTM. Escolha um container específico ou deixe em <strong style={{ color: '#F5F4F3' }}>Visão unificada</strong> para ver todos ao mesmo tempo.
+            </div>
+
+            {/* Estado: sem containers carregados */}
+            {gtmContainers.length === 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 14px', marginBottom: 12,
+                background: 'rgba(185,145,91,0.05)', border: '1px solid rgba(185,145,91,0.2)',
+                borderRadius: 6,
+              }}>
+                <span style={{ fontSize: 12, color: '#8A9BAA' }}>
+                  {gtmContainersLoading ? 'Buscando containers…' : 'Containers não carregados — clique em Buscar para listar.'}
+                </span>
+                <button
+                  onClick={loadGtmContainers}
+                  disabled={gtmContainersLoading}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '5px 12px',
+                    background: 'rgba(185,145,91,0.1)', border: '1px solid rgba(185,145,91,0.3)',
+                    borderRadius: 5, color: '#B9915B', fontSize: 12, fontWeight: 500,
+                    cursor: gtmContainersLoading ? 'not-allowed' : 'pointer',
+                    fontFamily: 'Manrope, sans-serif',
+                  }}
+                >
+                  {gtmContainersLoading
+                    ? <><Loader size={11} style={{ animation: 'spin 1s linear infinite' }} /> Buscando</>
+                    : <><RefreshCw size={11} /> Buscar containers</>
+                  }
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Tag size={14} color="#B9915B" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                <select
+                  value={gtmDefaultId}
+                  onChange={(e) => { setGtmDefaultId(e.target.value); setGtmSaved(false) }}
+                  style={{
+                    width: '100%', padding: '9px 12px 9px 32px',
+                    background: '#031A26', border: '1px solid rgba(185,145,91,0.35)',
+                    borderRadius: 6, color: '#F5F4F3', fontSize: 13,
+                    cursor: 'pointer', outline: 'none',
+                    fontFamily: 'Manrope, sans-serif', appearance: 'none',
+                  }}
+                >
+                  <option value="">Visão unificada (todos os containers)</option>
+                  {gtmContainers.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} — {c.id}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Recarregar lista (quando já carregada) */}
+              {gtmContainers.length > 0 && (
+                <button
+                  onClick={loadGtmContainers}
+                  disabled={gtmContainersLoading}
+                  title="Recarregar lista de containers"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 36, height: 36, flexShrink: 0,
+                    background: 'rgba(185,145,91,0.06)', border: '1px solid rgba(185,145,91,0.2)',
+                    borderRadius: 6, color: '#8A9BAA', cursor: 'pointer',
+                  }}
+                >
+                  <RefreshCw size={12} style={gtmContainersLoading ? { animation: 'spin 1s linear infinite' } : {}} />
+                </button>
+              )}
+
+              <button
+                onClick={handleSaveGtmDefault}
+                disabled={savingGtm}
+                style={{
+                  padding: '9px 16px',
+                  background: gtmSaved ? 'rgba(34,197,94,0.15)' : 'rgba(185,145,91,0.12)',
+                  border: `1px solid ${gtmSaved ? 'rgba(34,197,94,0.4)' : 'rgba(185,145,91,0.35)'}`,
+                  borderRadius: 6,
+                  color: gtmSaved ? '#22C55E' : '#B9915B',
+                  cursor: savingGtm ? 'not-allowed' : 'pointer',
+                  fontSize: 12, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  fontFamily: 'Manrope, sans-serif', whiteSpace: 'nowrap', transition: 'all 0.2s',
+                }}
+              >
+                {savingGtm
+                  ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Salvando</>
+                  : gtmSaved
+                    ? <><CheckCircle size={12} /> Salvo</>
+                    : <><Save size={12} /> Salvar</>
+                }
+              </button>
+            </div>
+
+            <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 8 }}>
+              {gtmContainers.length > 0
+                ? <>{gtmContainers.length} container{gtmContainers.length > 1 ? 's' : ''} disponível{gtmContainers.length > 1 ? 'is' : ''} · {gtmDefaultId ? <span style={{ color: '#B9915B', fontFamily: 'monospace' }}>{gtmDefaultId}</span> : <span style={{ color: '#6B7280' }}>visão unificada</span>}</>
+                : <span style={{ color: '#6B7280' }}>Busque os containers para selecionar o padrão</span>
+              }
             </div>
           </CardBody>
         </Card>
@@ -725,9 +805,9 @@ export default function SettingsPage() {
           </CardBody>
         </Card>
 
-        {/* Meta Ads — Token + Pixel */}
+        {/* Meta Ads — configuração unificada */}
         <Card style={{ marginBottom: 20 }}>
-          <CardHeader title="Meta Ads — Access Token & Pixel" />
+          <CardHeader title="Meta Ads" />
           <CardBody>
 
             {/* Token */}
@@ -973,22 +1053,19 @@ export default function SettingsPage() {
               </div>
             )}
 
-          </CardBody>
-        </Card>
+            {/* Separador */}
+            <div style={{ borderTop: '1px solid rgba(185,145,91,0.1)', margin: '20px 0 16px' }} />
 
-        {/* Meta — Ad Accounts */}
-        <Card style={{ marginBottom: 20 }}>
-          <CardHeader title="Meta Ads — Ad Accounts" />
-          <CardBody>
+            {/* Ad Accounts */}
+            <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Ad Accounts</div>
             <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 10 }}>
-              IDs das contas de anúncios usadas nos relatórios de Audiência e Criativos.
-              Um por linha ou separados por vírgula. Formato: <code style={{ color: '#B9915B', fontSize: 11 }}>act_XXXXXXXXXXXXXXXXX</code>
+              IDs das contas usadas nos relatórios. Um por linha. Formato: <code style={{ color: '#B9915B', fontSize: 11 }}>act_XXXXXXXXXXXXXXXXX</code>
             </div>
             <textarea
-              rows={4}
+              rows={3}
               value={adAccountsInput}
               onChange={e => setAdAccountsInput(e.target.value)}
-              placeholder={'act_942577509469439\nact_584341142722462\nact_324663872349737'}
+              placeholder={'act_942577509469439\nact_584341142722462'}
               style={{
                 width: '100%', padding: '9px 12px',
                 background: '#031A26', border: '1px solid rgba(185,145,91,0.35)',
@@ -1024,13 +1101,15 @@ export default function SettingsPage() {
                 }
               </button>
             </div>
+
           </CardBody>
         </Card>
 
-        {/* Databricks — credenciais */}
+        {/* Databricks */}
         <Card style={{ marginBottom: 20 }}>
-          <CardHeader title="Databricks SQL — Credenciais" />
+          <CardHeader title="Databricks SQL" />
           <CardBody>
+            <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Credenciais</div>
             <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 14 }}>
               Configure o acesso ao SQL Warehouse. O token é salvo no <code style={{ color: '#B9915B', fontSize: 11 }}>farol.config.json</code> e não é exibido após salvar.
             </div>
@@ -1157,15 +1236,11 @@ export default function SettingsPage() {
               }
             </button>
 
-          </CardBody>
-        </Card>
-
-        {/* Databricks — tabelas configuráveis */}
-        <Card style={{ marginBottom: 20 }}>
-          <CardHeader title="Databricks — Tabelas" />
-          <CardBody>
+            {/* Separador */}
+            <div style={{ borderTop: '1px solid rgba(185,145,91,0.1)', margin: '20px 0 16px' }} />
+            <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Tabelas</div>
             <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 14 }}>
-              Nomes completos das tabelas usadas nas análises. Deixe em branco para usar os padrões baseados em Catalog.Schema configurados acima.
+              Nomes completos das tabelas usadas nas análises. Deixe em branco para usar os padrões baseados em Catalog.Schema acima.
             </div>
             {[
               { label: 'Funil Comercial', placeholder: 'production.diamond.funil_comercial', value: dbTableFunilComercial, set: setDbTableFunilComercial },
@@ -1215,100 +1290,6 @@ export default function SettingsPage() {
           </CardBody>
         </Card>
 
-        {/* Compartilhar Configuração */}
-        <Card style={{ marginBottom: 20 }}>
-          <CardHeader title="Compartilhar Configuração" action={<Share2 size={14} color="#B9915B" style={{ opacity: 0.7 }} />} />
-          <CardBody>
-            <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 16, lineHeight: 1.6 }}>
-              Exporte todas as credenciais (GA4, Meta, Databricks) em um arquivo portátil.
-              Em outra máquina, instale o Farol e importe o arquivo para conectar imediatamente — sem reconfigurações manuais.
-            </div>
-
-            {/* Export */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Exportar</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button
-                  onClick={handleExportCredentials}
-                  disabled={exporting}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '8px 18px',
-                    background: exportDone ? 'rgba(34,197,94,0.12)' : 'rgba(185,145,91,0.12)',
-                    border: `1px solid ${exportDone ? 'rgba(34,197,94,0.4)' : 'rgba(185,145,91,0.35)'}`,
-                    borderRadius: 6, cursor: exporting ? 'not-allowed' : 'pointer',
-                    color: exportDone ? '#22C55E' : '#B9915B',
-                    fontSize: 12, fontWeight: 600,
-                    fontFamily: 'Manrope, sans-serif', transition: 'all 0.2s',
-                  }}
-                >
-                  {exporting
-                    ? <><Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> Exportando…</>
-                    : exportDone
-                      ? <><CheckCircle size={13} /> farol.credentials.json baixado</>
-                      : <><Download size={13} /> Baixar farol.credentials.json</>
-                  }
-                </button>
-                <span style={{ fontSize: 11, color: '#6B7280' }}>GA4 · Meta · Databricks · Search Console</span>
-              </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid rgba(185,145,91,0.1)', marginBottom: 16 }} />
-
-            {/* Import */}
-            <div>
-              <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Importar</div>
-              <label
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '10px 16px',
-                  background: 'rgba(185,145,91,0.05)',
-                  border: '1px dashed rgba(185,145,91,0.35)',
-                  borderRadius: 6, cursor: 'pointer',
-                  color: '#8A9BAA', fontSize: 12,
-                  transition: 'all 0.2s',
-                }}
-              >
-                <Upload size={14} color="#B9915B" />
-                {importing ? 'Importando…' : 'Selecionar farol.credentials.json'}
-                <input
-                  type="file"
-                  accept=".json"
-                  style={{ display: 'none' }}
-                  onChange={e => handleImportCredentials(e.target.files?.[0])}
-                />
-              </label>
-              {importResult && (
-                <div style={{
-                  marginTop: 8, padding: '8px 12px',
-                  background: importResult.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
-                  border: `1px solid ${importResult.ok ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
-                  borderRadius: 6, fontSize: 12,
-                  color: importResult.ok ? '#22C55E' : '#EF4444',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                  {importResult.ok ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                  {importResult.msg}
-                </div>
-              )}
-            </div>
-
-            {/* Fonte sincronizada */}
-            {credSource && (
-              <div style={{
-                marginTop: 14, padding: '8px 12px',
-                background: 'rgba(99,102,241,0.06)',
-                border: '1px solid rgba(99,102,241,0.2)',
-                borderRadius: 6, fontSize: 11, color: '#8A9BAA',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <RefreshCw size={11} color="#6366F1" />
-                <span>Sincronizado com: <code style={{ color: '#6366F1', fontSize: 10 }}>{credSource}</code></span>
-              </div>
-            )}
-          </CardBody>
-        </Card>
-
         {/* Preferências */}
         <Card>
           <CardHeader title="Preferências" />
@@ -1316,33 +1297,57 @@ export default function SettingsPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid rgba(185,145,91,0.1)' }}>
               <div>
                 <div style={{ fontSize: 13, color: '#F5F4F3', fontWeight: 500 }}>Auto-refresh</div>
-                <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>Intervalo de atualização automática</div>
+                <div style={{ fontSize: 11, color: '#8A9BAA', marginTop: 2 }}>Intervalo de atualização automática dos dados</div>
               </div>
-              <select
-                value={refreshInterval}
-                onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                style={{
-                  background: '#031A26',
-                  border: '1px solid rgba(185,145,91,0.3)',
-                  borderRadius: 6,
-                  color: '#F5F4F3',
-                  padding: '6px 12px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {[1, 2, 5, 10, 15, 30].map((v) => (
-                  <option key={v} value={v}>{v} min</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <select
+                  value={refreshInterval}
+                  onChange={(e) => { setRefreshInterval(Number(e.target.value)); setRefreshSaved(false) }}
+                  style={{
+                    background: '#031A26',
+                    border: '1px solid rgba(185,145,91,0.3)',
+                    borderRadius: 6,
+                    color: '#F5F4F3',
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  {[1, 2, 5, 10, 15, 30].map((v) => (
+                    <option key={v} value={v}>{v} min</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleSaveRefresh}
+                  disabled={savingRefresh}
+                  style={{
+                    padding: '6px 14px',
+                    background: refreshSaved ? 'rgba(34,197,94,0.15)' : 'rgba(185,145,91,0.12)',
+                    border: `1px solid ${refreshSaved ? 'rgba(34,197,94,0.4)' : 'rgba(185,145,91,0.35)'}`,
+                    borderRadius: 6,
+                    color: refreshSaved ? '#22C55E' : '#B9915B',
+                    cursor: savingRefresh ? 'not-allowed' : 'pointer',
+                    fontSize: 12, fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontFamily: 'Manrope, sans-serif', transition: 'all 0.2s',
+                  }}
+                >
+                  {savingRefresh
+                    ? <><Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> Salvando</>
+                    : refreshSaved
+                      ? <><CheckCircle size={12} /> Salvo</>
+                      : <><Save size={12} /> Salvar</>
+                  }
+                </button>
+              </div>
             </div>
 
             <div style={{ paddingTop: 16 }}>
-              <div style={{ fontSize: 12, color: '#8A9BAA', marginBottom: 10 }}>Sobre</div>
+              <div style={{ fontSize: 11, color: '#8A9BAA', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Sobre</div>
               <div style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.8 }}>
                 <div><span style={{ color: '#F5F4F3' }}>Farol Tracking</span> — Tracking Intelligence</div>
-                <div>Versão 0.6.0 · G4 Education MarTech</div>
+                <div>Versão {window.__FAROL_VERSION__ || '1.1.0'} · G4 Education MarTech</div>
                 <div>Caio Matheus dos Santos Abra</div>
               </div>
             </div>

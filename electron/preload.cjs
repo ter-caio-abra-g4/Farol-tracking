@@ -11,7 +11,8 @@ contextBridge.exposeInMainWorld('rais', {
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
 
-  // Estado da janela — recebe callback quando muda
+  // Estado da janela — consulta inicial + callback quando muda
+  getWindowState: () => ipcRenderer.invoke('get-window-state'),
   onWindowState: (cb) => {
     ipcRenderer.on('window-state', (_e, state) => cb(state))
   },

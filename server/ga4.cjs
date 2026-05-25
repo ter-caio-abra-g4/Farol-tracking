@@ -5,6 +5,7 @@
 
 const { google } = require('googleapis')
 const { loadConfig } = require('./config.cjs')
+const { recordSnapshot, getTimeline } = require('./snapshot-store.cjs')
 
 // ─── Cache em memória ────────────────────────────────────────────────────────
 const CACHE_TTL_MS      = 5 * 60 * 1000   // 5 min — reports
@@ -595,74 +596,181 @@ function getMockExitPages() {
 }
 
 // ─── Realtime Report — últimos 30 minutos ────────────────────────────────────
-async function getRealtimeReport(propertyId, eventFilter = null) {
+// Restrições da Realtime API (descobertas empiricamente):
+//   - activeUsers NÃO combina com eventName
+//   - eventCount NÃO combina com eventName + unifiedScreenName juntos
+//   - Dimensões disponíveis: eventName, unifiedScreenName, minutesAgo, country, city, deviceCategory
+//   - NÃO existem: sessionSource/Medium/Campaign, defaultChannelGroup, firstUserX
+// Solução: 4 calls independentes + merge no processamento
+//   1. eventName alone + eventCount       → contagem por evento
+//   2. unifiedScreenName + eventCount + activeUsers → topPages + users por página
+//   3. minutesAgo + eventName + eventCount → timeline
+//   4. deviceCategory + eventName + eventCount → breakdown por dispositivo
+async function getRealtimeReport(propertyId, eventFilter = null, channelFilter = null, pageFilter = null) {
   const auth = await getAuthClient()
-  if (!auth) return { mock: true, ...getMockRealtime() }
+  if (!auth) return { mock: true, ...getMockRealtime(eventFilter, pageFilter) }
 
   try {
     const analyticsData = google.analyticsdata({ version: 'v1beta', auth })
+    const prop = `properties/${propertyId}`
 
-    const dimensions = [
-      { name: 'eventName' },
-      { name: 'unifiedScreenName' },
-      { name: 'firstSessionDate' },
-    ]
-    const metrics = [
-      { name: 'eventCount' },
-      { name: 'activeUsers' },
-    ]
+    function makeFilter(field, value, matchType = 'EXACT') {
+      return { filter: { fieldName: field, stringFilter: { matchType, value } } }
+    }
+    function andFilter(...exprs) {
+      return exprs.length === 1 ? exprs[0] : { andGroup: { expressions: exprs } }
+    }
+    function buildFilter(...parts) {
+      const active = parts.filter(Boolean)
+      if (!active.length) return undefined
+      return active.length === 1 ? active[0] : andFilter(...active)
+    }
 
-    const requestBody = { dimensions, metrics, limit: 50 }
+    const eventF  = eventFilter   ? makeFilter('eventName',      eventFilter,  'EXACT')    : null
+    const deviceF = channelFilter ? makeFilter('deviceCategory', channelFilter, 'EXACT')   : null
+    // pageF NÃO pode ser usado junto com eventName, minutesAgo ou deviceCategory —
+    // limitação da Realtime API. Usado apenas nas calls que aceitam (Call 2 e activeUsers).
+    const pageF   = pageFilter    ? makeFilter('unifiedScreenName', pageFilter, 'CONTAINS') : null
 
-    // Filtra por evento específico se passado
-    if (eventFilter) {
-      requestBody.dimensionFilter = {
-        filter: {
-          fieldName: 'eventName',
-          stringFilter: { matchType: 'EXACT', value: eventFilter },
+    // Calls 1/3/4: sem pageF (incompatível com eventName/minutesAgo/deviceCategory na Realtime API)
+    // Call 2 e activeUsers: usam pageF pois só têm unifiedScreenName como dimensão
+    const [evCountRes, pageRes, minuteRes, deviceRes] = await Promise.all([
+      // Call 1: eventName + eventCount — sem pageF (incompatível)
+      analyticsData.properties.runRealtimeReport({
+        property: prop,
+        requestBody: {
+          dimensions: [{ name: 'eventName' }],
+          metrics:    [{ name: 'eventCount' }],
+          dimensionFilter: buildFilter(eventF, deviceF),
+          limit: 50,
         },
-      }
-    }
+      }),
 
-    const res = await analyticsData.properties.runRealtimeReport({
-      property: `properties/${propertyId}`,
-      requestBody,
-    })
+      // Call 2: unifiedScreenName + eventCount + activeUsers — aceita pageF
+      analyticsData.properties.runRealtimeReport({
+        property: prop,
+        requestBody: {
+          dimensions: [{ name: 'unifiedScreenName' }],
+          metrics:    [{ name: 'eventCount' }, { name: 'activeUsers' }],
+          dimensionFilter: buildFilter(deviceF, pageF),
+          orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
+          limit: 20,
+        },
+      }),
 
-    const rows = (res.data.rows || []).map(row => ({
-      event:  row.dimensionValues[0].value,
-      page:   row.dimensionValues[1].value,
-      count:  parseInt(row.metricValues[0].value, 10),
-      users:  parseInt(row.metricValues[1].value, 10),
-    }))
+      // Call 3: minutesAgo × eventName + eventCount — sem pageF (incompatível)
+      analyticsData.properties.runRealtimeReport({
+        property: prop,
+        requestBody: {
+          dimensions: [{ name: 'minutesAgo' }, { name: 'eventName' }],
+          metrics:    [{ name: 'eventCount' }],
+          dimensionFilter: buildFilter(eventF, deviceF),
+          limit: 200,
+        },
+      }),
 
-    // Agrega totais
-    const totalEvents = rows.reduce((s, r) => s + r.count, 0)
-    const activeUsers = rows.reduce((s, r) => s + r.users, 0)
+      // Call 4: deviceCategory × eventName + eventCount — sem pageF (incompatível)
+      analyticsData.properties.runRealtimeReport({
+        property: prop,
+        requestBody: {
+          dimensions: [{ name: 'deviceCategory' }, { name: 'eventName' }],
+          metrics:    [{ name: 'eventCount' }],
+          dimensionFilter: buildFilter(deviceF),
+          limit: 100,
+        },
+      }),
+    ])
 
-    // Top eventos
+    // ── Processa Call 1 — top eventos ──
     const byEvent = {}
-    for (const r of rows) {
-      if (!byEvent[r.event]) byEvent[r.event] = { event: r.event, count: 0, users: 0 }
-      byEvent[r.event].count += r.count
-      byEvent[r.event].users += r.users
+    for (const row of (evCountRes.data.rows || [])) {
+      const ev    = row.dimensionValues[0].value
+      const count = parseInt(row.metricValues[0].value, 10)
+      if (!byEvent[ev]) byEvent[ev] = { event: ev, count: 0, users: 0 }
+      byEvent[ev].count += count
     }
-    const topEvents = Object.values(byEvent)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10)
 
-    // Top páginas por page_view (agrega unifiedScreenName apenas para page_view)
+    // ── Processa Call 2 — páginas + activeUsers totais ──
+    let activeUsers = 0
     const byPage = {}
-    for (const r of rows) {
-      if (r.event !== 'page_view') continue
-      const page = r.page || '(unknown)'
+    const rows = []
+    for (const row of (pageRes.data.rows || [])) {
+      const page  = row.dimensionValues[0].value
+      const count = parseInt(row.metricValues[0].value, 10)
+      const users = parseInt(row.metricValues[1].value, 10)
+      activeUsers = Math.max(activeUsers, users)
       if (!byPage[page]) byPage[page] = { page, views: 0, users: 0 }
-      byPage[page].views += r.count
-      byPage[page].users += r.users
+      byPage[page].views += count
+      byPage[page].users  = Math.max(byPage[page].users, users)
+      rows.push({ event: 'page_view', page, count, users })
     }
-    const topPages = Object.values(byPage)
-      .sort((a, b) => b.views - a.views)
-      .slice(0, 5)
+
+    // activeUsers total — sem dimensões; usa pageF quando disponível (aceito pela API)
+    const activeUsersRes = await analyticsData.properties.runRealtimeReport({
+      property: prop,
+      requestBody: {
+        dimensions: [],
+        metrics: [{ name: 'activeUsers' }],
+        ...(pageF ? { dimensionFilter: pageF } : {}),
+      }
+    })
+    activeUsers = parseInt(activeUsersRes.data.rows?.[0]?.metricValues?.[0]?.value ?? activeUsers, 10)
+
+    for (const [ev, obj] of Object.entries(byEvent)) {
+      obj.users = ev === 'page_view' ? Object.values(byPage).reduce((s, p) => s + p.users, 0) : 0
+    }
+
+    const totalEvents = Object.values(byEvent).reduce((s, e) => s + e.count, 0)
+    const topEvents   = Object.values(byEvent).sort((a, b) => b.count - a.count).slice(0, 15)
+    const topPages    = Object.values(byPage).sort((a, b) => b.views - a.views).slice(0, 8)
+
+    // ── Processa Call 3 — minutesAgo ──
+    const byMinute = {}
+    for (const row of (minuteRes.data.rows || [])) {
+      const minAgo  = parseInt(row.dimensionValues[0].value, 10)
+      const event   = row.dimensionValues[1].value
+      const count   = parseInt(row.metricValues[0].value, 10)
+      const d = new Date(Date.now() - minAgo * 60 * 1000)
+      const label = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      if (!byMinute[label]) byMinute[label] = { minute: label, minAgo, total: 0 }
+      byMinute[label].total += count
+      byMinute[label][event] = (byMinute[label][event] || 0) + count
+    }
+    const timeline = Object.values(byMinute).sort((a, b) => b.minAgo - a.minAgo)
+
+    // ── Processa Call 4 — dispositivo × evento ──
+    const byDevice = {}
+    for (const row of (deviceRes.data.rows || [])) {
+      const device = row.dimensionValues[0].value || 'unknown'
+      const event  = row.dimensionValues[1].value
+      const count  = parseInt(row.metricValues[0].value, 10)
+      if (!byDevice[device]) byDevice[device] = { channel: device, users: 0, events: {} }
+      byDevice[device].events[event] = (byDevice[device].events[event] || 0) + count
+    }
+    const channels    = Object.values(byDevice).sort((a, b) => (b.events['page_view']||0) - (a.events['page_view']||0))
+    const channelList = channels.map(c => c.channel)
+
+    // UTM não disponível na Realtime API
+    const utmRows      = []
+    const utmSources   = []
+    const utmMediums   = []
+    const utmCampaigns = []
+
+    // Grava snapshot escopado por pageFilter — histórico separado por LP/Checkout/etc
+    recordSnapshot({ propertyId, activeUsers, topEvents, pageFilter: pageFilter || '' })
+
+    // Usa timeline do histórico local se tiver >= 3 pontos (mais precisa que minutesAgo)
+    const ev = eventFilter || 'page_view'
+    const localTimeline = getTimeline(propertyId, ev, undefined, pageFilter || '')
+    const useLocal = localTimeline.length >= 3
+    const finalTimeline = useLocal ? localTimeline : timeline
+
+    // Janela real em minutos — usa o snap mais antigo da timeline local
+    let timelineWindowMin = 30
+    if (useLocal && localTimeline.length > 0) {
+      const oldest = localTimeline[localTimeline.length - 1]  // sorted desc por minAgo
+      timelineWindowMin = Math.max(1, oldest.minAgo || 1)
+    }
 
     return {
       mock: false,
@@ -672,36 +780,139 @@ async function getRealtimeReport(propertyId, eventFilter = null) {
       totalEvents,
       topEvents,
       topPages,
+      channels,
+      channelList,
+      timeline: finalTimeline,
+      timelineSource: useLocal ? 'local' : 'api',
+      timelineWindowMin,
+      utmRows,
+      utmSources,
+      utmMediums,
+      utmCampaigns,
+      pageFilter,
+      // Quando pageFilter ativo: activeUsers e topPages estão filtrados pela página
+      // topEvents e timeline mostram o site inteiro (limitação da Realtime API)
+      pageFilteredFields: pageFilter ? ['activeUsers', 'topPages'] : [],
       rows,
     }
   } catch (err) {
     console.error('[GA4] getRealtimeReport error:', err.message)
-    return { mock: true, ...getMockRealtime(), error: err.message }
+    return { mock: true, ...getMockRealtime(eventFilter, pageFilter), error: err.message }
   }
 }
 
-function getMockRealtime() {
+function getMockRealtime(eventFilter, pageFilter = null) {
+  const ev = eventFilter || 'generate_lead'
+  // Timeline: simula 15 min de atividade
+  const timeline = Array.from({ length: 15 }, (_, i) => {
+    const d = new Date(Date.now() - i * 60 * 1000)
+    const label = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    const base = Math.max(0, Math.round(8 - i * 0.2 + Math.sin(i * 0.5) * 3))
+    return { minute: label, minAgo: i, total: base + Math.round(base * 0.3), [ev]: base, page_view: base + Math.round(base * 0.3) }
+  }).sort((a, b) => b.minAgo - a.minAgo)
+
   return {
     capturedAt: new Date().toISOString(),
     activeUsers: 47,
     totalEvents: 312,
     topEvents: [
-      { event: 'page_view',          count: 184, users: 47 },
-      { event: 'scroll',             count: 62,  users: 31 },
-      { event: 'click',              count: 38,  users: 22 },
-      { event: 'generate_lead',      count: 14,  users: 14 },
-      { event: 'begin_checkout',     count: 8,   users: 8  },
-      { event: 'purchase',           count: 6,   users: 6  },
+      { event: 'page_view',      count: 184, users: 47 },
+      { event: 'scroll',         count: 62,  users: 31 },
+      { event: 'click',          count: 38,  users: 22 },
+      { event: 'generate_lead',  count: 14,  users: 14 },
+      { event: 'begin_checkout', count: 8,   users: 8  },
+      { event: 'purchase',       count: 6,   users: 6  },
     ],
     topPages: [
-      { page: '/programas/presencial',       views: 58, users: 31 },
-      { page: '/g4-summit-2026',             views: 41, users: 24 },
-      { page: '/',                           views: 35, users: 28 },
-      { page: '/mentoria-executiva',         views: 27, users: 18 },
-      { page: '/capacitacao-online',         views: 19, users: 13 },
+      { page: '/programas/presencial',  views: 58, users: 31 },
+      { page: '/g4-summit-2026',        views: 41, users: 24 },
+      { page: '/',                      views: 35, users: 28 },
+      { page: '/mentoria-executiva',    views: 27, users: 18 },
+      { page: '/capacitacao-online',    views: 19, users: 13 },
     ],
+    channels: [
+      { channel: 'Paid Search',    users: 18, events: { generate_lead: 6, page_view: 72, begin_checkout: 3, purchase: 2 } },
+      { channel: 'Paid Social',    users: 12, events: { generate_lead: 5, page_view: 48, begin_checkout: 2, purchase: 2 } },
+      { channel: 'Organic Search', users: 9,  events: { generate_lead: 2, page_view: 38, begin_checkout: 1, purchase: 1 } },
+      { channel: 'Direct',         users: 5,  events: { generate_lead: 1, page_view: 18, begin_checkout: 1, purchase: 1 } },
+      { channel: 'Email',          users: 3,  events: { generate_lead: 0, page_view: 8,  begin_checkout: 1, purchase: 0 } },
+    ],
+    channelList: ['Paid Search', 'Paid Social', 'Organic Search', 'Direct', 'Email'],
+    timeline,
+    utmRows: [
+      { event: 'generate_lead', page: '/inscricao/g4-programas-presenciais', source: 'google',    medium: 'cpc',        campaign: 'g4-presencial-maio26',  count: 6,  users: 6  },
+      { event: 'generate_lead', page: '/inscricao/g4-summit',                source: 'facebook',  medium: 'cpc',        campaign: 'summit-retargeting',    count: 4,  users: 4  },
+      { event: 'generate_lead', page: '/inscricao/g4-programas-presenciais', source: 'google',    medium: 'organic',    campaign: '',                       count: 2,  users: 2  },
+      { event: 'generate_lead', page: '/lp/g4-skills',                       source: 'instagram', medium: 'cpc',        campaign: 'skills-awareness-maio',  count: 2,  users: 2  },
+      { event: 'begin_checkout',page: '/checkout/programas',                  source: 'google',    medium: 'cpc',        campaign: 'g4-presencial-maio26',  count: 3,  users: 3  },
+      { event: 'purchase',      page: '/checkout/programas',                  source: 'google',    medium: 'cpc',        campaign: 'g4-presencial-maio26',  count: 2,  users: 2  },
+      { event: 'purchase',      page: '/checkout/programas',                  source: 'facebook',  medium: 'cpc',        campaign: 'summit-retargeting',    count: 2,  users: 2  },
+      { event: 'page_view',     page: '/inscricao/g4-programas-presenciais', source: 'google',    medium: 'cpc',        campaign: 'g4-presencial-maio26',  count: 38, users: 28 },
+      { event: 'page_view',     page: '/g4-summit-2026',                     source: 'facebook',  medium: 'cpc',        campaign: 'summit-retargeting',    count: 22, users: 17 },
+      { event: 'page_view',     page: '/inscricao/g4-programas-presenciais', source: '(direct)',  medium: '(none)',      campaign: '',                       count: 18, users: 14 },
+      { event: 'page_view',     page: '/mentoria-executiva',                 source: 'google',    medium: 'organic',    campaign: '',                       count: 15, users: 12 },
+      { event: 'scroll',        page: '/inscricao/g4-programas-presenciais', source: 'google',    medium: 'cpc',        campaign: 'g4-presencial-maio26',  count: 24, users: 18 },
+    ],
+    utmSources:   ['facebook', 'google', 'instagram'],
+    utmMediums:   ['cpc', 'organic'],
+    utmCampaigns: ['g4-presencial-maio26', 'skills-awareness-maio', 'summit-retargeting'],
+    pageFilter,
     rows: [],
   }
 }
 
-module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport, getExitPages, getRealtimeReport, clearCache }
+// ─── Events by Page ─────────────────────────────────────────────────────────
+// Retorna: { mock, propertyId, days, rows: [{ pagePath, event, count, users }] }
+async function getEventsByPage(propertyId, days = 28) {
+  const cacheKey = `events-by-page-${propertyId}-${days}`
+  return withCache(cacheKey, async () => {
+    const auth = await getAuthClient()
+    if (!auth) return { mock: true, propertyId, days, rows: getMockEventsByPage() }
+
+    const analyticsData = google.analyticsdata({ version: 'v1beta', auth })
+
+    const res = await analyticsData.properties.runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+        dimensions: [{ name: 'pagePath' }, { name: 'eventName' }],
+        metrics:    [{ name: 'eventCount' }, { name: 'activeUsers' }],
+        dimensionFilter: {
+          filter: {
+            fieldName: 'eventName',
+            inListFilter: {
+              values: ['generate_lead', 'qualify_lead', 'MQL', 'begin_checkout',
+                       'purchase', 'form_start', 'form_submit', 'disqualify_lead',
+                       'page_view', 'click', 'scroll'],
+            },
+          },
+        },
+        orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
+        limit: 200,
+      },
+    })
+
+    const rows = (res.data.rows || []).map(r => ({
+      pagePath: r.dimensionValues[0].value,
+      event:    r.dimensionValues[1].value,
+      count:    parseInt(r.metricValues[0].value, 10),
+      users:    parseInt(r.metricValues[1].value, 10),
+    }))
+
+    return { mock: false, propertyId, days, rows }
+  })
+}
+
+function getMockEventsByPage() {
+  return [
+    { pagePath: '/aniversario-g4',              event: 'generate_lead',  count: 23135, users: 18400 },
+    { pagePath: '/aniversario-g4',              event: 'qualify_lead',   count: 6092,  users: 5100  },
+    { pagePath: '/aniversario-g4',              event: 'page_view',      count: 201927,users: 143901 },
+    { pagePath: '/inscricao/g4-programas-presenciais', event: 'generate_lead', count: 1338, users: 1100 },
+    { pagePath: '/g4-gestao-empresarial-lp',    event: 'begin_checkout', count: 1107,  users: 950   },
+    { pagePath: '/simulador-ote',               event: 'generate_lead',  count: 1296,  users: 1050  },
+    { pagePath: '/simulador-ote',               event: 'qualify_lead',   count: 769,   users: 640   },
+  ]
+}
+
+module.exports = { listProperties, runReport, getEventSummary, getDashboards, getInternalRefReport, getSourceMediumReport, getExitPages, getRealtimeReport, getEventsByPage, clearCache }

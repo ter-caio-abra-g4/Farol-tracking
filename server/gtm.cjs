@@ -302,34 +302,42 @@ function isMetaPageView(tag) {
   if (tag.paused) return false
   const name = (tag.name || '').toLowerCase()
   const type = (tag.type || '').toLowerCase()
-  // Tag customhtml com "fbq" ou "fbevents" ou nome contendo "meta" + "pageview"/"page view"
+  // Tipo nativo de pixel Meta no GTM
+  if (type === 'fblpixel') return true
+  // Tag HTML customizada com código do pixel (fbq init ou fbevents.js)
   if (type === 'html') {
     const params = tag.parameter || []
     const html = params.find(p => p.key === 'html')?.value || ''
-    if (html.includes('fbq') || html.includes('fbevents')) {
-      if (name.includes('pageview') || name.includes('page view') || name.includes('page_view')) return true
-    }
+    if (html.includes('fbq(') || html.includes('fbevents.js') || html.includes('connect.facebook.net')) return true
   }
-  // Tag do tipo fblpixel ou customPixel
-  if (type === 'fblpixel') return true
-  // Nome contém pixel + pageview
-  if ((name.includes('meta') || name.includes('pixel') || name.includes('fb')) &&
-      (name.includes('pageview') || name.includes('page view'))) return true
+  // Custom template (cvt_*) OU qualquer tipo — detecta pelo nome da tag
+  // Cobre: "EV | META | PageView | Global", "EV | META | Page View", etc.
+  const isMeta = name.includes('meta') || name.includes('pixel') || name.includes('facebook') || name.includes(' fb ') || name.startsWith('fb ') || name.endsWith(' fb')
+  const isPageView = name.includes('pageview') || name.includes('page view') || name.includes('base') || name.includes('init') || name.includes('pixel')
+  if (isMeta && isPageView) return true
   return false
 }
 
 // Detecta se uma tag é GA4 Config (ativa)
+// googtag = Google Tag (gtag.js) — tipo atual no GTM moderno
+// gaawc   = GA4 Configuration tag — tipo legado (ainda existe em containers antigos)
+// googl   = Universal Analytics — legado
 function isGA4Config(tag) {
   if (tag.paused) return false
   const type = (tag.type || '').toLowerCase()
-  return type === 'googl' || type === 'gaawc' || type === 'gaawe' && (tag.name || '').toLowerCase().includes('config')
+  if (type === 'googtag') return true  // Google Tag — tipo padrão atual
+  if (type === 'gaawc')   return true  // GA4 Configuration tag — legado
+  if (type === 'googl')   return true  // Universal Analytics — legado
+  return false
 }
 
 // Detecta Conversion Linker ativo
+// gclidw = Google Conversion Linker (tipo atual)
+// cl / awcl = tipos legados
 function isConvLinker(tag) {
   if (tag.paused) return false
   const type = (tag.type || '').toLowerCase()
-  return type === 'cl' || type === 'awcl' || (tag.name || '').toLowerCase().includes('conversion linker')
+  return type === 'gclidw' || type === 'cl' || type === 'awcl' || (tag.name || '').toLowerCase().includes('conversion linker')
 }
 
 // Detecta Advanced Matching (script geo_fetch ou campo em tag Meta)
@@ -358,11 +366,12 @@ async function getConnectionHealth() {
   if (!auth) return getMockConnectionHealth()
 
   const gtm = getTagManger(auth)
-  const MAIN_CONTAINERS = ['GTM-MJT8CNGM', 'GTM-PMNN5VZ', 'GTM-WFTGXLRD']
+  // Usa todos os containers mapeados (não uma lista fixa de 3)
+  const ALL_CONTAINERS = Object.keys(CONTAINER_ID_MAP)
 
   const containerResults = []
 
-  for (const publicId of MAIN_CONTAINERS) {
+  for (const publicId of ALL_CONTAINERS) {
     const accountId = CONTAINER_ACCOUNT_MAP[publicId]
     const containerId = CONTAINER_ID_MAP[publicId]
     if (!accountId || !containerId) continue
@@ -378,6 +387,10 @@ async function getConnectionHealth() {
 
       const activeTags = tags.filter(t => !t.paused)
       const pausedCount = tags.filter(t => t.paused).length
+
+      // Log para diagnóstico: tipos únicos de tags ativas neste container
+      const activeTypes = [...new Set(activeTags.map(t => t.type))].filter(Boolean)
+      console.log(`[GTM health] ${publicId} — ${activeTags.length} tags ativas, tipos: ${activeTypes.join(', ')}`)
 
       containerResults.push({
         publicId,
@@ -451,4 +464,38 @@ function getMockConnectionHealth() {
   }
 }
 
-module.exports = { listContainersWithStats, getContainerDetails, getSilentTags, getConnectionHealth }
+/**
+ * Diagnóstico: retorna todos os tipos de tags ativas em todos os containers.
+ * Usado para depurar detecção de GA4/Meta/etc.
+ */
+async function getTagTypesDiag() {
+  const auth = await getAuthClient()
+  if (!auth) return { mock: true, containers: [] }
+
+  const gtm = getTagManger(auth)
+  const ALL_CONTAINERS = Object.keys(CONTAINER_ID_MAP)
+  const result = []
+
+  for (const publicId of ALL_CONTAINERS) {
+    const accountId = CONTAINER_ACCOUNT_MAP[publicId]
+    const containerId = CONTAINER_ID_MAP[publicId]
+    if (!accountId || !containerId) continue
+    try {
+      const parent = `accounts/${accountId}/containers/${containerId}`
+      const wsRes = await gtm.accounts.containers.workspaces.list({ parent })
+      const ws = (wsRes.data.workspace || [])[0]
+      if (!ws) continue
+      const tagsRes = await gtm.accounts.containers.workspaces.tags.list({ parent: ws.path })
+      const tags = tagsRes.data.tag || []
+      result.push({
+        publicId,
+        tags: tags.map(t => ({ name: t.name, type: t.type, paused: !!t.paused })),
+      })
+    } catch (err) {
+      result.push({ publicId, error: err.message })
+    }
+  }
+  return { mock: false, containers: result }
+}
+
+module.exports = { listContainersWithStats, getContainerDetails, getSilentTags, getConnectionHealth, getTagTypesDiag }

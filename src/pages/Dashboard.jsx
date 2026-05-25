@@ -310,7 +310,7 @@ export default function Dashboard() {
         </div>
 
         {/* ── Checklist ── */}
-        <IntegrityChecklist ga4Data={ga4Data} gtmData={gtmData} />
+        <IntegrityChecklist ga4Data={ga4Data} gtmData={gtmData} gtmHealth={gtmHealth} />
       </div>
     </div>
   )
@@ -741,18 +741,24 @@ function AnomalyAlertsCard({ data, loading }) {
 }
 
 // ── Checklist ──────────────────────────────────────────────────────────────
-function IntegrityChecklist({ ga4Data, gtmData }) {
+function IntegrityChecklist({ ga4Data, gtmData, gtmHealth }) {
   const ga4Ok = !ga4Data?.mock
   const gtmOk = Object.values(gtmData).some(d => !d?.mock)
   const hasEvents = (ga4Data?.rows?.length ?? 0) > 0
   const hasPurchase = ga4Data?.rows?.some(r => r.event === 'purchase')
   const hasLead = ga4Data?.rows?.some(r => r.event === 'lead' || r.event === 'generate_lead')
 
+  // Meta Pixel: usa dados reais do GTM Health se disponível
+  const healthLoaded = gtmHealth && !gtmHealth.mock
+  const metaOk = healthLoaded
+    ? !!(gtmHealth.connections?.find(c => c.key === 'gtm_meta')?.ok)
+    : null  // null = ainda carregando
+
   const items = [
     { label: 'GTM conectado', status: gtmOk ? 'ok' : 'warn' },
     { label: 'GA4 recebendo eventos', status: ga4Ok ? 'ok' : 'warn' },
     { label: 'Eventos nos últimos 7 dias', status: hasEvents ? 'ok' : ga4Ok ? 'warn' : 'loading' },
-    { label: 'Meta Pixel configurado', status: 'warn' },
+    { label: 'Meta Pixel configurado', status: metaOk === null ? 'loading' : metaOk ? 'ok' : 'warn' },
     { label: 'Evento purchase presente', status: hasPurchase ? 'ok' : ga4Ok ? 'warn' : 'loading' },
     { label: 'Evento lead presente', status: hasLead ? 'ok' : ga4Ok ? 'warn' : 'loading' },
   ]

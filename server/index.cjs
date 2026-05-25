@@ -13,7 +13,26 @@ const {
   CONFIG_PATH,
 } = require('./config.cjs')
 const gtmService = require('./gtm.cjs')
-const ga4Service = require('./ga4.cjs')
+// ga4Service carregado via função para permitir reload sem reiniciar o Electron
+let ga4Service = require('./ga4.cjs')
+const ga4Path = require.resolve('./ga4.cjs')
+function reloadGa4() {
+  try {
+    delete require.cache[ga4Path]
+    ga4Service = require('./ga4.cjs')
+    console.log('[Farol] ga4.cjs recarregado do disco')
+  } catch (err) {
+    console.error('[Farol] Falha ao recarregar ga4.cjs:', err.message)
+  }
+}
+// Auto-reload quando o arquivo muda no disco (não funciona em build empacotado — arquivo é asar)
+try {
+  const fs_watch = require('fs')
+  if (fs_watch.existsSync(ga4Path)) {
+    fs_watch.watchFile(ga4Path, { interval: 2000 }, () => reloadGa4())
+  }
+} catch (_) {}
+const { getStats: snapshotStats } = require('./snapshot-store.cjs')
 const metaService = require('./meta.cjs')
 const databricksService = require('./databricks.cjs')
 const scService = require('./searchconsole.cjs')
@@ -27,13 +46,16 @@ app.use(express.json())
 // Sincroniza credenciais externas na inicialização (não-bloqueante)
 syncCredentialsIfNewer()
 
+// ─── Snapshot store stats (debug) ─────────────────────────────────────────
+app.get('/api/ga4/snapshots/stats', (req, res) => res.json(snapshotStats()))
+
 // ─── Health ────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   const cfg = loadConfig()
   const g4 = detectG4OS()
   res.json({
     ok: true,
-    configured: !!(cfg.meta?.access_token || cfg.ga4?.service_account_path),
+    configured: !!(cfg.meta?.access_token || cfg.ga4?.service_account_path || cfg.ga4?.service_account_key?.private_key),
     g4osDetected: g4.available,
     configPath: CONFIG_PATH,
   })
@@ -274,6 +296,15 @@ app.get('/api/gtm/health', async (req, res) => {
     res.json(result)
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message, connections: [] })
+  }
+})
+
+app.get('/api/gtm/diag/tag-types', async (req, res) => {
+  try {
+    const result = await gtmService.getTagTypesDiag()
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
   }
 })
 
@@ -743,43 +774,36 @@ app.get('/api/searchconsole/performance', async (req, res) => {
   }
 })
 
+// GA4 Events by Page — pagePath × eventName
+app.get('/api/ga4/events-by-page/:propertyId', async (req, res) => {
+  const { propertyId } = req.params
+  const days = parseInt(req.query.days) || 28
+  try {
+    res.json(await ga4Service.getEventsByPage(propertyId, days))
+  } catch (err) {
+    res.status(500).json({ mock: true, error: err.message, rows: [] })
+  }
+})
+
 // ─── Live Monitor ───────────────────────────────────────────────────────────
 
 // GA4 Realtime — últimos 30 min (~1 min latência)
 app.get('/api/live/ga4', async (req, res) => {
-  const { propertyId, event } = req.query
+  const { propertyId, event, channel, page } = req.query
   if (!propertyId) return res.status(400).json({ error: 'propertyId obrigatório' })
   try {
-    res.json(await ga4Service.getRealtimeReport(propertyId, event || null))
+    res.json(await ga4Service.getRealtimeReport(propertyId, event || null, channel || null, page || null))
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message })
   }
 })
 
-// Meta hoje — spend + leads do dia (~15 min latência)
+// Meta hoje — spend + leads do dia atual (~15 min latência)
+// ?account=act_XXX para filtrar por conta específica; omitir = todas consolidadas
 app.get('/api/live/meta', async (req, res) => {
   try {
-    const aud = await metaService.getAudienceInsights(1)   // days=1 = hoje
-    const cre = await metaService.getAdCreativeInsights(1)
-    const ageRows   = aud.ageRows   || []
-    const ads       = cre.ads       || []
-    const totalSpend = ageRows.reduce((s, r) => s + r.spend, 0)
-    const totalLeads = ageRows.reduce((s, r) => s + r.leads, 0)
-    res.json({
-      mock: aud.mock || cre.mock,
-      capturedAt: new Date().toISOString(),
-      latencyNote: '~15 min de atraso (limite da API Meta)',
-      totalSpend,
-      totalLeads,
-      cpl: totalLeads > 0 ? Math.round(totalSpend / totalLeads) : null,
-      topAds: ads.slice(0, 5).map(a => ({
-        name:     a.name,
-        campaign: a.campaign,
-        spend:    a.spend,
-        leads:    a.leads,
-        cpl:      a.cpl,
-      })),
-    })
+    const account = req.query.account || null
+    res.json(await metaService.getLiveMetaToday(account))
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message })
   }
@@ -805,6 +829,16 @@ app.get('/api/live/crm', async (req, res) => {
     res.json(data)
   } catch (err) {
     res.status(500).json({ mock: true, error: err.message, latencyNote: 'CRM via Databricks — latência pipeline 5-30 min' })
+  }
+})
+
+// Reload ga4.cjs sem reiniciar o Electron — útil em dev após editar o arquivo
+app.post('/api/server/reload-ga4', (req, res) => {
+  try {
+    reloadGa4()
+    res.json({ ok: true, message: 'ga4.cjs recarregado com sucesso' })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
   }
 })
 

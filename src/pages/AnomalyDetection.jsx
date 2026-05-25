@@ -57,25 +57,27 @@ export default function AnomalyDetectionPage() {
 
       <div style={{ flex: 1, overflow: 'auto', padding: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
         {/* Banner "Em desenvolvimento" */}
-        <div style={{
-          marginBottom: 20,
-          padding: '14px 18px',
-          background: 'rgba(99,102,241,0.07)',
-          border: '1px solid rgba(99,102,241,0.25)',
-          borderRadius: 10,
-          display: 'flex', alignItems: 'flex-start', gap: 12,
-        }}>
-          <Zap size={18} color="#6366F1" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#A5B4FC', marginBottom: 4 }}>
-              Em desenvolvimento — dados simulados
-            </div>
-            <div style={{ fontSize: 12, color: '#8A9BAA', lineHeight: 1.6 }}>
-              Esta tela detecta automaticamente desvios estatísticos em taxas de conversão, volume de eventos e qualidade de dados de tracking.
-              Para ativar com dados reais, conecte o Databricks em <strong style={{ color: '#B9915B' }}>Configurações</strong> com acesso ao schema <code style={{ color: '#B9915B', fontSize: 11 }}>production.diamond</code>.
+        {isMock && (
+          <div style={{
+            marginBottom: 20,
+            padding: '14px 18px',
+            background: 'rgba(107,114,128,0.07)',
+            border: '1px solid rgba(107,114,128,0.2)',
+            borderRadius: 10,
+            display: 'flex', alignItems: 'flex-start', gap: 12,
+          }}>
+            <Zap size={18} color="#6B7280" style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>
+                Funcionalidade em desenvolvimento — exibindo dados simulados
+              </div>
+              <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.6 }}>
+                Esta tela detectará automaticamente desvios estatísticos em taxas de conversão, volume de eventos e qualidade de dados de tracking.
+                Para ativar com dados reais, conecte o Databricks em <strong style={{ color: '#B9915B' }}>Configurações</strong> com acesso ao schema <code style={{ color: '#B9915B', fontSize: 11 }}>production.diamond</code>.
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}><Spinner /></div>
